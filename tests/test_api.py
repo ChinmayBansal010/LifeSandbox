@@ -1,6 +1,8 @@
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.providers.llm import LLMError
+from app.services import chat as chat_service
 
 
 def test_chat_persists_history_and_rejects_unknown_conversation():
@@ -34,3 +36,16 @@ def test_simulation_endpoint_returns_deterministic_result():
         )
         assert response.status_code == 200
         assert response.json()["scenarios"][0]["ending_balance"] == "1200"
+
+
+def test_chat_reports_provider_errors_as_gateway_errors(monkeypatch):
+    async def fail_with_rate_limit(_state):
+        raise LLMError("openrouter returned HTTP 429", provider="openrouter", status_code=429)
+
+    monkeypatch.setattr(chat_service.conversation_graph, "ainvoke", fail_with_rate_limit)
+    with TestClient(app) as client:
+        response = client.post("/api/v1/chat", json={"message": "hello"})
+
+    assert response.status_code == 502
+    assert response.json()["error"]["code"] == "llm_provider_error"
+    assert response.json()["error"]["upstream_status"] == 429

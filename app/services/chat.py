@@ -53,4 +53,5 @@ async def run_chat(
         "intent": state["intent"],
         "skill": state.get("skill"),
         "provider": state["provider"],
+        "model": state.get("model"),
     }

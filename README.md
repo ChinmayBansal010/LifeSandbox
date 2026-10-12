@@ -4,20 +4,25 @@ Local-first FastAPI backend for conversational decision support, with determinis
 
 ## Current status
 
-This repository began empty. The implemented core runs without cloud accounts using a deterministic mock LLM and SQLite for local development. It includes Nebius/OpenRouter chat adapters, Tavily research, private R2 presigned uploads, PostgreSQL-compatible SQLAlchemy models and an Alembic initial migration. The limitations in [docs/architecture.md](docs/architecture.md) are material: this is a working foundation, not the entire production platform envisioned by the brief.
+This repository began empty. The implemented core runs without cloud accounts using a deterministic mock LLM and SQLite for local development. It includes Nebius/OpenRouter chat adapters, Tavily research, private Neon Object Storage presigned uploads, PostgreSQL-compatible SQLAlchemy models and an Alembic initial migration. The limitations in [docs/architecture.md](docs/architecture.md) are material: this is a working foundation, not the entire production platform envisioned by the brief.
 
 ## Run locally
 
-Install Python 3.13 and `uv`, then:
+Install Python 3.13 and `uv`, then start the local PostgreSQL service before migrating. This is required when `DATABASE_URL` points at `localhost:5432` (as in `.env.example`):
 
 ```bash
 uv sync --locked
 cp .env.example .env
+docker compose up -d db
 uv run alembic upgrade head
 uv run uvicorn app.main:app --reload
 ```
 
+If PostgreSQL is already running elsewhere, point `DATABASE_URL` at it instead. For a no-Docker local run, use `DATABASE_URL=sqlite+aiosqlite:///./life_sandbox.db` in `.env`.
+
 Open `/docs`, `/health`, or `/ready`. In development, auth maps to `local-user`; set `APP_ENV=production` and `AUTH_MODE=jwt` with an appropriate secret, issuer and audience before any deployment. The JWT implementation currently supports HS256 only; configure a trusted identity integration before production.
+
+For actual model responses, set `LLM_PROVIDER=openrouter` (or `nebius`) in `.env`, and provide that provider's API key and model. `LLM_PROVIDER=mock` is only a credential-free API demo and does not reason about prompts. Restart Uvicorn after changing `.env`.
 
 Run checks with `uv run ruff check .`, `uv run pyright`, `uv run pytest`. Docker local PostgreSQL: `docker compose up --build` after creating `.env`.
 

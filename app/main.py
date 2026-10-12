@@ -22,6 +22,7 @@ from app.persistence.models import (
     MessageRow,
 )
 from app.persistence.session import engine, get_session
+from app.providers.llm import LLMError
 from app.services.chat import run_chat
 
 settings = get_settings()
@@ -49,6 +50,26 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Request-ID"],
 )
+
+
+@app.exception_handler(LLMError)
+async def llm_error(_: Request, exc: LLMError):
+    logging.getLogger("life_sandbox.provider").warning(
+        "Model provider failure provider=%s status_code=%s",
+        exc.provider,
+        exc.status_code,
+    )
+    return JSONResponse(
+        status_code=502,
+        content={
+            "error": {
+                "code": "llm_provider_error",
+                "provider": exc.provider,
+                "upstream_status": exc.status_code,
+                "message": str(exc),
+            }
+        },
+    )
 
 
 @app.middleware("http")
