@@ -1,0 +1,5 @@
+# Security
+
+Development auth maps requests to `local-user` only while `APP_ENV` is not production. Production mode requires `AUTH_MODE=jwt` and a secret and checks HS256 signature, issuer, audience, expiration and subject. This is a basic adapter, not Better Auth integration or a substitute for production key rotation/JWKS verification. Never deploy the development bypass.
+
+Ownership is derived from principal and included in conversation, memory and file lookups; foreign IDs return 404. Documents and provider outputs must be treated as untrusted. Tool schemas constrain supported operations. Logs avoid request content and exception responses avoid stack details. No model tracing records are enabled. Upload names reject path separators, allowed MIME types and sizes are checked, keys are tenant-scoped, and URLs expire after five minutes. Upload MIME/size should also be verified at the object boundary before processing (not implemented). Retention currently follows explicit row deletion; R2 object cleanup is unfinished.

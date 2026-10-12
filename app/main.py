@@ -1,0 +1,511 @@
+import logging
+import uuid
+from contextlib import asynccontextmanager
+
+import sentry_sdk
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import get_settings
+from app.core.security import Principal, current_principal
+from app.domain.simulation import SimulationRequest, simulate
+from app.persistence.models import (
+    Base,
+    ConversationRow,
+    FeedbackRow,
+    FileRow,
+    MemoryRow,
+    MessageRow,
+)
+from app.persistence.session import engine, get_session
+from app.services.chat import run_chat
+
+settings = get_settings()
+logging.basicConfig(
+    level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s %(message)s"
+)
+if settings.sentry_dsn:
+    sentry_sdk.init(dsn=settings.sentry_dsn, traces_sample_rate=0.05, send_default_pii=False)
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # Dev convenience only; production schema is managed by Alembic migrations.
+    if settings.app_env != "production":
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    yield
+    await engine.dispose()
+
+
+app = FastAPI(title="Life Sandbox API", version="0.1.0", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins,
+    allow_methods=["*"],
+    allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Request-ID"],
+)
+
+
+@app.middleware("http")
+async def request_id(request: Request, call_next):
+    rid = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    request.state.request_id = rid
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = rid
+    return response
+
+
+@app.exception_handler(Exception)
+async def unhandled_error(_: Request, exc: Exception):
+    logging.getLogger("life_sandbox").exception("Unhandled request failure", exc_info=exc)
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": {"code": "internal_error", "message": "The request could not be completed"}
+        },
+    )
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok", "environment": settings.app_env}
+
+
+@app.get("/ready")
+async def readiness(db: AsyncSession = Depends(get_session)):
+    try:
+        await db.execute(select(1))
+        return {"status": "ready", "database": "ok"}
+    except Exception as exc:
+        raise HTTPException(
+            503, detail={"code": "dependency_unavailable", "message": "Database is unavailable"}
+        ) from exc
+
+
+class ChatRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=12000)
+    conversation_id: str | None = None
+
+
+@app.post("/api/v1/chat")
+async def chat(
+    payload: ChatRequest,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(get_session),
+):
+    result = await run_chat(db, principal.user_id, payload.message, payload.conversation_id)
+    if result is None:
+        raise HTTPException(404, detail={"code": "not_found", "message": "Conversation not found"})
+    return result
+
+
+@app.post("/api/v1/chat/stream")
+async def chat_stream(
+    payload: ChatRequest,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(get_session),
+):
+    import json
+
+    from fastapi.responses import StreamingResponse
+
+    async def events():
+        run_id = str(uuid.uuid4())
+        yield f"event: run.started\ndata: {json.dumps({'run_id': run_id})}\n\n"
+        try:
+            result = await run_chat(db, principal.user_id, payload.message, payload.conversation_id)
+            if result is None:
+                event_data = {"run_id": run_id, "code": "not_found"}
+                yield f"event: run.failed\ndata: {json.dumps(event_data)}\n\n"
+                return
+            delta = {"run_id": run_id, "text": result["reply"]}
+            yield f"event: assistant.delta\ndata: {json.dumps(delta)}\n\n"
+            yield f"event: run.completed\ndata: {json.dumps({'run_id': run_id, **result})}\n\n"
+        except Exception:
+            event_data = {"run_id": run_id, "code": "provider_error"}
+            yield f"event: run.failed\ndata: {json.dumps(event_data)}\n\n"
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.post("/api/v1/conversations", status_code=201)
+async def create_conversation(
+    principal: Principal = Depends(current_principal), db: AsyncSession = Depends(get_session)
+):
+    row = ConversationRow(user_id=principal.user_id)
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return {"id": row.id, "title": row.title, "created_at": row.created_at}
+
+
+@app.get("/api/v1/conversations")
+async def conversations(
+    principal: Principal = Depends(current_principal), db: AsyncSession = Depends(get_session)
+):
+    rows = (
+        await db.scalars(
+            select(ConversationRow)
+            .where(ConversationRow.user_id == principal.user_id)
+            .order_by(ConversationRow.updated_at.desc())
+            .limit(100)
+        )
+    ).all()
+    return {
+        "items": [
+            {"id": r.id, "title": r.title, "created_at": r.created_at, "updated_at": r.updated_at}
+            for r in rows
+        ]
+    }
+
+
+@app.get("/api/v1/conversations/{conversation_id}")
+async def get_conversation(
+    conversation_id: str,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(get_session),
+):
+    row = await db.scalar(
+        select(ConversationRow).where(
+            ConversationRow.id == conversation_id, ConversationRow.user_id == principal.user_id
+        )
+    )
+    if row is None:
+        raise HTTPException(404, detail={"code": "not_found", "message": "Conversation not found"})
+    return {
+        "id": row.id,
+        "title": row.title,
+        "created_at": row.created_at,
+        "updated_at": row.updated_at,
+    }
+
+
+@app.get("/api/v1/conversations/{conversation_id}/messages")
+async def messages(
+    conversation_id: str,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(get_session),
+):
+    owned = await db.scalar(
+        select(ConversationRow.id).where(
+            ConversationRow.id == conversation_id, ConversationRow.user_id == principal.user_id
+        )
+    )
+    if owned is None:
+        raise HTTPException(404, detail={"code": "not_found", "message": "Conversation not found"})
+    rows = (
+        await db.scalars(
+            select(MessageRow)
+            .where(MessageRow.conversation_id == conversation_id)
+            .order_by(MessageRow.created_at)
+        )
+    ).all()
+    return {
+        "items": [
+            {"id": m.id, "role": m.role, "content": m.content, "created_at": m.created_at}
+            for m in rows
+        ]
+    }
+
+
+@app.delete("/api/v1/conversations/{conversation_id}", status_code=204)
+async def delete_conversation(
+    conversation_id: str,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(get_session),
+):
+    row = await db.scalar(
+        select(ConversationRow).where(
+            ConversationRow.id == conversation_id, ConversationRow.user_id == principal.user_id
+        )
+    )
+    if row is None:
+        raise HTTPException(404, detail={"code": "not_found", "message": "Conversation not found"})
+    await db.delete(row)
+    await db.commit()
+
+
+class MemoryCreate(BaseModel):
+    content: str = Field(min_length=1, max_length=2000)
+    category: str = Field(default="preference", max_length=100)
+    consent: bool
+
+
+@app.get("/api/v1/memories")
+async def list_memories(
+    principal: Principal = Depends(current_principal), db: AsyncSession = Depends(get_session)
+):
+    rows = (
+        await db.scalars(
+            select(MemoryRow).where(
+                MemoryRow.user_id == principal.user_id, MemoryRow.status == "active"
+            )
+        )
+    ).all()
+    return {
+        "items": [
+            {
+                "id": m.id,
+                "content": m.content,
+                "category": m.category,
+                "source": m.source,
+                "created_at": m.created_at,
+            }
+            for m in rows
+        ]
+    }
+
+
+@app.post("/api/v1/memories", status_code=201)
+async def create_memory(
+    payload: MemoryCreate,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(get_session),
+):
+    if not payload.consent:
+        raise HTTPException(
+            400,
+            detail={
+                "code": "consent_required",
+                "message": "Explicit consent is required to retain a memory",
+            },
+        )
+    row = MemoryRow(user_id=principal.user_id, content=payload.content, category=payload.category)
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return {
+        "id": row.id,
+        "content": row.content,
+        "category": row.category,
+        "source": row.source,
+        "created_at": row.created_at,
+    }
+
+
+@app.patch("/api/v1/memories/{memory_id}")
+async def update_memory(
+    memory_id: str,
+    payload: MemoryCreate,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(get_session),
+):
+    if not payload.consent:
+        raise HTTPException(
+            400, detail={"code": "consent_required", "message": "Explicit consent is required"}
+        )
+    row = await db.scalar(
+        select(MemoryRow).where(MemoryRow.id == memory_id, MemoryRow.user_id == principal.user_id)
+    )
+    if row is None:
+        raise HTTPException(404, detail={"code": "not_found", "message": "Memory not found"})
+    row.content, row.category = payload.content, payload.category
+    await db.commit()
+    return {"id": row.id, "content": row.content, "category": row.category}
+
+
+@app.delete("/api/v1/memories/{memory_id}", status_code=204)
+async def delete_memory(
+    memory_id: str,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(get_session),
+):
+    row = await db.scalar(
+        select(MemoryRow).where(MemoryRow.id == memory_id, MemoryRow.user_id == principal.user_id)
+    )
+    if row is None:
+        raise HTTPException(404, detail={"code": "not_found", "message": "Memory not found"})
+    await db.delete(row)
+    await db.commit()
+
+
+@app.post("/api/v1/simulations")
+async def simulations(payload: SimulationRequest, _: Principal = Depends(current_principal)):
+    return simulate(payload)
+
+
+class UploadRequest(BaseModel):
+    filename: str = Field(min_length=1, max_length=255)
+    mime_type: str = Field(max_length=150)
+    size_bytes: int = Field(gt=0)
+
+
+@app.post("/api/v1/files/upload-url", status_code=201)
+async def create_upload(
+    payload: UploadRequest,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(get_session),
+):
+    from app.providers.storage import StorageUnavailable, presigned_upload
+
+    if (
+        payload.size_bytes > settings.upload_max_bytes
+        or "/" in payload.filename
+        or "\\" in payload.filename
+    ):
+        raise HTTPException(
+            400, detail={"code": "invalid_file", "message": "Invalid filename or file size"}
+        )
+    row = FileRow(
+        id=str(uuid.uuid4()),
+        user_id=principal.user_id,
+        filename=payload.filename,
+        mime_type=payload.mime_type,
+        size_bytes=payload.size_bytes,
+    )
+    try:
+        url = presigned_upload(principal.user_id, row.id, payload.mime_type, payload.size_bytes)
+    except StorageUnavailable as exc:
+        raise HTTPException(
+            503, detail={"code": "storage_unavailable", "message": str(exc)}
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(400, detail={"code": "invalid_file", "message": str(exc)}) from exc
+    db.add(row)
+    await db.commit()
+    return {"file_id": row.id, "upload_url": url, "expires_in": 300, "status": row.status}
+
+
+@app.post("/api/v1/files/{file_id}/complete")
+async def complete_upload(
+    file_id: str,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(get_session),
+):
+    row = await db.scalar(
+        select(FileRow).where(FileRow.id == file_id, FileRow.user_id == principal.user_id)
+    )
+    if row is None:
+        raise HTTPException(404, detail={"code": "not_found", "message": "File not found"})
+    row.status = "uploaded_unprocessed"
+    await db.commit()
+    return {
+        "file_id": row.id,
+        "status": row.status,
+        "message": "Object upload registered; document extraction is not enabled in this build",
+    }
+
+
+@app.get("/api/v1/files")
+async def list_files(
+    principal: Principal = Depends(current_principal), db: AsyncSession = Depends(get_session)
+):
+    rows = (
+        await db.scalars(
+            select(FileRow)
+            .where(FileRow.user_id == principal.user_id)
+            .order_by(FileRow.created_at.desc())
+            .limit(100)
+        )
+    ).all()
+    return {
+        "items": [
+            {
+                "id": f.id,
+                "filename": f.filename,
+                "mime_type": f.mime_type,
+                "size_bytes": f.size_bytes,
+                "status": f.status,
+                "created_at": f.created_at,
+            }
+            for f in rows
+        ]
+    }
+
+
+@app.get("/api/v1/files/{file_id}")
+async def get_file(
+    file_id: str,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(get_session),
+):
+    row = await db.scalar(
+        select(FileRow).where(FileRow.id == file_id, FileRow.user_id == principal.user_id)
+    )
+    if row is None:
+        raise HTTPException(404, detail={"code": "not_found", "message": "File not found"})
+    return {
+        "id": row.id,
+        "filename": row.filename,
+        "mime_type": row.mime_type,
+        "size_bytes": row.size_bytes,
+        "status": row.status,
+        "created_at": row.created_at,
+    }
+
+
+@app.delete("/api/v1/files/{file_id}", status_code=204)
+async def delete_file(
+    file_id: str,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(get_session),
+):
+    row = await db.scalar(
+        select(FileRow).where(FileRow.id == file_id, FileRow.user_id == principal.user_id)
+    )
+    if row is None:
+        raise HTTPException(404, detail={"code": "not_found", "message": "File not found"})
+    await db.delete(row)
+    await db.commit()
+
+
+class ResearchRequest(BaseModel):
+    query: str = Field(min_length=2, max_length=1000)
+
+
+@app.post("/api/v1/research")
+async def research_endpoint(payload: ResearchRequest, _: Principal = Depends(current_principal)):
+    from app.providers.research import ResearchUnavailable, research
+
+    try:
+        return {"query": payload.query, "sources": await research(payload.query), "live": True}
+    except ResearchUnavailable as exc:
+        raise HTTPException(
+            503, detail={"code": "research_unavailable", "message": str(exc)}
+        ) from exc
+
+
+@app.get("/api/v1/jobs/{job_id}")
+async def get_job(job_id: str, _: Principal = Depends(current_principal)):
+    raise HTTPException(
+        404,
+        detail={"code": "not_found", "message": "Job not found; asynchronous jobs are not enabled"},
+    )
+
+
+class Feedback(BaseModel):
+    conversation_id: str | None = None
+    rating: int = Field(ge=1, le=5)
+    comment: str | None = Field(default=None, max_length=2000)
+
+
+@app.post("/api/v1/feedback", status_code=201)
+async def feedback(
+    payload: Feedback,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(get_session),
+):
+    if payload.conversation_id:
+        owned = await db.scalar(
+            select(ConversationRow.id).where(
+                ConversationRow.id == payload.conversation_id,
+                ConversationRow.user_id == principal.user_id,
+            )
+        )
+        if not owned:
+            raise HTTPException(
+                404, detail={"code": "not_found", "message": "Conversation not found"}
+            )
+    row = FeedbackRow(user_id=principal.user_id, **payload.model_dump())
+    db.add(row)
+    await db.commit()
+    return {"status": "recorded"}
