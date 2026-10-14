@@ -8,7 +8,11 @@ from app.persistence.models import ConversationRow, MessageRow
 
 
 async def run_chat(
-    db: AsyncSession, user_id: str, message: str, conversation_id: str | None = None
+    db: AsyncSession,
+    user_id: str,
+    message: str,
+    conversation_id: str | None = None,
+    history_override: list[dict[str, str]] | None = None,
 ):
     if conversation_id:
         row = await db.scalar(
@@ -31,6 +35,9 @@ async def run_chat(
         )
     ).all()
     history_rows = list(reversed(history_rows))
+    history = history_override if history_override is not None else [
+        {"role": m.role, "content": m.content} for m in history_rows
+    ]
     db.add(MessageRow(conversation_id=row.id, role="user", content=message))
     try:
         state = await conversation_graph.ainvoke(
@@ -38,7 +45,7 @@ async def run_chat(
                 "user_id": user_id,
                 "conversation_id": row.id,
                 "message": message,
-                "history": [{"role": m.role, "content": m.content} for m in history_rows],
+                "history": history,
             }
         )
     except Exception:

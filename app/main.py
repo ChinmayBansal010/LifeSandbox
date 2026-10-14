@@ -111,6 +111,7 @@ async def readiness(db: AsyncSession = Depends(get_session)):
 class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=12000)
     conversation_id: str | None = None
+    history: list[dict[str, str]] = Field(default_factory=list, max_length=12)
 
 
 @app.post("/api/v1/chat")
@@ -119,7 +120,9 @@ async def chat(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(get_session),
 ):
-    result = await run_chat(db, principal.user_id, payload.message, payload.conversation_id)
+    result = await run_chat(
+        db, principal.user_id, payload.message, payload.conversation_id, payload.history
+    )
     if result is None:
         raise HTTPException(404, detail={"code": "not_found", "message": "Conversation not found"})
     return result
@@ -139,7 +142,9 @@ async def chat_stream(
         run_id = str(uuid.uuid4())
         yield f"event: run.started\ndata: {json.dumps({'run_id': run_id})}\n\n"
         try:
-            result = await run_chat(db, principal.user_id, payload.message, payload.conversation_id)
+            result = await run_chat(
+                db, principal.user_id, payload.message, payload.conversation_id, payload.history
+            )
             if result is None:
                 event_data = {"run_id": run_id, "code": "not_found"}
                 yield f"event: run.failed\ndata: {json.dumps(event_data)}\n\n"

@@ -4,7 +4,6 @@ import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import type { AppState, Scenario, ScenarioNode, ThemePreference } from './types';
 import { createId, getAncestorPath, getRememberedContext } from './graph-utils';
 import { loadState, saveState } from './persistence';
-import { getMockResponse } from './mock-ai';
 
 // ─── Singleton store ──────────────────────────────────────────────
 let state: AppState = loadState();
@@ -195,7 +194,35 @@ export function useStore() {
           ? getRememberedContext(activeBranchPath, sc, currentAppState.nodes)
           : [];
 
-        const response = await getMockResponse(userMessage, rememberedNodes);
+        const history = activeBranchPath
+          .map((id) => currentAppState.nodes[id])
+          .filter((branchNode) => branchNode?.assistantMessage)
+          .flatMap((branchNode) => [
+            { role: 'user', content: branchNode.userMessage },
+            { role: 'assistant', content: branchNode.assistantMessage },
+          ])
+          .slice(-12);
+        const rememberedContext = rememberedNodes
+          .map((rememberedNode) =>
+            `Earlier remembered exchange — user: ${rememberedNode.userMessage}\nassistant: ${rememberedNode.assistantMessage}`
+          )
+          .join('\n\n');
+        const message = rememberedContext
+          ? `${userMessage}\n\nRelevant context from exchanges I chose to remember:\n${rememberedContext}`
+          : userMessage;
+        const response = await fetch('/api/v1/chat', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message, history }),
+        });
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload?.error?.message ?? payload?.detail?.message ?? 'The assistant request failed.');
+        }
+        if (typeof payload.reply !== 'string' || !payload.reply.trim()) {
+          throw new Error('The assistant returned an empty response.');
+        }
+        const answer = payload.reply as string;
         // Update the node with the AI response
         const currentState = getState();
         const existingNode = currentState.nodes[node.id];
@@ -204,12 +231,12 @@ export function useStore() {
             ...currentState,
             nodes: {
               ...currentState.nodes,
-              [node.id]: { ...existingNode, assistantMessage: response },
+              [node.id]: { ...existingNode, assistantMessage: answer },
             },
           });
         }
-      } catch {
-        // On error, set a fallback message
+      } catch (error) {
+        // Surface backend/provider failures instead of silently substituting canned replies.
         const currentState = getState();
         const existingNode = currentState.nodes[node.id];
         if (existingNode) {
@@ -219,8 +246,7 @@ export function useStore() {
               ...currentState.nodes,
               [node.id]: {
                 ...existingNode,
-                assistantMessage:
-                  'I apologize, but I was unable to generate a response. Please try again.',
+                assistantMessage: `I couldn't get a response from the assistant. ${error instanceof Error ? error.message : 'Please try again.'}`,
               },
             },
           });

@@ -4,7 +4,7 @@ Local-first FastAPI backend for conversational decision support, with determinis
 
 ## Current status
 
-This repository began empty. The implemented core runs without cloud accounts using a deterministic mock LLM and SQLite for local development. It includes Nebius/OpenRouter chat adapters, Tavily research, private Neon Object Storage presigned uploads, PostgreSQL-compatible SQLAlchemy models and an Alembic initial migration. The limitations in [docs/architecture.md](docs/architecture.md) are material: this is a working foundation, not the entire production platform envisioned by the brief.
+This repository began empty. The implemented core supports a deterministic mock LLM and SQLite for local development, plus Nebius/OpenRouter chat adapters, Tavily research, private Neon Object Storage presigned uploads, PostgreSQL-compatible SQLAlchemy models and an Alembic initial migration. The frontend sends chat requests to the backend; choose a configured provider in `.env` for model-generated replies. The limitations in [docs/architecture.md](docs/architecture.md) are material: this is a working foundation, not the entire production platform envisioned by the brief.
 
 ## Run locally
 
