@@ -1,6 +1,6 @@
 /* ─── Scenario Graph: Interactive SVG tree visualization ───────────── */
 
-import { useMemo, useRef, useState, useCallback, useEffect } from 'react';
+import { useMemo, useRef, useState, useCallback } from 'react';
 import { ZoomIn, ZoomOut, Maximize2, GitBranch } from 'lucide-react';
 import type { Scenario, ScenarioNode } from '../types';
 import {
@@ -28,8 +28,13 @@ export default function ScenarioGraph({
   const containerRef = useRef<HTMLDivElement>(null);
   const [hoveredId, setHoveredId] = useState<string | null>(null);
 
-  // Pan and zoom state
-  const [viewBox, setViewBox] = useState({ x: 0, y: 0, w: 600, h: 400 });
+  // Pan and zoom state: customViewBox overrides computedBounds when user pans or zooms
+  const [customViewBox, setCustomViewBox] = useState<{
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+  } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const dragStart = useRef({ x: 0, y: 0, vx: 0, vy: 0 });
 
@@ -48,24 +53,27 @@ export default function ScenarioGraph({
     [tree, scenario.activeNodeId, activePath]
   );
 
-  // Compute bounds and set initial viewBox
-  useEffect(() => {
-    if (flatNodes.length === 0) return;
+  // Compute auto-bounds for current nodes
+  const computedBounds = useMemo(() => {
+    if (flatNodes.length === 0) return { x: 0, y: 0, w: 600, h: 400 };
     const minX = Math.min(...flatNodes.map((n) => n.x)) - PADDING;
     const maxX = Math.max(...flatNodes.map((n) => n.x)) + PADDING;
     const minY = Math.min(...flatNodes.map((n) => n.y)) - PADDING;
     const maxY = Math.max(...flatNodes.map((n) => n.y)) + PADDING;
-    setViewBox({
+    return {
       x: minX,
       y: minY,
       w: Math.max(maxX - minX, 200),
       h: Math.max(maxY - minY, 200),
-    });
+    };
   }, [flatNodes]);
+
+  const viewBox = customViewBox ?? computedBounds;
 
   const zoom = useCallback(
     (factor: number) => {
-      setViewBox((vb) => {
+      setCustomViewBox((prev) => {
+        const vb = prev ?? computedBounds;
         const cx = vb.x + vb.w / 2;
         const cy = vb.y + vb.h / 2;
         const nw = vb.w * factor;
@@ -73,22 +81,12 @@ export default function ScenarioGraph({
         return { x: cx - nw / 2, y: cy - nh / 2, w: nw, h: nh };
       });
     },
-    []
+    [computedBounds]
   );
 
   const fitToView = useCallback(() => {
-    if (flatNodes.length === 0) return;
-    const minX = Math.min(...flatNodes.map((n) => n.x)) - PADDING;
-    const maxX = Math.max(...flatNodes.map((n) => n.x)) + PADDING;
-    const minY = Math.min(...flatNodes.map((n) => n.y)) - PADDING;
-    const maxY = Math.max(...flatNodes.map((n) => n.y)) + PADDING;
-    setViewBox({
-      x: minX,
-      y: minY,
-      w: Math.max(maxX - minX, 200),
-      h: Math.max(maxY - minY, 200),
-    });
-  }, [flatNodes]);
+    setCustomViewBox(null);
+  }, []);
 
   // Pan handlers
   const handlePointerDown = useCallback(
@@ -116,11 +114,12 @@ export default function ScenarioGraph({
       const scaleY = viewBox.h / rect.height;
       const dx = (e.clientX - dragStart.current.x) * scaleX;
       const dy = (e.clientY - dragStart.current.y) * scaleY;
-      setViewBox((vb) => ({
-        ...vb,
+      setCustomViewBox({
         x: dragStart.current.vx - dx,
         y: dragStart.current.vy - dy,
-      }));
+        w: viewBox.w,
+        h: viewBox.h,
+      });
     },
     [isDragging, viewBox.w, viewBox.h]
   );

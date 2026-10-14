@@ -62,9 +62,14 @@ This reduces the stakes significantly. Instead of a life-altering leap, it becom
 What would a small, reversible version of this look like?`,
 ];
 
+import type { ScenarioNode } from './types';
+
 let responseIndex = 0;
 
-export async function getMockResponse(userMessage: string): Promise<string> {
+export async function getMockResponse(
+  userMessage: string,
+  rememberedContext?: ScenarioNode[]
+): Promise<string> {
   // Simulate network latency
   const delay = 800 + Math.random() * 1200;
   await new Promise((resolve) => setTimeout(resolve, delay));
@@ -74,5 +79,17 @@ export async function getMockResponse(userMessage: string): Promise<string> {
   const idx = (hash + responseIndex) % MOCK_RESPONSES.length;
   responseIndex++;
 
-  return MOCK_RESPONSES[idx];
+  let response = MOCK_RESPONSES[idx];
+
+  // If there are remembered exchanges from alternate branches, weave in a contextual note
+  if (rememberedContext && rememberedContext.length > 0) {
+    const memoryHighlights = rememberedContext
+      .slice(0, 2)
+      .map((n) => `"${n.userMessage.length > 35 ? n.userMessage.slice(0, 35) + '…' : n.userMessage}"`)
+      .join(' and ');
+    const contextPrefix = `> *Persisted context from alternate branch (${memoryHighlights}):*\n> Remembering what we previously explored as we branch here.\n\n`;
+    response = contextPrefix + response;
+  }
+
+  return response;
 }

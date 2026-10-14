@@ -1,23 +1,33 @@
 /* ─── Application store hook ───────────────────────────────────────── */
 
-import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useSyncExternalStore } from 'react';
 import type { AppState, Scenario, ScenarioNode, ThemePreference } from './types';
-import { createId } from './graph-utils';
+import { createId, getAncestorPath, getRememberedContext } from './graph-utils';
 import { loadState, saveState } from './persistence';
 import { getMockResponse } from './mock-ai';
 
 // ─── Singleton store ──────────────────────────────────────────────
 let state: AppState = loadState();
+let isPending = false;
 const listeners = new Set<() => void>();
 
 function getState(): AppState {
   return state;
 }
 
+function notify() {
+  listeners.forEach((l) => l());
+}
+
 function setState(next: AppState) {
   state = next;
   saveState(state);
-  listeners.forEach((l) => l());
+  notify();
+}
+
+function setIsPending(pending: boolean) {
+  isPending = pending;
+  notify();
 }
 
 function subscribe(listener: () => void) {
@@ -169,19 +179,23 @@ export function useStore() {
     ? appState.scenarios[appState.activeScenarioId] ?? null
     : null;
 
-  // Track in-flight AI requests to prevent double-sends
-  const pendingRef = useRef(false);
-
   const sendMessage = useCallback(
     async (scenarioId: string, userMessage: string, parentId: string | null) => {
-      if (pendingRef.current) return;
-      pendingRef.current = true;
+      if (isPending) return;
+      setIsPending(true);
 
       // Immediately create node with empty assistant message (loading state)
       const node = addNode(scenarioId, userMessage, '', parentId);
 
       try {
-        const response = await getMockResponse(userMessage);
+        const currentAppState = getState();
+        const sc = currentAppState.scenarios[scenarioId];
+        const activeBranchPath = parentId ? getAncestorPath(parentId, currentAppState.nodes) : [];
+        const rememberedNodes = sc
+          ? getRememberedContext(activeBranchPath, sc, currentAppState.nodes)
+          : [];
+
+        const response = await getMockResponse(userMessage, rememberedNodes);
         // Update the node with the AI response
         const currentState = getState();
         const existingNode = currentState.nodes[node.id];
@@ -212,7 +226,7 @@ export function useStore() {
           });
         }
       } finally {
-        pendingRef.current = false;
+        setIsPending(false);
       }
     },
     []
@@ -221,7 +235,7 @@ export function useStore() {
   return {
     state: appState,
     activeScenario,
-    isPending: pendingRef.current,
+    isPending,
 
     // Actions
     createScenario,

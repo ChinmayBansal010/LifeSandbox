@@ -15,6 +15,7 @@ export default function App() {
     createScenario,
     deleteScenario,
     setActiveScenario,
+    renameScenario,
     setActiveNode,
     sendMessage,
     toggleRemember,
@@ -31,32 +32,38 @@ export default function App() {
   const [mobileGraphOpen, setMobileGraphOpen] = useState(false);
 
   // Responsive: detect mobile
-  const [isMobile, setIsMobile] = useState(false);
+  const [isMobile, setIsMobile] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(max-width: 768px)').matches : false
+  );
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 768px)');
-    setIsMobile(mq.matches);
     const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
     mq.addEventListener('change', handler);
     return () => mq.removeEventListener('change', handler);
   }, []);
 
-  // Close mobile overlays on scenario change
-  useEffect(() => {
-    setMobileMenuOpen(false);
-    setMobileGraphOpen(false);
-  }, [state.activeScenarioId]);
-
   const handleCreateScenario = useCallback(() => {
     createScenario();
     setMobileMenuOpen(false);
+    setMobileGraphOpen(false);
   }, [createScenario]);
 
   const handleSelectScenario = useCallback(
     (id: string) => {
       setActiveScenario(id);
       setMobileMenuOpen(false);
+      setMobileGraphOpen(false);
     },
     [setActiveScenario]
+  );
+
+  const handleDeleteScenario = useCallback(
+    (id: string) => {
+      deleteScenario(id);
+      setMobileMenuOpen(false);
+      setMobileGraphOpen(false);
+    },
+    [deleteScenario]
   );
 
   const handleSendMessage = useCallback(
@@ -114,7 +121,7 @@ export default function App() {
               onToggleCollapse={() => setMobileMenuOpen(false)}
               onCreateScenario={handleCreateScenario}
               onSelectScenario={handleSelectScenario}
-              onDeleteScenario={deleteScenario}
+              onDeleteScenario={handleDeleteScenario}
               onSetTheme={setTheme}
             />
           </div>
@@ -151,7 +158,7 @@ export default function App() {
           onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
           onCreateScenario={handleCreateScenario}
           onSelectScenario={handleSelectScenario}
-          onDeleteScenario={deleteScenario}
+          onDeleteScenario={handleDeleteScenario}
           onSetTheme={setTheme}
         />
       )}
@@ -167,6 +174,7 @@ export default function App() {
               onSendMessage={handleSendMessage}
               onToggleRemember={toggleRemember}
               onSelectNode={handleSelectNode}
+              onRenameScenario={renameScenario}
               isPending={isPending}
             />
           ) : (
