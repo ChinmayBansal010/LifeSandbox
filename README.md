@@ -24,6 +24,10 @@ Open `/docs`, `/health`, or `/ready`. In development, auth maps to `local-user`;
 
 For actual model responses, set `LLM_PROVIDER=openrouter` (or `nebius`) in `.env`, and provide that provider's API key and model. `LLM_PROVIDER=mock` is only a credential-free API demo and does not reason about prompts. Restart Uvicorn after changing `.env`.
 
+Optional hosted long-term memory uses Mem0 Platform. Set `MEM0_API_KEY` in `.env`; the chat UI then offers a per-exchange opt-in. Opted-in messages are sent to Mem0 for memory search and the completed exchange is saved for future recall. See [RAG and memory](docs/rag-and-memory.md) for data handling details.
+
+Optional Browser Use research runs in a local headless Chromium browser. Install the extra and browser with `uv sync --locked --extra browser` and `uv run browser-use install`, select a real Nebius or OpenRouter model, and set `BROWSER_USE_ENABLED=true`. The chat UI then offers per-message browser opt-in. See [providers](docs/providers.md) for details.
+
 Run checks with `uv run ruff check .`, `uv run pyright`, `uv run pytest`. Docker local PostgreSQL: `docker compose up --build` after creating `.env`.
 
 ## API

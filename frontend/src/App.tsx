@@ -30,6 +30,21 @@ export default function App() {
   const [graphOpen, setGraphOpen] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [mobileGraphOpen, setMobileGraphOpen] = useState(false);
+  const [mem0Enabled, setMem0Enabled] = useState(false);
+  const [browserUseEnabled, setBrowserUseEnabled] = useState(false);
+
+  useEffect(() => {
+    fetch('/api/v1/capabilities')
+      .then((response) => response.ok ? response.json() : null)
+      .then((capabilities) => {
+        setMem0Enabled(capabilities?.mem0_enabled === true);
+        setBrowserUseEnabled(capabilities?.browser_use_enabled === true);
+      })
+      .catch(() => {
+        setMem0Enabled(false);
+        setBrowserUseEnabled(false);
+      });
+  }, []);
 
   // Responsive: detect mobile
   const [isMobile, setIsMobile] = useState(() =>
@@ -67,9 +82,14 @@ export default function App() {
   );
 
   const handleSendMessage = useCallback(
-    async (userMessage: string, parentId: string | null) => {
-      if (!activeScenario) return;
-      await sendMessage(activeScenario.id, userMessage, parentId);
+    async (
+      userMessage: string,
+      parentId: string | null,
+      remember: boolean,
+      browse: boolean,
+    ) => {
+      if (!activeScenario) return false;
+      return sendMessage(activeScenario.id, userMessage, parentId, remember, browse);
     },
     [activeScenario, sendMessage]
   );
@@ -176,6 +196,8 @@ export default function App() {
               onSelectNode={handleSelectNode}
               onRenameScenario={renameScenario}
               isPending={isPending}
+              mem0Enabled={mem0Enabled}
+              browserUseEnabled={browserUseEnabled}
             />
           ) : (
             /* Welcome state */

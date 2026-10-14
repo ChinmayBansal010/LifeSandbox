@@ -15,6 +15,8 @@ import {
   ChevronDown,
   ChevronUp,
   Sparkles,
+  Globe,
+  type LucideIcon,
 } from 'lucide-react';
 import type { ScenarioNode, Scenario } from '../types';
 import {
@@ -28,12 +30,89 @@ import {
 type ChatProps = {
   scenario: Scenario;
   nodes: Record<string, ScenarioNode>;
-  onSendMessage: (userMessage: string, parentId: string | null) => Promise<void>;
+  onSendMessage: (
+    userMessage: string,
+    parentId: string | null,
+    remember: boolean,
+    browse: boolean,
+  ) => Promise<boolean>;
+  mem0Enabled: boolean;
+  browserUseEnabled: boolean;
   onToggleRemember: (nodeId: string) => void;
   onSelectNode: (nodeId: string) => void;
   onRenameScenario?: (scenarioId: string, title: string) => void;
   isPending: boolean;
 };
+
+function IntegrationOption({
+  id,
+  icon: Icon,
+  title,
+  description,
+  setupHint,
+  configured,
+  checked,
+  disabled,
+  onChange,
+}: {
+  id: string;
+  icon: LucideIcon;
+  title: string;
+  description: string;
+  setupHint: string;
+  configured: boolean;
+  checked: boolean;
+  disabled: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  const status = checked ? 'On for this reply' : configured ? 'Ready' : 'Setup required';
+
+  return (
+    <label
+      htmlFor={id}
+      className={`flex items-start gap-3 p-3 rounded-xl border transition-colors cursor-pointer ${
+        checked
+          ? 'bg-accent-muted border-accent/40'
+          : 'bg-surface border-border hover:border-accent/30'
+      } ${!configured || disabled ? 'opacity-75' : ''}`}
+    >
+      <span className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${checked ? 'bg-accent text-accent-fg' : 'bg-bg-secondary text-fg-secondary'}`}>
+        <Icon size={16} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center justify-between gap-2">
+          <span className="text-xs font-semibold text-fg">{title}</span>
+          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-medium ${
+            checked
+              ? 'bg-accent text-accent-fg'
+              : configured
+                ? 'bg-success/10 text-success'
+                : 'bg-bg-secondary text-fg-muted'
+          }`}>
+            {status}
+          </span>
+        </span>
+        <span className="mt-1 block text-[10px] leading-relaxed text-fg-secondary">
+          {configured ? description : setupHint}
+        </span>
+      </span>
+      <span className="relative mt-1 inline-flex h-5 w-9 shrink-0 items-center">
+        <input
+          id={id}
+          type="checkbox"
+          role="switch"
+          checked={checked}
+          disabled={!configured || disabled}
+          onChange={(event) => onChange(event.target.checked)}
+          className="peer sr-only"
+          aria-label={title}
+        />
+        <span className="absolute inset-0 rounded-full bg-border transition-colors peer-checked:bg-accent peer-disabled:cursor-not-allowed peer-focus-visible:ring-2 peer-focus-visible:ring-accent/50" />
+        <span className="pointer-events-none absolute left-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-4" />
+      </span>
+    </label>
+  );
+}
 
 function MessageBubble({
   node,
@@ -146,11 +225,16 @@ export default function Chat({
   onSelectNode,
   onRenameScenario,
   isPending,
+  mem0Enabled,
+  browserUseEnabled,
 }: ChatProps) {
   const [input, setInput] = useState('');
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(scenario.title);
   const [showRememberedPanel, setShowRememberedPanel] = useState(false);
+  const [rememberWithMem0, setRememberWithMem0] = useState(false);
+  const [allowBrowserUse, setAllowBrowserUse] = useState(false);
+  const [memoryStatus, setMemoryStatus] = useState('');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -159,6 +243,12 @@ export default function Chat({
   const conversation = getActiveBranch(scenario, nodes);
   const activeBranchIds = scenario.activeNodeId ? getAncestorPath(scenario.activeNodeId, nodes) : [];
   const rememberedContext = getRememberedContext(activeBranchIds, scenario, nodes);
+
+  useEffect(() => {
+    setRememberWithMem0(false);
+    setAllowBrowserUse(false);
+    setMemoryStatus('');
+  }, [scenario.id]);
 
   const startEditing = () => {
     setTitleDraft(scenario.title);
@@ -194,7 +284,18 @@ export default function Chat({
     if (!msg || isPending) return;
     setInput('');
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
-    await onSendMessage(msg, scenario.activeNodeId);
+    setMemoryStatus('');
+    const saved = await onSendMessage(
+      msg,
+      scenario.activeNodeId,
+      rememberWithMem0,
+      allowBrowserUse,
+    );
+    if (rememberWithMem0 && !saved) {
+      setMemoryStatus("Mem0 did not confirm saving this exchange.");
+    }
+    setRememberWithMem0(false);
+    setAllowBrowserUse(false);
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -451,6 +552,44 @@ export default function Chat({
           <p className="text-[10px] text-fg-muted mt-1.5 text-center">
             Press Enter to send · Shift+Enter for new line · Remember exchanges to persist context across branches
           </p>
+          <section className="mt-3 rounded-2xl border border-border bg-bg-secondary/70 p-3" aria-label="Optional integrations for this reply">
+            <div className="mb-2.5 flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-[11px] font-semibold text-fg">Tools for this reply</h2>
+                <p className="mt-0.5 text-[10px] text-fg-muted">Optional · resets after you send</p>
+              </div>
+              {(rememberWithMem0 || allowBrowserUse) && (
+                <span className="rounded-full bg-accent-muted px-2 py-1 text-[9px] font-medium text-accent">
+                  {Number(rememberWithMem0) + Number(allowBrowserUse)} enabled
+                </span>
+              )}
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <IntegrationOption
+                id="remember-with-mem0"
+                icon={Sparkles}
+                title="Mem0 hosted memory"
+                description="Search and save this exchange in your Mem0 account. This message is sent to Mem0."
+                setupHint="Add MEM0_API_KEY to the backend environment to enable hosted memory."
+                configured={mem0Enabled}
+                checked={rememberWithMem0}
+                disabled={isPending}
+                onChange={setRememberWithMem0}
+              />
+              <IntegrationOption
+                id="allow-browser-use"
+                icon={Globe}
+                title="Browser Use research"
+                description="Use a local browser to check public GitHub pages for this reply."
+                setupHint="Install Browser Use and Chromium, configure a real model provider, then enable BROWSER_USE_ENABLED."
+                configured={browserUseEnabled}
+                checked={allowBrowserUse}
+                disabled={isPending}
+                onChange={setAllowBrowserUse}
+              />
+            </div>
+          </section>
+          {memoryStatus && <p className="text-[10px] text-error mt-1 text-center">{memoryStatus}</p>}
         </div>
       </div>
     </div>

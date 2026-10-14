@@ -2,8 +2,9 @@
 
 All endpoints use JSON except `POST /api/v1/chat/stream`, which emits SSE. Errors use FastAPI's `detail` object with `code` and safe `message`; unexpected failures return `internal_error` and a request ID header.
 
-- `POST /api/v1/chat` `{ "message": "...", "conversation_id": null }` returns conversation id, reply, intent, selected skill, provider and the model that produced the final response.
+- `POST /api/v1/chat` `{ "message": "...", "conversation_id": null, "remember": false, "browse": false }` returns conversation id, reply, intent, selected skill, provider, model and whether the opted-in exchange was saved to Mem0. Set `remember: true` to search and save through Mem0 (requires `MEM0_API_KEY`); set `browse: true` to allow Browser Use web research for this message (requires the optional dependency and `BROWSER_USE_ENABLED=true`).
 - `POST /api/v1/chat/stream` emits `run.started`, `assistant.delta`, then `run.completed`; failure emits `run.failed`. Text is currently delivered as one delta, not token-streamed.
+- `GET /api/v1/capabilities` reports whether optional Mem0 hosted memory is configured.
 - `POST/GET /api/v1/conversations`; `GET /{id}`, `GET /{id}/messages`, `DELETE /{id}`. IDs belonging to another user appear as 404.
 - `GET/POST /api/v1/memories`, `PATCH/DELETE /{id}`. Create/update requires consent and provenance is marked `user-approved`.
 - `POST /api/v1/simulations` accepts starting savings, income, expenses, months and alternatives with changes.

@@ -48,7 +48,6 @@ DECISION_TOOLS = [
     }
 ]
 
-
 class Allocation(BaseModel):
     category: str = Field(min_length=1)
     amount: Decimal = Field(ge=0)

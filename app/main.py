@@ -23,6 +23,8 @@ from app.persistence.models import (
 )
 from app.persistence.session import engine, get_session
 from app.providers.llm import LLMError
+from app.providers.browser_use import is_configured as browser_use_is_configured
+from app.providers.mem0 import is_configured as mem0_is_configured
 from app.services.chat import run_chat
 
 settings = get_settings()
@@ -112,6 +114,16 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=12000)
     conversation_id: str | None = None
     history: list[dict[str, str]] = Field(default_factory=list, max_length=12)
+    remember: bool = False
+    browse: bool = False
+
+
+@app.get("/api/v1/capabilities")
+async def capabilities():
+    return {
+        "mem0_enabled": mem0_is_configured(),
+        "browser_use_enabled": browser_use_is_configured(),
+    }
 
 
 @app.post("/api/v1/chat")
@@ -120,8 +132,27 @@ async def chat(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(get_session),
 ):
+    if payload.remember and not mem0_is_configured():
+        raise HTTPException(
+            503,
+            detail={"code": "mem0_not_configured", "message": "Mem0 is not configured"},
+        )
+    if payload.browse and not browser_use_is_configured():
+        raise HTTPException(
+            503,
+            detail={
+                "code": "browser_use_not_configured",
+                "message": "Browser Use is disabled or not configured",
+            },
+        )
     result = await run_chat(
-        db, principal.user_id, payload.message, payload.conversation_id, payload.history
+        db,
+        principal.user_id,
+        payload.message,
+        payload.conversation_id,
+        payload.history,
+        payload.remember,
+        payload.browse,
     )
     if result is None:
         raise HTTPException(404, detail={"code": "not_found", "message": "Conversation not found"})
@@ -134,6 +165,19 @@ async def chat_stream(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(get_session),
 ):
+    if payload.remember and not mem0_is_configured():
+        raise HTTPException(
+            503,
+            detail={"code": "mem0_not_configured", "message": "Mem0 is not configured"},
+        )
+    if payload.browse and not browser_use_is_configured():
+        raise HTTPException(
+            503,
+            detail={
+                "code": "browser_use_not_configured",
+                "message": "Browser Use is disabled or not configured",
+            },
+        )
     import json
 
     from fastapi.responses import StreamingResponse
@@ -143,7 +187,13 @@ async def chat_stream(
         yield f"event: run.started\ndata: {json.dumps({'run_id': run_id})}\n\n"
         try:
             result = await run_chat(
-                db, principal.user_id, payload.message, payload.conversation_id, payload.history
+                db,
+                principal.user_id,
+                payload.message,
+                payload.conversation_id,
+                payload.history,
+                payload.remember,
+                payload.browse,
             )
             if result is None:
                 event_data = {"run_id": run_id, "code": "not_found"}

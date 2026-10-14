@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     openrouter_model: str = ""
     openrouter_fallback_model: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    mem0_api_key: str | None = None
+    mem0_host: str = "https://api.mem0.ai"
+    browser_use_enabled: bool = False
     llm_timeout_seconds: float = 30
     llm_max_tokens: int = 1000
     research_provider: Literal["disabled", "tavily"] = "disabled"

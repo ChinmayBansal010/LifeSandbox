@@ -179,8 +179,14 @@ export function useStore() {
     : null;
 
   const sendMessage = useCallback(
-    async (scenarioId: string, userMessage: string, parentId: string | null) => {
-      if (isPending) return;
+    async (
+      scenarioId: string,
+      userMessage: string,
+      parentId: string | null,
+      remember = false,
+      browse = false,
+    ) => {
+      if (isPending) return false;
       setIsPending(true);
 
       // Immediately create node with empty assistant message (loading state)
@@ -213,7 +219,7 @@ export function useStore() {
         const response = await fetch('/api/v1/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message, history }),
+          body: JSON.stringify({ message, history, remember, browse }),
         });
         const payload = await response.json();
         if (!response.ok) {
@@ -235,6 +241,7 @@ export function useStore() {
             },
           });
         }
+        return payload.memory_saved === true;
       } catch (error) {
         // Surface backend/provider failures instead of silently substituting canned replies.
         const currentState = getState();
@@ -251,6 +258,7 @@ export function useStore() {
             },
           });
         }
+        return false;
       } finally {
         setIsPending(false);
       }
