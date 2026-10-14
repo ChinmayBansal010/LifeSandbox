@@ -1,0 +1,147 @@
+@import "tailwindcss";
+
+/* ─── Design tokens via CSS custom properties ──────────────────────── */
+@theme {
+  --color-bg: #fafaf9;
+  --color-bg-secondary: #f5f5f4;
+  --color-bg-tertiary: #e7e5e4;
+  --color-surface: #ffffff;
+  --color-surface-hover: #f5f5f4;
+
+  --color-fg: #1c1917;
+  --color-fg-secondary: #57534e;
+  --color-fg-muted: #a8a29e;
+  --color-fg-inverse: #fafaf9;
+
+  --color-border: #e7e5e4;
+  --color-border-strong: #d6d3d1;
+
+  --color-accent: #0d7377;
+  --color-accent-hover: #0a5c5f;
+  --color-accent-muted: #e0f2f1;
+  --color-accent-fg: #ffffff;
+
+  --color-success: #16a34a;
+  --color-warning: #d97706;
+  --color-error: #dc2626;
+
+  --color-node: #0d7377;
+  --color-node-active: #0a5c5f;
+  --color-node-inactive: #a8a29e;
+  --color-edge: #d6d3d1;
+  --color-edge-active: #0d7377;
+
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+/* ─── Dark theme override ──────────────────────────────────────────── */
+.dark {
+  --color-bg: #0c0a09;
+  --color-bg-secondary: #1c1917;
+  --color-bg-tertiary: #292524;
+  --color-surface: #1c1917;
+  --color-surface-hover: #292524;
+
+  --color-fg: #fafaf9;
+  --color-fg-secondary: #a8a29e;
+  --color-fg-muted: #78716c;
+  --color-fg-inverse: #1c1917;
+
+  --color-border: #292524;
+  --color-border-strong: #44403c;
+
+  --color-accent: #2dd4bf;
+  --color-accent-hover: #5eead4;
+  --color-accent-muted: #132725;
+  --color-accent-fg: #0c0a09;
+
+  --color-node: #2dd4bf;
+  --color-node-active: #5eead4;
+  --color-node-inactive: #78716c;
+  --color-edge: #44403c;
+  --color-edge-active: #2dd4bf;
+}
+
+/* ─── Base styles ──────────────────────────────────────────────────── */
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background-color: var(--color-bg);
+    color: var(--color-fg);
+    min-height: 100dvh;
+    margin: 0;
+  }
+
+  * {
+    border-color: var(--color-border);
+  }
+
+  ::selection {
+    background-color: var(--color-accent-muted);
+    color: var(--color-accent);
+  }
+
+  /* Scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-border-strong);
+    border-radius: 3px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-fg-muted);
+  }
+}
+
+/* ─── Reduced motion ───────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ─── Utility animations ───────────────────────────────────────────── */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slide-in-left {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes slide-in-right {
+  from { transform: translateX(100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes pulse-dot {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+.animate-fade-in {
+  animation: fade-in 200ms ease-out;
+}
+
+.animate-slide-in-left {
+  animation: slide-in-left 200ms ease-out;
+}
+
+.animate-slide-in-right {
+  animation: slide-in-right 200ms ease-out;
+}
