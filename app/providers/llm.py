@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import dataclass
 from typing import Any
 
@@ -70,46 +71,47 @@ class OpenAICompatibleModel(ChatModel):
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
         try:
-            async with httpx.AsyncClient(timeout=self.timeout) as client:
-                headers = {
-                    "Authorization": f"Bearer {self.api_key}",
-                    "Content-Type": "application/json",
-                }
-                attempts = [(self.model, "low"), (self.model, "none")]
-                if self.provider == "openrouter" and self.fallback_model:
-                    attempts.append((self.fallback_model, "none"))
-                for requested_model, reasoning_effort in attempts:
-                    payload["model"] = requested_model
-                    if self.provider == "openrouter":
-                        # Avoid empty replies when a reasoning model exhausts its budget
-                        # on hidden reasoning. A configured fallback remains LLM-generated.
-                        payload["reasoning_effort"] = reasoning_effort
-                    response = await client.post(
-                        f"{self.base_url}/chat/completions", headers=headers, json=payload
-                    )
-                    response.raise_for_status()
-                    body = response.json()
-                    message = body["choices"][0]["message"]
-                    text = message.get("content")
-                    tool_calls = message.get("tool_calls") or []
-                    if (isinstance(text, str) and text.strip()) or tool_calls:
-                        return Completion(
-                            text or "",
-                            self.provider,
-                            body.get("model", requested_model),
-                            tool_calls,
+            async with asyncio.timeout(self.timeout):
+                async with httpx.AsyncClient(timeout=self.timeout) as client:
+                    headers = {
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json",
+                    }
+                    attempts = [(self.model, "low"), (self.model, "none")]
+                    if self.provider == "openrouter" and self.fallback_model:
+                        attempts.append((self.fallback_model, "none"))
+                    for requested_model, reasoning_effort in attempts:
+                        payload["model"] = requested_model
+                        if self.provider == "openrouter":
+                            # Avoid empty replies when a reasoning model exhausts its budget
+                            # on hidden reasoning. A configured fallback remains LLM-generated.
+                            payload["reasoning_effort"] = reasoning_effort
+                        response = await client.post(
+                            f"{self.base_url}/chat/completions", headers=headers, json=payload
                         )
-                raise LLMError(
-                    "Provider returned empty content after all configured attempts",
-                    provider=self.provider,
-                )
+                        response.raise_for_status()
+                        body = response.json()
+                        message = body["choices"][0]["message"]
+                        text = message.get("content")
+                        tool_calls = message.get("tool_calls") or []
+                        if (isinstance(text, str) and text.strip()) or tool_calls:
+                            return Completion(
+                                text or "",
+                                self.provider,
+                                body.get("model", requested_model),
+                                tool_calls,
+                            )
+                    raise LLMError(
+                        "Provider returned empty content after all configured attempts",
+                        provider=self.provider,
+                    )
         except httpx.HTTPStatusError as exc:
             raise LLMError(
                 f"{self.provider} returned HTTP {exc.response.status_code}",
                 provider=self.provider,
                 status_code=exc.response.status_code,
             ) from exc
-        except httpx.TimeoutException as exc:
+        except (httpx.TimeoutException, TimeoutError) as exc:
             raise LLMError(f"{self.provider} request timed out", provider=self.provider) from exc
         except (httpx.RequestError, KeyError, IndexError, TypeError, ValueError) as exc:
             raise LLMError(

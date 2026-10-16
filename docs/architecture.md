@@ -19,6 +19,8 @@ flowchart LR
 
 Routes validate and authorize requests; service code owns conversation persistence; the LangGraph nodes classify task intent and invoke the configured model; simulation is deterministic Python and does not involve the model. SQLAlchemy models have `user_id` ownership and all user-scoped reads filter against the authenticated principal.
 
+The follow-through layer persists memory policies, local memories, projects, tasks, reminders, jobs, in-app notifications, approvals, audit events and idempotency keys. A database polling worker processes due reminders outside chat. It writes in-app notifications only; external notification delivery and generic protected-action execution are not implemented.
+
 ## Decisions and limitations
 
 - SQLite enables offline local use; Postgres is the deployment target. pgvector extension is provisioned in Compose but vectors are not persisted to pgvector yet.
