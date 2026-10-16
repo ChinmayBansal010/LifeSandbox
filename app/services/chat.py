@@ -5,8 +5,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.conversation.graph import conversation_graph
+from app.memory.service import policy_for, search_memories
 from app.persistence.models import ConversationRow, MessageRow
-from app.providers.mem0 import remember_exchange, search_memories
+from app.providers.mem0 import remember_exchange
+from app.providers.mem0 import search_memories as search_hosted_memories
 from app.services.tool_tracker import trace_prompt, trace_tool
 
 
@@ -41,9 +43,11 @@ async def run_chat(
         )
     ).all()
     history_rows = list(reversed(history_rows))
-    history = history_override if history_override is not None else [
-        {"role": m.role, "content": m.content} for m in history_rows
-    ]
+    history = (
+        history_override
+        if history_override is not None
+        else [{"role": m.role, "content": m.content} for m in history_rows]
+    )
 
     async with trace_prompt(
         prompt=message,
@@ -52,15 +56,39 @@ async def run_chat(
         db=db,
     ) as trace_data:
         memories = []
+        try:
+            # Isolate optional memory-store failures so they do not poison the
+            # conversation transaction and fail after the model has responded.
+            async with db.begin_nested():
+                recalled = await search_memories(db, user_id, message)
+            memories = [
+                f"[{item.category}; source={item.source}] {item.content}" for item in recalled
+            ]
+        except Exception:
+            logging.getLogger("life_sandbox.memory").exception("Local memory retrieval failed")
         if remember:
-            async with trace_tool("mem0_search", "memory", {"query": message, "user_id": user_id}) as mem_event:
-                try:
-                    memories = await search_memories(message, user_id)
-                    mem_event["output_data"] = {"count": len(memories), "memories": memories[:3]}
-                except Exception as exc:
-                    logging.getLogger("life_sandbox.mem0").exception("Mem0 memory search failed")
-                    mem_event["status"] = "error"
-                    mem_event["error"] = str(exc)
+            hosted_allowed = False
+            try:
+                async with db.begin_nested():
+                    hosted_allowed = (await policy_for(db, user_id)).hosted_memory_allowed
+            except Exception:
+                logging.getLogger("life_sandbox.memory").exception("Memory policy lookup failed")
+            if hosted_allowed:
+                async with trace_tool(
+                    "mem0_search", "memory", {"query": message, "user_id": user_id}
+                ) as mem_event:
+                    try:
+                        memories.extend(await search_hosted_memories(message, user_id))
+                        mem_event["output_data"] = {
+                            "count": len(memories),
+                            "memories": memories[:3],
+                        }
+                    except Exception as exc:
+                        logging.getLogger("life_sandbox.mem0").exception(
+                            "Mem0 memory search failed"
+                        )
+                        mem_event["status"] = "error"
+                        mem_event["error"] = str(exc)
 
         db.add(MessageRow(conversation_id=row.id, role="user", content=message))
         try:
@@ -82,7 +110,7 @@ async def run_chat(
         await db.commit()
 
         memory_saved = False
-        if remember:
+        if remember and hosted_allowed:
             async with trace_tool("mem0_save", "memory", {"user_id": user_id}) as save_event:
                 try:
                     await remember_exchange(user_id, message, state["reply"])

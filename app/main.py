@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.life import router as life_router
 from app.core.config import get_settings
 from app.core.security import Principal, current_principal
 from app.domain.simulation import SimulationRequest, simulate
@@ -18,13 +19,11 @@ from app.persistence.models import (
     ConversationRow,
     FeedbackRow,
     FileRow,
-    MemoryRow,
     MessageRow,
-    PromptTraceRow,
 )
 from app.persistence.session import engine, get_session
-from app.providers.llm import LLMError
 from app.providers.browser_use import is_configured as browser_use_is_configured
+from app.providers.llm import LLMError
 from app.providers.mem0 import is_configured as mem0_is_configured
 from app.services.chat import run_chat
 from app.services.tool_tracker import clear_traces, get_stats, get_trace_by_id, get_traces
@@ -48,6 +47,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="Life Sandbox API", version="0.1.0", lifespan=lifespan)
+app.include_router(life_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -141,11 +141,6 @@ async def chat(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(get_session),
 ):
-    if payload.remember and not mem0_is_configured():
-        raise HTTPException(
-            503,
-            detail={"code": "mem0_not_configured", "message": "Mem0 is not configured"},
-        )
     if payload.browse and not browser_use_is_configured():
         raise HTTPException(
             503,
@@ -174,11 +169,6 @@ async def chat_stream(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(get_session),
 ):
-    if payload.remember and not mem0_is_configured():
-        raise HTTPException(
-            503,
-            detail={"code": "mem0_not_configured", "message": "Mem0 is not configured"},
-        )
     if payload.browse and not browser_use_is_configured():
         raise HTTPException(
             503,
@@ -315,100 +305,6 @@ async def delete_conversation(
     )
     if row is None:
         raise HTTPException(404, detail={"code": "not_found", "message": "Conversation not found"})
-    await db.delete(row)
-    await db.commit()
-
-
-class MemoryCreate(BaseModel):
-    content: str = Field(min_length=1, max_length=2000)
-    category: str = Field(default="preference", max_length=100)
-    consent: bool
-
-
-@app.get("/api/v1/memories")
-async def list_memories(
-    principal: Principal = Depends(current_principal), db: AsyncSession = Depends(get_session)
-):
-    rows = (
-        await db.scalars(
-            select(MemoryRow).where(
-                MemoryRow.user_id == principal.user_id, MemoryRow.status == "active"
-            )
-        )
-    ).all()
-    return {
-        "items": [
-            {
-                "id": m.id,
-                "content": m.content,
-                "category": m.category,
-                "source": m.source,
-                "created_at": m.created_at,
-            }
-            for m in rows
-        ]
-    }
-
-
-@app.post("/api/v1/memories", status_code=201)
-async def create_memory(
-    payload: MemoryCreate,
-    principal: Principal = Depends(current_principal),
-    db: AsyncSession = Depends(get_session),
-):
-    if not payload.consent:
-        raise HTTPException(
-            400,
-            detail={
-                "code": "consent_required",
-                "message": "Explicit consent is required to retain a memory",
-            },
-        )
-    row = MemoryRow(user_id=principal.user_id, content=payload.content, category=payload.category)
-    db.add(row)
-    await db.commit()
-    await db.refresh(row)
-    return {
-        "id": row.id,
-        "content": row.content,
-        "category": row.category,
-        "source": row.source,
-        "created_at": row.created_at,
-    }
-
-
-@app.patch("/api/v1/memories/{memory_id}")
-async def update_memory(
-    memory_id: str,
-    payload: MemoryCreate,
-    principal: Principal = Depends(current_principal),
-    db: AsyncSession = Depends(get_session),
-):
-    if not payload.consent:
-        raise HTTPException(
-            400, detail={"code": "consent_required", "message": "Explicit consent is required"}
-        )
-    row = await db.scalar(
-        select(MemoryRow).where(MemoryRow.id == memory_id, MemoryRow.user_id == principal.user_id)
-    )
-    if row is None:
-        raise HTTPException(404, detail={"code": "not_found", "message": "Memory not found"})
-    row.content, row.category = payload.content, payload.category
-    await db.commit()
-    return {"id": row.id, "content": row.content, "category": row.category}
-
-
-@app.delete("/api/v1/memories/{memory_id}", status_code=204)
-async def delete_memory(
-    memory_id: str,
-    principal: Principal = Depends(current_principal),
-    db: AsyncSession = Depends(get_session),
-):
-    row = await db.scalar(
-        select(MemoryRow).where(MemoryRow.id == memory_id, MemoryRow.user_id == principal.user_id)
-    )
-    if row is None:
-        raise HTTPException(404, detail={"code": "not_found", "message": "Memory not found"})
     await db.delete(row)
     await db.commit()
 
@@ -557,14 +453,6 @@ async def research_endpoint(payload: ResearchRequest, _: Principal = Depends(cur
         raise HTTPException(
             503, detail={"code": "research_unavailable", "message": str(exc)}
         ) from exc
-
-
-@app.get("/api/v1/jobs/{job_id}")
-async def get_job(job_id: str, _: Principal = Depends(current_principal)):
-    raise HTTPException(
-        404,
-        detail={"code": "not_found", "message": "Job not found; asynchronous jobs are not enabled"},
-    )
 
 
 class Feedback(BaseModel):

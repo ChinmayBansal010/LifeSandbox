@@ -12,6 +12,7 @@ import {
   PanelLeftOpen,
   Trash2,
   Activity,
+  NotebookTabs,
 } from 'lucide-react';
 import type { Conversation, ThemePreference } from '../types';
 import { truncate } from '../graph-utils';
@@ -26,7 +27,9 @@ type SidebarProps = {
   onSelectConversation: (id: string) => void;
   onDeleteConversation: (id: string) => void;
   onOpenAdminPanel: () => void;
+  onOpenLifePanel: () => void;
   isAdminActive?: boolean;
+  isLifeActive?: boolean;
   onSetTheme: (theme: ThemePreference) => void;
 };
 
@@ -40,7 +43,9 @@ export default function Sidebar({
   onSelectConversation,
   onDeleteConversation,
   onOpenAdminPanel,
+  onOpenLifePanel,
   isAdminActive = false,
+  isLifeActive = false,
   onSetTheme,
 }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -96,6 +101,12 @@ export default function Sidebar({
         >
           <Activity size={18} />
         </button>
+        <button
+          onClick={onOpenLifePanel}
+          className={`mt-2 p-1.5 rounded-md ${isLifeActive ? 'bg-accent text-accent-fg' : 'text-fg-muted hover:bg-surface-hover'}`}
+          aria-label="Memory and tasks"
+          title="Memory and tasks"
+        ><NotebookTabs size={18} /></button>
         <div className="mt-auto">
           <button
             onClick={() => onSetTheme(nextTheme[theme])}
@@ -200,6 +211,10 @@ export default function Sidebar({
 
       {/* Admin Panel Button */}
       <div className="px-3 py-2 border-t border-border">
+        <button onClick={onOpenLifePanel} className={`mb-2 w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold ${isLifeActive ? 'bg-accent text-accent-fg' : 'border border-border text-fg hover:bg-surface-hover'}`}>
+          <NotebookTabs size={14} />
+          <span>Memory & tasks</span>
+        </button>
         <button
           onClick={onOpenAdminPanel}
           className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold transition-all ${

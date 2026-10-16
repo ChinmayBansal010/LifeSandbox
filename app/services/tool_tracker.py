@@ -197,14 +197,20 @@ async def get_traces(
                     x
                     for x in results
                     if s in (x.get("prompt") or "").lower()
-                    or any(s in (t.get("tool_name") or "").lower() for t in x.get("tools_accessed", []))
+                    or any(
+                        s in (t.get("tool_name") or "").lower()
+                        for t in x.get("tools_accessed", [])
+                    )
                 ]
             if tool_filter and tool_filter != "all":
                 tf = tool_filter.lower()
                 results = [
                     x
                     for x in results
-                    if any(tf in (t.get("tool_name") or "").lower() for t in x.get("tools_accessed", []))
+                    if any(
+                        tf in (t.get("tool_name") or "").lower()
+                        for t in x.get("tools_accessed", [])
+                    )
                 ]
             return results[offset : offset + limit]
         except Exception as exc:

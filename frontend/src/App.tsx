@@ -5,6 +5,7 @@ import { useStore, useThemeEffect } from './store';
 import Sidebar from './components/Sidebar';
 import Chat from './components/Chat';
 import AdminPanel from './components/AdminPanel';
+import LifePanel from './components/LifePanel';
 import { Menu, X, MessageSquare, Activity, Plus } from 'lucide-react';
 
 export default function App() {
@@ -27,6 +28,7 @@ export default function App() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
+  const [lifeOpen, setLifeOpen] = useState(false);
   const [adminTraceId, setAdminTraceId] = useState<string | null>(null);
 
   const [mem0Enabled, setMem0Enabled] = useState(false);
@@ -61,6 +63,7 @@ export default function App() {
   const handleCreateConversation = useCallback(() => {
     createConversation();
     setAdminOpen(false);
+    setLifeOpen(false);
     setMobileMenuOpen(false);
   }, [createConversation]);
 
@@ -68,6 +71,7 @@ export default function App() {
     (id: string) => {
       setActiveConversation(id);
       setAdminOpen(false);
+      setLifeOpen(false);
       setMobileMenuOpen(false);
     },
     [setActiveConversation]
@@ -143,7 +147,9 @@ export default function App() {
               onSelectConversation={handleSelectConversation}
               onDeleteConversation={handleDeleteConversation}
               onOpenAdminPanel={() => handleOpenAdmin()}
+              onOpenLifePanel={() => { setLifeOpen(true); setAdminOpen(false); setMobileMenuOpen(false); }}
               isAdminActive={adminOpen}
+              isLifeActive={lifeOpen}
               onSetTheme={setTheme}
             />
           </div>
@@ -162,14 +168,18 @@ export default function App() {
           onSelectConversation={handleSelectConversation}
           onDeleteConversation={handleDeleteConversation}
           onOpenAdminPanel={() => handleOpenAdmin()}
+          onOpenLifePanel={() => { setLifeOpen(true); setAdminOpen(false); }}
           isAdminActive={adminOpen}
+          isLifeActive={lifeOpen}
           onSetTheme={setTheme}
         />
       )}
 
       {/* ─── Main workspace ───────────────────────────────── */}
       <main className={`flex-1 flex overflow-hidden ${isMobile ? 'pt-11' : ''}`}>
-        {adminOpen ? (
+        {lifeOpen ? (
+          <LifePanel onClose={() => setLifeOpen(false)} />
+        ) : adminOpen ? (
           <div className="flex-1 flex flex-col min-w-0">
             <AdminPanel
               onClose={handleCloseAdmin}

@@ -1,3 +1,5 @@
+import asyncio
+
 import httpx
 import pytest
 
@@ -21,6 +23,7 @@ class ResponseStub:
 
 class ClientStub:
     response = None
+    delay = 0
 
     def __init__(self, *args, **kwargs):
         pass
@@ -32,6 +35,8 @@ class ClientStub:
         return None
 
     async def post(self, *args, **kwargs):
+        if self.delay:
+            await asyncio.sleep(self.delay)
         return self.response
 
 
@@ -64,3 +69,18 @@ async def test_provider_status_error_is_typed_without_response_body(monkeypatch)
 
     assert caught.value.status_code == 429
     assert "sensitive upstream detail" not in str(caught.value)
+
+
+@pytest.mark.asyncio
+async def test_all_openrouter_fallback_attempts_share_one_timeout(monkeypatch):
+    ClientStub.response = ResponseStub(200, {"choices": [{"message": {"content": "late"}}]})
+    ClientStub.delay = 0.1
+    monkeypatch.setattr(httpx, "AsyncClient", ClientStub)
+    model = OpenAICompatibleModel(
+        "openrouter", "https://provider.test/v1", "secret", "model", 0.02, 10, "fallback"
+    )
+
+    with pytest.raises(LLMError, match="request timed out"):
+        await model.complete([{"role": "user", "content": "hi"}])
+
+    ClientStub.delay = 0

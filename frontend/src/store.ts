@@ -147,6 +147,8 @@ export function useStore() {
         },
       });
 
+      const controller = new AbortController();
+      const requestTimeout = window.setTimeout(() => controller.abort(), 105_000);
       try {
         const history = currentConv.messages
           .filter((m) => m.assistantMessage.trim())
@@ -159,6 +161,7 @@ export function useStore() {
         const response = await fetch('/api/v1/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
           body: JSON.stringify({
             message: userMessage,
             conversation_id: conversationId,
@@ -228,13 +231,17 @@ export function useStore() {
         const currentState = getState();
         const convToUpdate = currentState.conversations[conversationId];
         if (convToUpdate) {
+          const message =
+            error instanceof Error && error.name === 'AbortError'
+              ? 'The request timed out after 105 seconds. Check the backend log and try again.'
+              : error instanceof Error
+                ? error.message
+                : 'Please try again.';
           const updatedMessages = convToUpdate.messages.map((m) =>
             m.id === messageId
               ? {
                   ...m,
-                  assistantMessage: `I couldn't get a response from the assistant. ${
-                    error instanceof Error ? error.message : 'Please try again.'
-                  }`,
+                  assistantMessage: `I couldn't get a response from the assistant. ${message}`,
                 }
               : m
           );
@@ -252,6 +259,7 @@ export function useStore() {
         }
         return false;
       } finally {
+        window.clearTimeout(requestTimeout);
         setIsPending(false);
       }
     },

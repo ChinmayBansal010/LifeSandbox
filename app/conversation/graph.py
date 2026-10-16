@@ -7,8 +7,8 @@ from langgraph.graph import END, START, StateGraph
 
 from app.core.config import get_settings
 from app.domain.decision_tools import DECISION_TOOLS, execute_decision_tool
-from app.providers.llm import LLMError, model_for
 from app.providers.browser_use import research_with_browser
+from app.providers.llm import LLMError, model_for
 from app.services.tool_tracker import trace_tool
 from app.skills.registry import detect_skill, select_skill
 
@@ -34,9 +34,10 @@ class ConversationState(TypedDict, total=False):
 
 
 async def classify(state: ConversationState):
-    async with trace_tool("intent_classifier", "classifier", {"message": state.get("message", "")}) as event:
-        raw_text = state.get("message", "")
-        text = raw_text.lower()
+    async with trace_tool(
+        "intent_classifier", "classifier", {"message": state.get("message", "")}
+    ) as event:
+        text = state.get("message", "").lower()
         compares_allocations = bool(
             re.search(r"\b(compare|evaluate|assess)\b.{0,80}\b(plans?|options?)\b", text)
             and re.search(r"\b(minutes?|hours?)\b", text)
@@ -45,7 +46,13 @@ async def classify(state: ConversationState):
             "simulation"
             if any(
                 x in text
-                for x in ("simulate", "scenario", "project my savings", "compare plans", "study plan")
+                for x in (
+                    "simulate",
+                    "scenario",
+                    "project my savings",
+                    "compare plans",
+                    "study plan",
+                )
             )
             or compares_allocations
             else "research"
@@ -155,8 +162,7 @@ async def agent(state: ConversationState):
             "model": completion.model,
             "has_tool_calls": bool(completion.tool_calls),
             "tool_calls": [
-                {"name": tc.get("function", {}).get("name")}
-                for tc in (completion.tool_calls or [])
+                {"name": tc.get("function", {}).get("name")} for tc in (completion.tool_calls or [])
             ],
             "text_length": len(completion.text or ""),
         }
@@ -192,7 +198,10 @@ async def agent(state: ConversationState):
                 + [
                     {
                         "role": "user",
-                        "content": "Write the final answer for the user in normal prose. Do not output tool syntax or XML tags.",
+                        "content": (
+                            "Write the final answer for the user in normal prose. "
+                            "Do not output tool syntax or XML tags."
+                        ),
                     }
                 ],
                 tools=None,
@@ -207,7 +216,9 @@ async def agent(state: ConversationState):
             or "<tool_call" in completion.text
             or "<function=" in completion.text
         ):
-            raise LLMError("Provider did not return a user-facing answer", provider=completion.provider)
+            raise LLMError(
+                "Provider did not return a user-facing answer", provider=completion.provider
+            )
     return {
         "agent_messages": messages,
         "reply": completion.text,
@@ -258,11 +269,17 @@ async def browser_research(state: ConversationState):
     """Run explicitly enabled web research before the supervisor writes its answer."""
     if not state.get("allow_browser_use"):
         return {}
-    async with trace_tool("browser_research", "research", {"message": state.get("message", "")}) as event:
+    async with trace_tool(
+        "browser_research", "research", {"message": state.get("message", "")}
+    ) as event:
         try:
             result = await research_with_browser(state.get("message", ""))
             event["output_data"] = {
-                "result_preview": (result.get("result", "")[:500] if isinstance(result, dict) else str(result)[:500])
+                "result_preview": (
+                    result.get("result", "")[:500]
+                    if isinstance(result, dict)
+                    else str(result)[:500]
+                )
             }
         except Exception as exc:
             logging.getLogger("life_sandbox.browser_use").exception("Browser Use research failed")
