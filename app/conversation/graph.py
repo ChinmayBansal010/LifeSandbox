@@ -9,6 +9,7 @@ from app.core.config import get_settings
 from app.domain.decision_tools import DECISION_TOOLS, execute_decision_tool
 from app.providers.llm import LLMError, model_for
 from app.providers.browser_use import research_with_browser
+from app.services.tool_tracker import trace_tool
 from app.skills.registry import select_skill
 
 
@@ -32,24 +33,27 @@ class ConversationState(TypedDict, total=False):
 
 
 async def classify(state: ConversationState):
-    text = state.get("message", "").lower()
-    compares_allocations = bool(
-        re.search(r"\b(compare|evaluate|assess)\b.{0,80}\b(plans?|options?)\b", text)
-        and re.search(r"\b(minutes?|hours?)\b", text)
-    )
-    intent = (
-        "simulation"
-        if any(
-            x in text
-            for x in ("simulate", "scenario", "project my savings", "compare plans", "study plan")
+    async with trace_tool("intent_classifier", "classifier", {"message": state.get("message", "")}) as event:
+        text = state.get("message", "").lower()
+        compares_allocations = bool(
+            re.search(r"\b(compare|evaluate|assess)\b.{0,80}\b(plans?|options?)\b", text)
+            and re.search(r"\b(minutes?|hours?)\b", text)
         )
-        or compares_allocations
-        else "research"
-        if any(x in text for x in ("latest", "current price", "research", "compare models"))
-        else "conversation"
-    )
-    skill = select_skill(text)
-    return {"intent": intent, "skill": skill.name if skill else None, "status": "planning"}
+        intent = (
+            "simulation"
+            if any(
+                x in text
+                for x in ("simulate", "scenario", "project my savings", "compare plans", "study plan")
+            )
+            or compares_allocations
+            else "research"
+            if any(x in text for x in ("latest", "current price", "research", "compare models"))
+            else "conversation"
+        )
+        skill = select_skill(text)
+        result = {"intent": intent, "skill": skill.name if skill else None, "status": "planning"}
+        event["output_data"] = {"intent": intent, "skill": skill.name if skill else None}
+        return result
 
 
 async def agent(state: ConversationState):
@@ -113,9 +117,31 @@ async def agent(state: ConversationState):
     model = model_for(model=state.get("model"))
     rounds = state.get("tool_rounds", 0)
     available_tools = [] if browser_research else list(DECISION_TOOLS)
-    completion = await model.complete(
-        messages, tools=available_tools if available_tools and rounds < 2 else None
-    )
+    tools_param = available_tools if available_tools and rounds < 2 else None
+    tool_names = [t["function"]["name"] for t in available_tools] if tools_param else []
+
+    async with trace_tool(
+        "llm_completion",
+        "model",
+        {
+            "model": state.get("model") or "configured-default",
+            "round": rounds + 1,
+            "tools_available": tool_names,
+            "messages_count": len(messages),
+        },
+    ) as event:
+        completion = await model.complete(messages, tools=tools_param)
+        event["output_data"] = {
+            "provider": completion.provider,
+            "model": completion.model,
+            "has_tool_calls": bool(completion.tool_calls),
+            "tool_calls": [
+                {"name": tc.get("function", {}).get("name")}
+                for tc in (completion.tool_calls or [])
+            ],
+            "text_length": len(completion.text or ""),
+        }
+
     if completion.tool_calls:
         return {
             "agent_messages": messages
@@ -137,16 +163,26 @@ async def agent(state: ConversationState):
     if "<tool_call" in completion.text or "<function=" in completion.text:
         # Some OpenAI-compatible models print their private tool syntax instead of
         # returning a structured tool call. Give them one clean chance to answer.
-        completion = await model.complete(
-            messages
-            + [
-                {
-                    "role": "user",
-                    "content": "Write the final answer for the user in normal prose. Do not output tool syntax or XML tags.",
-                }
-            ],
-            tools=None,
-        )
+        async with trace_tool(
+            "llm_completion_retry",
+            "model",
+            {"reason": "model printed raw tool call XML syntax"},
+        ) as retry_event:
+            completion = await model.complete(
+                messages
+                + [
+                    {
+                        "role": "user",
+                        "content": "Write the final answer for the user in normal prose. Do not output tool syntax or XML tags.",
+                    }
+                ],
+                tools=None,
+            )
+            retry_event["output_data"] = {
+                "provider": completion.provider,
+                "model": completion.model,
+                "text_length": len(completion.text or ""),
+            }
         if (
             not completion.text.strip()
             or "<tool_call" in completion.text
@@ -169,13 +205,25 @@ async def execute_tools(state: ConversationState):
         function = call.get("function", {})
         name = function.get("name", "")
         call_id = call.get("id", "")
+        parsed_args = {}
         try:
             arguments = json.loads(function.get("arguments") or "{}")
-            if not isinstance(arguments, dict):
-                raise ValueError("Tool arguments must be an object")
-            result = execute_decision_tool(name, arguments)
-        except (ValueError, TypeError, json.JSONDecodeError) as exc:
-            result = {"error": f"Tool input was invalid: {exc}"}
+            parsed_args = arguments
+        except Exception:
+            parsed_args = {"raw": function.get("arguments")}
+
+        async with trace_tool(name or "unknown_tool", "decision_tool", parsed_args) as event:
+            try:
+                if not isinstance(arguments, dict):
+                    raise ValueError("Tool arguments must be an object")
+                result = execute_decision_tool(name, arguments)
+                event["output_data"] = result
+            except (ValueError, TypeError, json.JSONDecodeError) as exc:
+                result = {"error": f"Tool input was invalid: {exc}"}
+                event["output_data"] = result
+                event["status"] = "error"
+                event["error"] = str(exc)
+
         results.append(
             {
                 "role": "tool",
@@ -191,12 +239,19 @@ async def browser_research(state: ConversationState):
     """Run explicitly enabled web research before the supervisor writes its answer."""
     if not state.get("allow_browser_use"):
         return {}
-    try:
-        result = await research_with_browser(state.get("message", ""))
-    except Exception:
-        logging.getLogger("life_sandbox.browser_use").exception("Browser Use research failed")
-        result = {"error": "Browser research did not complete"}
-    return {"browser_research": result}
+    async with trace_tool("browser_research", "research", {"message": state.get("message", "")}) as event:
+        try:
+            result = await research_with_browser(state.get("message", ""))
+            event["output_data"] = {
+                "result_preview": (result.get("result", "")[:500] if isinstance(result, dict) else str(result)[:500])
+            }
+        except Exception as exc:
+            logging.getLogger("life_sandbox.browser_use").exception("Browser Use research failed")
+            result = {"error": "Browser research did not complete"}
+            event["output_data"] = result
+            event["status"] = "error"
+            event["error"] = str(exc)
+        return {"browser_research": result}
 
 
 def after_agent(state: ConversationState) -> str:

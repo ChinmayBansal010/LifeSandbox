@@ -1,4 +1,4 @@
-/* ─── Sidebar: Conversation navigation ─────────────────────────────── */
+/* ─── Sidebar: Chat Conversations Navigation & Admin Link ─────────── */
 
 import { useState } from 'react';
 import {
@@ -11,44 +11,49 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Trash2,
+  Activity,
 } from 'lucide-react';
-import type { Scenario, ThemePreference } from '../types';
+import type { Conversation, ThemePreference } from '../types';
 import { truncate } from '../graph-utils';
 
 type SidebarProps = {
-  scenarios: Record<string, Scenario>;
-  activeScenarioId: string | null;
+  conversations: Record<string, Conversation>;
+  activeConversationId: string | null;
   theme: ThemePreference;
   collapsed: boolean;
   onToggleCollapse: () => void;
-  onCreateScenario: () => void;
-  onSelectScenario: (id: string) => void;
-  onDeleteScenario: (id: string) => void;
+  onCreateConversation: () => void;
+  onSelectConversation: (id: string) => void;
+  onDeleteConversation: (id: string) => void;
+  onOpenAdminPanel: () => void;
+  isAdminActive?: boolean;
   onSetTheme: (theme: ThemePreference) => void;
 };
 
 export default function Sidebar({
-  scenarios,
-  activeScenarioId,
+  conversations,
+  activeConversationId,
   theme,
   collapsed,
   onToggleCollapse,
-  onCreateScenario,
-  onSelectScenario,
-  onDeleteScenario,
+  onCreateConversation,
+  onSelectConversation,
+  onDeleteConversation,
+  onOpenAdminPanel,
+  isAdminActive = false,
   onSetTheme,
 }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState('');
 
-  const scenarioList = Object.values(scenarios).sort(
+  const conversationList = Object.values(conversations).sort(
     (a, b) => b.updatedAt - a.updatedAt
   );
 
   const filtered = searchQuery
-    ? scenarioList.filter((s) =>
+    ? conversationList.filter((s) =>
         s.title.toLowerCase().includes(searchQuery.toLowerCase())
       )
-    : scenarioList;
+    : conversationList;
 
   const themeIcons: Record<ThemePreference, typeof Sun> = {
     light: Sun,
@@ -73,11 +78,23 @@ export default function Sidebar({
           <PanelLeftOpen size={18} />
         </button>
         <button
-          onClick={onCreateScenario}
+          onClick={onCreateConversation}
           className="mt-4 p-1.5 rounded-md hover:bg-accent-muted text-accent transition-colors"
-          aria-label="New scenario"
+          aria-label="New chat"
         >
           <Plus size={18} />
+        </button>
+        <button
+          onClick={onOpenAdminPanel}
+          className={`mt-3 p-1.5 rounded-md transition-colors ${
+            isAdminActive
+              ? 'bg-accent text-accent-fg'
+              : 'hover:bg-accent-muted text-accent'
+          }`}
+          aria-label="Admin Panel"
+          title="Admin Panel"
+        >
+          <Activity size={18} />
         </button>
         <div className="mt-auto">
           <button
@@ -113,14 +130,14 @@ export default function Sidebar({
         </button>
       </div>
 
-      {/* New scenario */}
+      {/* New chat */}
       <div className="px-3 py-2">
         <button
-          onClick={onCreateScenario}
+          onClick={onCreateConversation}
           className="w-full flex items-center gap-2 px-3 py-2 text-sm font-medium rounded-lg border border-border-strong hover:bg-surface-hover text-fg-secondary hover:text-fg transition-colors"
         >
           <Plus size={15} />
-          New scenario
+          New chat
         </button>
       </div>
 
@@ -133,7 +150,7 @@ export default function Sidebar({
           />
           <input
             type="text"
-            placeholder="Search…"
+            placeholder="Search chats…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-8 pr-3 py-1.5 text-xs rounded-md bg-surface border border-border text-fg placeholder:text-fg-muted focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/30 transition-colors"
@@ -141,22 +158,19 @@ export default function Sidebar({
         </div>
       </div>
 
-      {/* Scenario list */}
-      <nav className="flex-1 overflow-y-auto px-2 py-1" aria-label="Scenarios">
+      {/* Chat list */}
+      <nav className="flex-1 overflow-y-auto px-2 py-1" aria-label="Conversations">
         {filtered.length === 0 && (
           <p className="px-3 py-4 text-xs text-fg-muted text-center">
-            {searchQuery ? 'No matching scenarios' : 'No scenarios yet'}
+            {searchQuery ? 'No matching chats' : 'No chats yet'}
           </p>
         )}
-        {filtered.map((scenario) => {
-          const isActive = scenario.id === activeScenarioId;
+        {filtered.map((conv) => {
+          const isActive = !isAdminActive && conv.id === activeConversationId;
           return (
-            <div
-              key={scenario.id}
-              className="group relative"
-            >
+            <div key={conv.id} className="group relative">
               <button
-                onClick={() => onSelectScenario(scenario.id)}
+                onClick={() => onSelectConversation(conv.id)}
                 className={`w-full text-left flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${
                   isActive
                     ? 'bg-accent-muted text-accent font-medium'
@@ -166,16 +180,16 @@ export default function Sidebar({
               >
                 <MessageSquare size={14} className="shrink-0 opacity-60" />
                 <span className="truncate">
-                  {truncate(scenario.title, 30)}
+                  {truncate(conv.title, 26)}
                 </span>
               </button>
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  onDeleteScenario(scenario.id);
+                  onDeleteConversation(conv.id);
                 }}
                 className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-error/10 text-fg-muted hover:text-error transition-all"
-                aria-label={`Delete ${scenario.title}`}
+                aria-label={`Delete ${conv.title}`}
               >
                 <Trash2 size={13} />
               </button>
@@ -184,8 +198,32 @@ export default function Sidebar({
         })}
       </nav>
 
+      {/* Admin Panel Button */}
+      <div className="px-3 py-2 border-t border-border">
+        <button
+          onClick={onOpenAdminPanel}
+          className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold transition-all ${
+            isAdminActive
+              ? 'bg-accent text-accent-fg shadow-xs'
+              : 'bg-surface hover:bg-surface-hover border border-border text-fg'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <Activity size={14} className={isAdminActive ? 'text-accent-fg' : 'text-accent'} />
+            <span>Admin Panel</span>
+          </div>
+          <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono ${
+            isAdminActive
+              ? 'bg-white/20 text-white'
+              : 'bg-accent-muted text-accent'
+          }`}>
+            TRACES
+          </span>
+        </button>
+      </div>
+
       {/* Footer */}
-      <div className="px-3 py-3 border-t border-border flex items-center justify-between">
+      <div className="px-3 py-2.5 border-t border-border flex items-center justify-between">
         <button
           onClick={() => onSetTheme(nextTheme[theme])}
           className="flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-fg-muted hover:text-fg hover:bg-surface-hover transition-colors"

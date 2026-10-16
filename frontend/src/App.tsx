@@ -4,38 +4,37 @@ import { useState, useCallback, useEffect } from 'react';
 import { useStore, useThemeEffect } from './store';
 import Sidebar from './components/Sidebar';
 import Chat from './components/Chat';
-import ScenarioGraph from './components/ScenarioGraph';
-import { PanelRightClose, PanelRightOpen, Menu, X, GitBranch } from 'lucide-react';
+import AdminPanel from './components/AdminPanel';
+import { Menu, X, MessageSquare, Activity, Plus } from 'lucide-react';
 
 export default function App() {
   const {
     state,
-    activeScenario,
+    activeConversation,
     isPending,
-    createScenario,
-    deleteScenario,
-    setActiveScenario,
-    renameScenario,
-    setActiveNode,
+    createConversation,
+    deleteConversation,
+    setActiveConversation,
+    renameConversation,
     sendMessage,
-    toggleRemember,
     setTheme,
   } = useStore();
 
   // Apply theme
   useThemeEffect(state.theme);
 
-  // Layout state
+  // Layout & Navigation state
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [graphOpen, setGraphOpen] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [mobileGraphOpen, setMobileGraphOpen] = useState(false);
+  const [adminOpen, setAdminOpen] = useState(false);
+  const [adminTraceId, setAdminTraceId] = useState<string | null>(null);
+
   const [mem0Enabled, setMem0Enabled] = useState(false);
   const [browserUseEnabled, setBrowserUseEnabled] = useState(false);
 
   useEffect(() => {
     fetch('/api/v1/capabilities')
-      .then((response) => response.ok ? response.json() : null)
+      .then((response) => (response.ok ? response.json() : null))
       .then((capabilities) => {
         setMem0Enabled(capabilities?.mem0_enabled === true);
         setBrowserUseEnabled(capabilities?.browser_use_enabled === true);
@@ -48,7 +47,9 @@ export default function App() {
 
   // Responsive: detect mobile
   const [isMobile, setIsMobile] = useState(() =>
-    typeof window !== 'undefined' ? window.matchMedia('(max-width: 768px)').matches : false
+    typeof window !== 'undefined'
+      ? window.matchMedia('(max-width: 768px)').matches
+      : false
   );
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 768px)');
@@ -57,50 +58,47 @@ export default function App() {
     return () => mq.removeEventListener('change', handler);
   }, []);
 
-  const handleCreateScenario = useCallback(() => {
-    createScenario();
+  const handleCreateConversation = useCallback(() => {
+    createConversation();
+    setAdminOpen(false);
     setMobileMenuOpen(false);
-    setMobileGraphOpen(false);
-  }, [createScenario]);
+  }, [createConversation]);
 
-  const handleSelectScenario = useCallback(
+  const handleSelectConversation = useCallback(
     (id: string) => {
-      setActiveScenario(id);
+      setActiveConversation(id);
+      setAdminOpen(false);
       setMobileMenuOpen(false);
-      setMobileGraphOpen(false);
     },
-    [setActiveScenario]
+    [setActiveConversation]
   );
 
-  const handleDeleteScenario = useCallback(
+  const handleDeleteConversation = useCallback(
     (id: string) => {
-      deleteScenario(id);
+      deleteConversation(id);
       setMobileMenuOpen(false);
-      setMobileGraphOpen(false);
     },
-    [deleteScenario]
+    [deleteConversation]
   );
 
   const handleSendMessage = useCallback(
-    async (
-      userMessage: string,
-      parentId: string | null,
-      remember: boolean,
-      browse: boolean,
-    ) => {
-      if (!activeScenario) return false;
-      return sendMessage(activeScenario.id, userMessage, parentId, remember, browse);
+    async (userMessage: string, remember: boolean, browse: boolean) => {
+      if (!activeConversation) return false;
+      return sendMessage(activeConversation.id, userMessage, remember, browse);
     },
-    [activeScenario, sendMessage]
+    [activeConversation, sendMessage]
   );
 
-  const handleSelectNode = useCallback(
-    (nodeId: string) => {
-      if (!activeScenario) return;
-      setActiveNode(activeScenario.id, nodeId);
-    },
-    [activeScenario, setActiveNode]
-  );
+  const handleOpenAdmin = useCallback((traceId?: string) => {
+    setAdminTraceId(traceId || null);
+    setAdminOpen(true);
+    setMobileMenuOpen(false);
+  }, []);
+
+  const handleCloseAdmin = useCallback(() => {
+    setAdminOpen(false);
+    setAdminTraceId(null);
+  }, []);
 
   return (
     <div className="h-dvh flex overflow-hidden bg-bg">
@@ -116,11 +114,13 @@ export default function App() {
           </button>
           <span className="text-sm font-semibold text-fg">Life Sandbox</span>
           <button
-            onClick={() => setMobileGraphOpen(!mobileGraphOpen)}
-            className="p-1.5 rounded-md hover:bg-surface-hover text-fg-muted"
-            aria-label="Toggle graph"
+            onClick={() => handleOpenAdmin()}
+            className={`p-1.5 rounded-md transition-colors ${
+              adminOpen ? 'bg-accent text-accent-fg' : 'hover:bg-surface-hover text-fg-muted'
+            }`}
+            aria-label="Toggle admin panel"
           >
-            <GitBranch size={18} />
+            <Activity size={18} />
           </button>
         </header>
       )}
@@ -134,35 +134,17 @@ export default function App() {
           />
           <div className="fixed inset-y-0 left-0 z-50 w-72 pt-12 animate-slide-in-left">
             <Sidebar
-              scenarios={state.scenarios}
-              activeScenarioId={state.activeScenarioId}
+              conversations={state.conversations}
+              activeConversationId={state.activeConversationId}
               theme={state.theme}
               collapsed={false}
               onToggleCollapse={() => setMobileMenuOpen(false)}
-              onCreateScenario={handleCreateScenario}
-              onSelectScenario={handleSelectScenario}
-              onDeleteScenario={handleDeleteScenario}
+              onCreateConversation={handleCreateConversation}
+              onSelectConversation={handleSelectConversation}
+              onDeleteConversation={handleDeleteConversation}
+              onOpenAdminPanel={() => handleOpenAdmin()}
+              isAdminActive={adminOpen}
               onSetTheme={setTheme}
-            />
-          </div>
-        </>
-      )}
-
-      {/* ─── Mobile graph overlay ─────────────────────────── */}
-      {isMobile && mobileGraphOpen && activeScenario && (
-        <>
-          <div
-            className="fixed inset-0 z-40 bg-black/30"
-            onClick={() => setMobileGraphOpen(false)}
-          />
-          <div className="fixed inset-y-0 right-0 z-50 w-80 pt-12 bg-bg-secondary border-l border-border animate-slide-in-right">
-            <ScenarioGraph
-              scenario={activeScenario}
-              nodes={state.nodes}
-              onSelectNode={(nodeId) => {
-                handleSelectNode(nodeId);
-                setMobileGraphOpen(false);
-              }}
             />
           </div>
         </>
@@ -171,83 +153,71 @@ export default function App() {
       {/* ─── Desktop sidebar ──────────────────────────────── */}
       {!isMobile && (
         <Sidebar
-          scenarios={state.scenarios}
-          activeScenarioId={state.activeScenarioId}
+          conversations={state.conversations}
+          activeConversationId={state.activeConversationId}
           theme={state.theme}
           collapsed={sidebarCollapsed}
           onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
-          onCreateScenario={handleCreateScenario}
-          onSelectScenario={handleSelectScenario}
-          onDeleteScenario={handleDeleteScenario}
+          onCreateConversation={handleCreateConversation}
+          onSelectConversation={handleSelectConversation}
+          onDeleteConversation={handleDeleteConversation}
+          onOpenAdminPanel={() => handleOpenAdmin()}
+          isAdminActive={adminOpen}
           onSetTheme={setTheme}
         />
       )}
 
       {/* ─── Main workspace ───────────────────────────────── */}
       <main className={`flex-1 flex overflow-hidden ${isMobile ? 'pt-11' : ''}`}>
-        {/* Chat area */}
-        <div className="flex-1 flex flex-col min-w-0">
-          {activeScenario ? (
+        {adminOpen ? (
+          <div className="flex-1 flex flex-col min-w-0">
+            <AdminPanel
+              onClose={handleCloseAdmin}
+              initialSelectedTraceId={adminTraceId}
+            />
+          </div>
+        ) : activeConversation ? (
+          <div className="flex-1 flex flex-col min-w-0">
             <Chat
-              scenario={activeScenario}
-              nodes={state.nodes}
+              key={activeConversation.id}
+              conversation={activeConversation}
               onSendMessage={handleSendMessage}
-              onToggleRemember={toggleRemember}
-              onSelectNode={handleSelectNode}
-              onRenameScenario={renameScenario}
+              onRenameConversation={renameConversation}
+              onOpenAdminPanel={handleOpenAdmin}
               isPending={isPending}
               mem0Enabled={mem0Enabled}
               browserUseEnabled={browserUseEnabled}
             />
-          ) : (
-            /* Welcome state */
-            <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
-              <div className="w-16 h-16 rounded-2xl bg-accent-muted flex items-center justify-center mb-6">
-                <GitBranch size={28} className="text-accent" />
-              </div>
-              <h1 className="text-2xl font-bold text-fg mb-3 tracking-tight">
-                Life Sandbox
-              </h1>
-              <p className="text-sm text-fg-secondary max-w-md leading-relaxed mb-6">
-                Explore questions, decisions, and alternate possibilities through branching conversations. Every exchange becomes a node you can revisit and take in a different direction.
-              </p>
+          </div>
+        ) : (
+          /* Welcome state */
+          <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
+            <div className="w-16 h-16 rounded-2xl bg-accent-muted flex items-center justify-center mb-6">
+              <MessageSquare size={28} className="text-accent" />
+            </div>
+            <h1 className="text-2xl font-bold text-fg mb-3 tracking-tight">
+              Life Sandbox
+            </h1>
+            <p className="text-sm text-fg-secondary max-w-md leading-relaxed mb-6">
+              A decision support and research assistant. Ask complex questions, weigh multi-criteria scenarios, and monitor all tool execution traces in real time.
+            </p>
+            <div className="flex items-center gap-3">
               <button
-                onClick={handleCreateScenario}
-                className="px-5 py-2.5 rounded-lg bg-accent text-accent-fg text-sm font-medium hover:bg-accent-hover transition-colors"
+                onClick={handleCreateConversation}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-accent text-accent-fg text-sm font-medium hover:bg-accent-hover transition-colors shadow-xs"
               >
-                Start your first scenario
+                <Plus size={16} />
+                <span>Start a new chat</span>
+              </button>
+              <button
+                onClick={() => handleOpenAdmin()}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border bg-surface hover:bg-surface-hover text-fg text-sm font-medium transition-colors"
+              >
+                <Activity size={16} className="text-accent" />
+                <span>Open Admin Panel</span>
               </button>
             </div>
-          )}
-        </div>
-
-        {/* ─── Desktop graph panel ─────────────────────────── */}
-        {!isMobile && activeScenario && (
-          <>
-            {/* Toggle button */}
-            <button
-              onClick={() => setGraphOpen(!graphOpen)}
-              className="self-start mt-3 p-1.5 rounded-md hover:bg-surface-hover text-fg-muted hover:text-fg transition-colors shrink-0"
-              aria-label={graphOpen ? 'Hide timeline' : 'Show timeline'}
-            >
-              {graphOpen ? (
-                <PanelRightClose size={16} />
-              ) : (
-                <PanelRightOpen size={16} />
-              )}
-            </button>
-
-            {/* Graph panel */}
-            {graphOpen && (
-              <div className="w-72 xl:w-80 border-l border-border bg-bg-secondary shrink-0 animate-fade-in">
-                <ScenarioGraph
-                  scenario={activeScenario}
-                  nodes={state.nodes}
-                  onSelectNode={handleSelectNode}
-                />
-              </div>
-            )}
-          </>
+          </div>
         )}
       </main>
     </div>

@@ -1,8 +1,8 @@
-/* ─── Application store hook ───────────────────────────────────────── */
+/* ─── Application store hook: Sequential Chats & State Orchestration ─── */
 
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
-import type { AppState, Scenario, ScenarioNode, ThemePreference } from './types';
-import { createId, getAncestorPath, getRememberedContext } from './graph-utils';
+import type { AppState, ChatMessage, Conversation, ThemePreference } from './types';
+import { createId } from './graph-utils';
 import { loadState, saveState } from './persistence';
 
 // ─── Singleton store ──────────────────────────────────────────────
@@ -35,133 +35,55 @@ function subscribe(listener: () => void) {
 }
 
 // ─── Actions ──────────────────────────────────────────────────────
-function createScenario(title?: string): Scenario {
+function createConversation(title?: string): Conversation {
   const id = createId();
   const now = Date.now();
-  const scenario: Scenario = {
+  const conversation: Conversation = {
     id,
-    title: title || 'New scenario',
-    rootNodeId: null,
-    activeNodeId: null,
-    nodeIds: [],
+    title: title || 'New chat',
+    messages: [],
     createdAt: now,
     updatedAt: now,
   };
   setState({
     ...state,
-    scenarios: { ...state.scenarios, [id]: scenario },
-    activeScenarioId: id,
+    conversations: { ...state.conversations, [id]: conversation },
+    activeConversationId: id,
   });
-  return scenario;
+  return conversation;
 }
 
-function deleteScenario(scenarioId: string) {
-  const scenario = state.scenarios[scenarioId];
-  if (!scenario) return;
+function deleteConversation(conversationId: string) {
+  const conv = state.conversations[conversationId];
+  if (!conv) return;
 
-  const newNodes = { ...state.nodes };
-  for (const nodeId of scenario.nodeIds) {
-    delete newNodes[nodeId];
-  }
+  const newConversations = { ...state.conversations };
+  delete newConversations[conversationId];
 
-  const newScenarios = { ...state.scenarios };
-  delete newScenarios[scenarioId];
-
-  const scenarioIds = Object.keys(newScenarios);
+  const convIds = Object.keys(newConversations);
   setState({
     ...state,
-    scenarios: newScenarios,
-    nodes: newNodes,
-    activeScenarioId:
-      state.activeScenarioId === scenarioId
-        ? scenarioIds[0] ?? null
-        : state.activeScenarioId,
+    conversations: newConversations,
+    activeConversationId:
+      state.activeConversationId === conversationId
+        ? convIds[0] ?? null
+        : state.activeConversationId,
   });
 }
 
-function setActiveScenario(scenarioId: string) {
-  if (!state.scenarios[scenarioId]) return;
-  setState({ ...state, activeScenarioId: scenarioId });
+function setActiveConversation(conversationId: string) {
+  if (!state.conversations[conversationId]) return;
+  setState({ ...state, activeConversationId: conversationId });
 }
 
-function renameScenario(scenarioId: string, title: string) {
-  const scenario = state.scenarios[scenarioId];
-  if (!scenario) return;
+function renameConversation(conversationId: string, title: string) {
+  const conv = state.conversations[conversationId];
+  if (!conv) return;
   setState({
     ...state,
-    scenarios: {
-      ...state.scenarios,
-      [scenarioId]: { ...scenario, title, updatedAt: Date.now() },
-    },
-  });
-}
-
-function setActiveNode(scenarioId: string, nodeId: string) {
-  const scenario = state.scenarios[scenarioId];
-  if (!scenario || !scenario.nodeIds.includes(nodeId)) return;
-  setState({
-    ...state,
-    scenarios: {
-      ...state.scenarios,
-      [scenarioId]: { ...scenario, activeNodeId: nodeId, updatedAt: Date.now() },
-    },
-  });
-}
-
-function addNode(
-  scenarioId: string,
-  userMessage: string,
-  assistantMessage: string,
-  parentId: string | null
-): ScenarioNode {
-  const scenario = state.scenarios[scenarioId];
-  if (!scenario) throw new Error(`Scenario ${scenarioId} not found`);
-
-  const nodeId = createId();
-  const now = Date.now();
-  const node: ScenarioNode = {
-    id: nodeId,
-    parentId,
-    scenarioId,
-    userMessage,
-    assistantMessage,
-    createdAt: now,
-    rememberEnabled: false,
-  };
-
-  const updatedScenario: Scenario = {
-    ...scenario,
-    nodeIds: [...scenario.nodeIds, nodeId],
-    activeNodeId: nodeId,
-    rootNodeId: scenario.rootNodeId ?? nodeId,
-    updatedAt: now,
-  };
-
-  // Auto-title from first message
-  if (!scenario.rootNodeId) {
-    updatedScenario.title =
-      userMessage.length > 40
-        ? userMessage.slice(0, 40) + '…'
-        : userMessage;
-  }
-
-  setState({
-    ...state,
-    nodes: { ...state.nodes, [nodeId]: node },
-    scenarios: { ...state.scenarios, [scenarioId]: updatedScenario },
-  });
-
-  return node;
-}
-
-function toggleRemember(nodeId: string) {
-  const node = state.nodes[nodeId];
-  if (!node) return;
-  setState({
-    ...state,
-    nodes: {
-      ...state.nodes,
-      [nodeId]: { ...node, rememberEnabled: !node.rememberEnabled },
+    conversations: {
+      ...state.conversations,
+      [conversationId]: { ...conv, title, updatedAt: Date.now() },
     },
   });
 }
@@ -174,86 +96,138 @@ function setTheme(theme: ThemePreference) {
 export function useStore() {
   const appState = useSyncExternalStore(subscribe, getState, getState);
 
-  const activeScenario = appState.activeScenarioId
-    ? appState.scenarios[appState.activeScenarioId] ?? null
+  const activeConversation = appState.activeConversationId
+    ? appState.conversations[appState.activeConversationId] ?? null
     : null;
 
   const sendMessage = useCallback(
     async (
-      scenarioId: string,
+      conversationId: string,
       userMessage: string,
-      parentId: string | null,
       remember = false,
       browse = false,
     ) => {
       if (isPending) return false;
       setIsPending(true);
 
-      // Immediately create node with empty assistant message (loading state)
-      const node = addNode(scenarioId, userMessage, '', parentId);
+      const messageId = createId();
+      const now = Date.now();
+      const currentConv = getState().conversations[conversationId];
+      if (!currentConv) {
+        setIsPending(false);
+        return false;
+      }
+
+      const pendingMessage: ChatMessage = {
+        id: messageId,
+        userMessage,
+        assistantMessage: '',
+        createdAt: now,
+      };
+
+      const updatedTitle =
+        currentConv.messages.length === 0
+          ? userMessage.length > 35
+            ? userMessage.slice(0, 35) + '…'
+            : userMessage
+          : currentConv.title;
+
+      const updatedConversation: Conversation = {
+        ...currentConv,
+        title: updatedTitle,
+        messages: [...currentConv.messages, pendingMessage],
+        updatedAt: now,
+      };
+
+      setState({
+        ...getState(),
+        conversations: {
+          ...getState().conversations,
+          [conversationId]: updatedConversation,
+        },
+      });
 
       try {
-        const currentAppState = getState();
-        const sc = currentAppState.scenarios[scenarioId];
-        const activeBranchPath = parentId ? getAncestorPath(parentId, currentAppState.nodes) : [];
-        const rememberedNodes = sc
-          ? getRememberedContext(activeBranchPath, sc, currentAppState.nodes)
-          : [];
-
-        const history = activeBranchPath
-          .map((id) => currentAppState.nodes[id])
-          .filter((branchNode) => branchNode?.assistantMessage)
-          .flatMap((branchNode) => [
-            { role: 'user', content: branchNode.userMessage },
-            { role: 'assistant', content: branchNode.assistantMessage },
+        const history = currentConv.messages
+          .filter((m) => m.assistantMessage.trim())
+          .flatMap((m) => [
+            { role: 'user', content: m.userMessage },
+            { role: 'assistant', content: m.assistantMessage },
           ])
           .slice(-12);
-        const rememberedContext = rememberedNodes
-          .map((rememberedNode) =>
-            `Earlier remembered exchange — user: ${rememberedNode.userMessage}\nassistant: ${rememberedNode.assistantMessage}`
-          )
-          .join('\n\n');
-        const message = rememberedContext
-          ? `${userMessage}\n\nRelevant context from exchanges I chose to remember:\n${rememberedContext}`
-          : userMessage;
+
         const response = await fetch('/api/v1/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message, history, remember, browse }),
+          body: JSON.stringify({
+            message: userMessage,
+            history,
+            remember,
+            browse,
+          }),
         });
+
         const payload = await response.json();
         if (!response.ok) {
-          throw new Error(payload?.error?.message ?? payload?.detail?.message ?? 'The assistant request failed.');
+          throw new Error(
+            payload?.error?.message ??
+            payload?.detail?.message ??
+            'The assistant request failed.'
+          );
         }
+
         if (typeof payload.reply !== 'string' || !payload.reply.trim()) {
           throw new Error('The assistant returned an empty response.');
         }
-        const answer = payload.reply as string;
-        // Update the node with the AI response
+
         const currentState = getState();
-        const existingNode = currentState.nodes[node.id];
-        if (existingNode) {
+        const convToUpdate = currentState.conversations[conversationId];
+        if (convToUpdate) {
+          const updatedMessages = convToUpdate.messages.map((m) =>
+            m.id === messageId
+              ? {
+                  ...m,
+                  assistantMessage: payload.reply as string,
+                  traceId: payload.trace_id as string | undefined,
+                  toolsAccessed: payload.tools_accessed,
+                }
+              : m
+          );
           setState({
             ...currentState,
-            nodes: {
-              ...currentState.nodes,
-              [node.id]: { ...existingNode, assistantMessage: answer },
+            conversations: {
+              ...currentState.conversations,
+              [conversationId]: {
+                ...convToUpdate,
+                messages: updatedMessages,
+                updatedAt: Date.now(),
+              },
             },
           });
         }
         return payload.memory_saved === true;
       } catch (error) {
-        // Surface backend/provider failures instead of silently substituting canned replies.
         const currentState = getState();
-        const existingNode = currentState.nodes[node.id];
-        if (existingNode) {
+        const convToUpdate = currentState.conversations[conversationId];
+        if (convToUpdate) {
+          const updatedMessages = convToUpdate.messages.map((m) =>
+            m.id === messageId
+              ? {
+                  ...m,
+                  assistantMessage: `I couldn't get a response from the assistant. ${
+                    error instanceof Error ? error.message : 'Please try again.'
+                  }`,
+                }
+              : m
+          );
           setState({
             ...currentState,
-            nodes: {
-              ...currentState.nodes,
-              [node.id]: {
-                ...existingNode,
-                assistantMessage: `I couldn't get a response from the assistant. ${error instanceof Error ? error.message : 'Please try again.'}`,
+            conversations: {
+              ...currentState.conversations,
+              [conversationId]: {
+                ...convToUpdate,
+                messages: updatedMessages,
+                updatedAt: Date.now(),
               },
             },
           });
@@ -268,17 +242,15 @@ export function useStore() {
 
   return {
     state: appState,
-    activeScenario,
+    activeConversation,
     isPending,
 
     // Actions
-    createScenario,
-    deleteScenario,
-    setActiveScenario,
-    renameScenario,
-    setActiveNode,
+    createConversation,
+    deleteConversation,
+    setActiveConversation,
+    renameConversation,
     sendMessage,
-    toggleRemember,
     setTheme,
   };
 }

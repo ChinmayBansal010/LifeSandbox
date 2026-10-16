@@ -65,3 +65,18 @@ class FileRow(Base):
     size_bytes: Mapped[int] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String(30), default="pending_upload")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class PromptTraceRow(Base):
+    __tablename__ = "prompt_traces"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(String(200), index=True)
+    conversation_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    prompt: Mapped[str] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(String(20), default="running")
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    total_duration_ms: Mapped[float | None] = mapped_column(nullable=True)
+    tools_accessed: Mapped[str] = mapped_column(Text, default="[]")
+    response_preview: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)

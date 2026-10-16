@@ -1,51 +1,110 @@
-/* ─── Local storage persistence ────────────────────────────────────── */
+/* ─── Local storage persistence with migration ──────────────────────── */
 
-import type { AppState } from './types';
+import type { AppState, ChatMessage, Conversation, ThemePreference } from './types';
 
 const STORAGE_KEY = 'life-sandbox-state';
-const STORAGE_VERSION = 1;
+const STORAGE_VERSION = 2;
 
-type StoredState = {
-  version: number;
-  data: AppState;
+type LegacyScenarioNode = {
+  id: string;
+  parentId: string | null;
+  userMessage: string;
+  assistantMessage: string;
+  createdAt: number;
+};
+
+type LegacyScenario = {
+  id: string;
+  title: string;
+  nodeIds: string[];
+  createdAt: number;
+  updatedAt: number;
+};
+
+type StoredPayload = {
+  version?: number;
+  data?: {
+    conversations?: Record<string, Conversation>;
+    activeConversationId?: string | null;
+    scenarios?: Record<string, LegacyScenario>;
+    nodes?: Record<string, LegacyScenarioNode>;
+    activeScenarioId?: string | null;
+    theme?: ThemePreference;
+  };
 };
 
 const DEFAULT_STATE: AppState = {
-  scenarios: {},
-  nodes: {},
-  activeScenarioId: null,
+  conversations: {},
+  activeConversationId: null,
   theme: 'system',
 };
 
 /**
- * Load application state from localStorage.
- * Returns default state if nothing is stored or data is invalid.
+ * Load application state from localStorage with backward-compatible migration.
  */
 export function loadState(): AppState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return { ...DEFAULT_STATE };
 
-    const parsed: StoredState = JSON.parse(raw);
-    if (!parsed || parsed.version !== STORAGE_VERSION || !parsed.data) {
+    const parsed: StoredPayload = JSON.parse(raw);
+    if (!parsed || !parsed.data) {
       return { ...DEFAULT_STATE };
     }
 
-    // Validate basic structure
     const { data } = parsed;
-    if (
-      typeof data.scenarios !== 'object' ||
-      typeof data.nodes !== 'object'
-    ) {
-      return { ...DEFAULT_STATE };
+    const theme: ThemePreference = data.theme ?? 'system';
+
+    // If already in new conversation format
+    if (data.conversations && typeof data.conversations === 'object') {
+      return {
+        conversations: data.conversations,
+        activeConversationId: data.activeConversationId ?? Object.keys(data.conversations)[0] ?? null,
+        theme,
+      };
     }
 
-    return {
-      scenarios: data.scenarios ?? {},
-      nodes: data.nodes ?? {},
-      activeScenarioId: data.activeScenarioId ?? null,
-      theme: data.theme ?? 'system',
-    };
+    // Auto-migrate from legacy branching scenario tree format
+    if (data.scenarios && typeof data.scenarios === 'object') {
+      const migratedConversations: Record<string, Conversation> = {};
+      const legacyNodes = data.nodes ?? {};
+
+      for (const [id, sc] of Object.entries(data.scenarios)) {
+        const messages: ChatMessage[] = (sc.nodeIds || [])
+          .map((nid) => legacyNodes[nid])
+          .filter(Boolean)
+          .sort((a, b) => a.createdAt - b.createdAt)
+          .map((n) => ({
+            id: n.id,
+            userMessage: n.userMessage,
+            assistantMessage: n.assistantMessage,
+            createdAt: n.createdAt,
+          }));
+
+        migratedConversations[id] = {
+          id: sc.id || id,
+          title: sc.title || 'Untitled Chat',
+          messages,
+          createdAt: sc.createdAt || Date.now(),
+          updatedAt: sc.updatedAt || Date.now(),
+        };
+      }
+
+      const activeId = data.activeScenarioId && migratedConversations[data.activeScenarioId]
+        ? data.activeScenarioId
+        : Object.keys(migratedConversations)[0] ?? null;
+
+      const migratedState: AppState = {
+        conversations: migratedConversations,
+        activeConversationId: activeId,
+        theme,
+      };
+
+      saveState(migratedState);
+      return migratedState;
+    }
+
+    return { ...DEFAULT_STATE };
   } catch {
     return { ...DEFAULT_STATE };
   }
@@ -56,21 +115,20 @@ export function loadState(): AppState {
  */
 export function saveState(state: AppState): void {
   try {
-    const stored: StoredState = {
+    const stored = {
       version: STORAGE_VERSION,
       data: state,
     };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
   } catch {
-    // Storage full or unavailable — silently fail
     console.warn('Failed to persist state to localStorage');
   }
 }
 
 /**
- * Load theme preference (fast path for initial render).
+ * Fast-path theme loader.
  */
-export function loadThemePreference(): 'light' | 'dark' | 'system' {
+export function loadThemePreference(): ThemePreference {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return 'system';

@@ -20,12 +20,14 @@ from app.persistence.models import (
     FileRow,
     MemoryRow,
     MessageRow,
+    PromptTraceRow,
 )
 from app.persistence.session import engine, get_session
 from app.providers.llm import LLMError
 from app.providers.browser_use import is_configured as browser_use_is_configured
 from app.providers.mem0 import is_configured as mem0_is_configured
 from app.services.chat import run_chat
+from app.services.tool_tracker import clear_traces, get_stats, get_trace_by_id, get_traces
 
 settings = get_settings()
 logging.basicConfig(
@@ -585,3 +587,52 @@ async def feedback(
     db.add(row)
     await db.commit()
     return {"status": "recorded"}
+
+
+@app.get("/api/v1/admin/traces")
+async def list_admin_traces(
+    limit: int = 50,
+    offset: int = 0,
+    search: str | None = None,
+    tool_filter: str | None = None,
+    status: str | None = None,
+    _: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(get_session),
+):
+    items = await get_traces(
+        db=db,
+        limit=limit,
+        offset=offset,
+        search=search,
+        tool_filter=tool_filter,
+        status_filter=status,
+    )
+    return {"items": items}
+
+
+@app.get("/api/v1/admin/traces/{trace_id}")
+async def get_admin_trace(
+    trace_id: str,
+    _: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(get_session),
+):
+    item = await get_trace_by_id(trace_id, db=db)
+    if not item:
+        raise HTTPException(404, detail={"code": "not_found", "message": "Trace not found"})
+    return item
+
+
+@app.delete("/api/v1/admin/traces", status_code=204)
+async def clear_admin_traces(
+    _: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(get_session),
+):
+    await clear_traces(db=db)
+
+
+@app.get("/api/v1/admin/stats")
+async def admin_stats(
+    _: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(get_session),
+):
+    return await get_stats(db=db)

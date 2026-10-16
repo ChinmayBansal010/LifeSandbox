@@ -1,30 +1,60 @@
-/* ─── Types: Core scenario graph model ──────────────────────────────── */
+/* ─── Types: Conversations, Messages, and Tool Observability Traces ───── */
 
-export type ScenarioNode = {
+export type ToolAccessItem = {
   id: string;
-  parentId: string | null;
-  scenarioId: string;
+  tool_name: string;
+  tool_type: string;
+  started_at: string;
+  completed_at: string;
+  duration_ms: number;
+  status: 'running' | 'success' | 'error';
+  input_data?: unknown;
+  output_data?: unknown;
+  error?: string | null;
+};
+
+export type ChatMessage = {
+  id: string;
   userMessage: string;
   assistantMessage: string;
   createdAt: number;
-  rememberEnabled: boolean;
+  traceId?: string;
+  toolsAccessed?: ToolAccessItem[];
 };
 
-export type Scenario = {
+export type Conversation = {
   id: string;
   title: string;
-  rootNodeId: string | null;
-  activeNodeId: string | null;
-  nodeIds: string[];
+  messages: ChatMessage[];
   createdAt: number;
   updatedAt: number;
 };
 
+export type ThemePreference = 'light' | 'dark' | 'system';
+
 export type AppState = {
-  scenarios: Record<string, Scenario>;
-  nodes: Record<string, ScenarioNode>;
-  activeScenarioId: string | null;
-  theme: 'light' | 'dark' | 'system';
+  conversations: Record<string, Conversation>;
+  activeConversationId: string | null;
+  theme: ThemePreference;
 };
 
-export type ThemePreference = 'light' | 'dark' | 'system';
+export type PromptTrace = {
+  id: string;
+  user_id: string;
+  conversation_id?: string | null;
+  prompt: string;
+  status: 'running' | 'completed' | 'failed';
+  started_at: string;
+  completed_at?: string | null;
+  total_duration_ms?: number | null;
+  tools_accessed: ToolAccessItem[];
+  response_preview?: string | null;
+  error?: string | null;
+};
+
+export type AdminStats = {
+  total_prompts: number;
+  total_tool_calls: number;
+  avg_duration_ms: number;
+  tool_breakdown: Record<string, number>;
+};
