@@ -75,8 +75,8 @@ class OpenAICompatibleModel(ChatModel):
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json",
                 }
-                attempts = [(self.model, "low"), (self.model, "none")]
-                if self.provider == "openrouter" and self.fallback_model:
+                attempts = [(self.model, "none")]
+                if self.provider == "openrouter" and self.fallback_model and self.fallback_model != self.model:
                     attempts.append((self.fallback_model, "none"))
                 for requested_model, reasoning_effort in attempts:
                     payload["model"] = requested_model
@@ -105,7 +105,7 @@ class OpenAICompatibleModel(ChatModel):
                 )
         except httpx.HTTPStatusError as exc:
             raise LLMError(
-                f"{self.provider} returned HTTP {exc.response.status_code}",
+                f"{self.provider} returned HTTP {exc.response.status_code}: {exc.response.text}",
                 provider=self.provider,
                 status_code=exc.response.status_code,
             ) from exc

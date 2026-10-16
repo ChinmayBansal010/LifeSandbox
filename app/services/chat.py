@@ -95,15 +95,20 @@ async def run_chat(
 
         await db.refresh(row)
         trace_data["response_preview"] = state["reply"][:500]
+        trace_data["skill"] = state.get("skill")
+        trace_data["skill_trigger"] = state.get("skill_trigger")
+        trace_data["intent"] = state.get("intent")
 
         return {
             "conversation_id": row.id,
             "reply": state["reply"],
             "intent": state["intent"],
             "skill": state.get("skill"),
+            "skill_trigger": state.get("skill_trigger"),
             "provider": state["provider"],
             "model": state.get("model"),
             "memory_saved": memory_saved,
             "trace_id": trace_data.get("id"),
             "tools_accessed": trace_data.get("tools_accessed", []),
         }
+

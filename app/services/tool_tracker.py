@@ -165,6 +165,14 @@ async def get_traces(
                     tools = json.loads(r.tools_accessed or "[]")
                 except Exception:
                     pass
+                skill, skill_trigger, intent = None, None, None
+                for t in tools:
+                    if t.get("tool_name") == "intent_classifier":
+                        out = t.get("output_data") or {}
+                        if isinstance(out, dict):
+                            skill = out.get("skill")
+                            skill_trigger = out.get("skill_trigger")
+                            intent = out.get("intent")
                 item = {
                     "id": r.id,
                     "user_id": r.user_id,
@@ -177,6 +185,9 @@ async def get_traces(
                     "tools_accessed": tools,
                     "response_preview": r.response_preview,
                     "error": r.error,
+                    "skill": skill,
+                    "skill_trigger": skill_trigger,
+                    "intent": intent,
                 }
                 results.append(item)
 
@@ -230,6 +241,14 @@ async def get_trace_by_id(trace_id: str, db: AsyncSession | None = None) -> dict
                     tools = json.loads(r.tools_accessed or "[]")
                 except Exception:
                     pass
+                skill, skill_trigger, intent = None, None, None
+                for t in tools:
+                    if t.get("tool_name") == "intent_classifier":
+                        out = t.get("output_data") or {}
+                        if isinstance(out, dict):
+                            skill = out.get("skill")
+                            skill_trigger = out.get("skill_trigger")
+                            intent = out.get("intent")
                 return {
                     "id": r.id,
                     "user_id": r.user_id,
@@ -242,6 +261,9 @@ async def get_trace_by_id(trace_id: str, db: AsyncSession | None = None) -> dict
                     "tools_accessed": tools,
                     "response_preview": r.response_preview,
                     "error": r.error,
+                    "skill": skill,
+                    "skill_trigger": skill_trigger,
+                    "intent": intent,
                 }
         except Exception:
             pass

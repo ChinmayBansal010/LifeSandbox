@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 
 
@@ -56,6 +57,55 @@ SKILLS = (
 )
 
 
+def detect_skill(text: str) -> tuple[Skill | None, str | None]:
+    lowered = text.lower().strip()
+    if not lowered:
+        return None, None
+
+    # Check for explicit slash command: /<skill_name>
+    tokens = lowered.split()
+    first_token = tokens[0] if tokens else ""
+
+    for s in SKILLS:
+        slash_names = [
+            f"/{s.name.lower()}",
+            f"/{s.name.lower().replace('_', '-')}",
+        ]
+        if s.name == "budgeting":
+            slash_names.append("/budget")
+        elif s.name == "time_management":
+            slash_names.extend(["/time", "/schedule"])
+
+        for slash_name in slash_names:
+            if first_token == slash_name or first_token.startswith(slash_name + ":") or first_token.startswith(slash_name + "/"):
+                return s, "slash_command"
+            if re.search(r'(?:^|\s)' + re.escape(slash_name) + r'(?:\s|$|:)', lowered):
+                return s, "slash_command"
+
+    # Context-based keyword detection
+    for s in SKILLS:
+        for keyword in s.keywords:
+            if re.search(rf"\b{re.escape(keyword)}\b", lowered):
+                return s, "context"
+
+    return None, None
+
+
 def select_skill(text: str) -> Skill | None:
-    lowered = text.lower()
-    return next((s for s in SKILLS if any(word in lowered for word in s.keywords)), None)
+    skill, _ = detect_skill(text)
+    return skill
+
+
+def get_all_skills_data() -> list[dict]:
+    return [
+        {
+            "name": s.name,
+            "description": s.description,
+            "keywords": list(s.keywords),
+            "instructions": s.instructions,
+            "tools": list(s.tools),
+            "slash_command": f"/{s.name.replace('_', '-')}",
+        }
+        for s in SKILLS
+    ]
+

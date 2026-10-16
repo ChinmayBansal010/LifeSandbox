@@ -11,10 +11,12 @@ import {
   Globe,
   MessageSquare,
   Activity,
+  Command,
   type LucideIcon,
 } from 'lucide-react';
 import type { Conversation, ChatMessage } from '../types';
 import { formatTimestamp } from '../graph-utils';
+import { FormattedMessage } from './FormattedMessage';
 
 type ChatProps = {
   conversation: Conversation;
@@ -137,7 +139,7 @@ function MessageBubble({
 
       {/* Assistant message */}
       <div className="flex justify-start">
-        <div className="max-w-[85%] sm:max-w-[70%] lg:max-w-[60%]">
+        <div className="max-w-[85%] sm:max-w-[70%] lg:max-w-[65%]">
           <div className="bg-surface border border-border px-4 py-3 rounded-2xl rounded-bl-md text-sm leading-relaxed text-fg shadow-xs">
             {isLoading ? (
               <div className="flex items-center gap-2.5 text-fg-muted py-1.5">
@@ -145,7 +147,23 @@ function MessageBubble({
                 <span className="text-xs">Processing prompt and accessing tools…</span>
               </div>
             ) : (
-              <div className="whitespace-pre-wrap">{message.assistantMessage}</div>
+              <div>
+                {message.skill && (
+                  <div className="flex items-center gap-1.5 mb-2.5 pb-2 border-b border-border/60 text-[11px] text-fg-muted flex-wrap">
+                    <Sparkles size={13} className="text-accent shrink-0" />
+                    <span className="font-semibold text-fg">Skill Applied:</span>
+                    <span className="px-2 py-0.5 rounded-full bg-accent-muted text-accent font-medium text-[10px] border border-accent/20">
+                      /{message.skill.replace('_', '-')}
+                    </span>
+                    {message.skillTrigger && (
+                      <span className="text-[10px] text-fg-muted font-mono bg-bg-secondary px-1.5 py-0.5 rounded border border-border/50">
+                        {message.skillTrigger === 'slash_command' ? 'slash command' : 'context detected'}
+                      </span>
+                    )}
+                  </div>
+                )}
+                <FormattedMessage content={message.assistantMessage} />
+              </div>
             )}
           </div>
 
@@ -380,13 +398,43 @@ export default function Chat({
       {/* Composer */}
       <div className="border-t border-border bg-bg px-4 py-3 shrink-0">
         <div className="max-w-3xl mx-auto">
+          {/* Quick Skill Slash Commands */}
+          <div className="flex items-center gap-1.5 mb-2 overflow-x-auto pb-1 text-xs">
+            <span className="text-[11px] font-medium text-fg-muted flex items-center gap-1 shrink-0">
+              <Command size={11} className="text-accent" />
+              <span>Skills:</span>
+            </span>
+            {[
+              { name: 'budgeting', cmd: '/budgeting' },
+              { name: 'career', cmd: '/career' },
+              { name: 'education', cmd: '/education' },
+              { name: 'purchasing', cmd: '/purchasing' },
+              { name: 'travel', cmd: '/travel' },
+              { name: 'time-management', cmd: '/time-management' },
+            ].map((s) => (
+              <button
+                key={s.cmd}
+                type="button"
+                onClick={() => {
+                  const prefix = `${s.cmd} `;
+                  setInput((prev) => (prev.startsWith('/') ? `${prefix}${prev.replace(/^\/\S+\s*/, '')}` : `${prefix}${prev}`));
+                  textareaRef.current?.focus();
+                }}
+                className="px-2 py-0.5 rounded-md bg-surface border border-border hover:border-accent hover:text-accent text-[11px] font-mono text-fg-secondary transition-colors shrink-0 shadow-2xs"
+                title={`Trigger ${s.name} skill`}
+              >
+                {s.cmd}
+              </button>
+            ))}
+          </div>
+
           <div className="flex items-end gap-2 bg-surface border border-border rounded-xl px-3 py-2 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent/30 transition-all shadow-xs">
             <textarea
               ref={textareaRef}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask a question or enter a prompt…"
+              placeholder="Ask a question, comparison, or use /<skill> (e.g. /budgeting, /career)…"
               rows={1}
               disabled={isPending}
               className="flex-1 resize-none bg-transparent text-sm text-fg placeholder:text-fg-muted focus:outline-none py-1 max-h-[150px]"

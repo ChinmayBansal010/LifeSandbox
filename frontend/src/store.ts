@@ -161,22 +161,37 @@ export function useStore() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             message: userMessage,
+            conversation_id: conversationId,
             history,
             remember,
             browse,
           }),
         });
 
-        const payload = await response.json();
-        if (!response.ok) {
-          throw new Error(
-            payload?.error?.message ??
-            payload?.detail?.message ??
-            'The assistant request failed.'
-          );
+        const rawText = await response.text();
+        let payload: any = null;
+        if (rawText.trim()) {
+          try {
+            payload = JSON.parse(rawText);
+          } catch {
+            payload = null;
+          }
         }
 
-        if (typeof payload.reply !== 'string' || !payload.reply.trim()) {
+        if (!response.ok) {
+          const serverError =
+            payload?.error?.message ??
+            payload?.detail?.message ??
+            payload?.detail ??
+            (typeof payload?.error === 'string' ? payload.error : null) ??
+            (rawText.length > 0 && rawText.length < 250 ? rawText : null) ??
+            (response.status === 502 || response.status === 504
+              ? 'Backend API server is not responding. Please make sure the FastAPI backend is running.'
+              : `Server error (HTTP ${response.status} ${response.statusText || ''})`.trim());
+          throw new Error(serverError || 'The assistant request failed.');
+        }
+
+        if (!payload || typeof payload.reply !== 'string' || !payload.reply.trim()) {
           throw new Error('The assistant returned an empty response.');
         }
 
@@ -190,6 +205,9 @@ export function useStore() {
                   assistantMessage: payload.reply as string,
                   traceId: payload.trace_id as string | undefined,
                   toolsAccessed: payload.tools_accessed,
+                  skill: payload.skill as string | undefined,
+                  skillTrigger: payload.skill_trigger as string | undefined,
+                  intent: payload.intent as string | undefined,
                 }
               : m
           );

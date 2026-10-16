@@ -20,6 +20,9 @@ export type ChatMessage = {
   createdAt: number;
   traceId?: string;
   toolsAccessed?: ToolAccessItem[];
+  skill?: string | null;
+  skillTrigger?: string | null;
+  intent?: string | null;
 };
 
 export type Conversation = {
@@ -50,6 +53,18 @@ export type PromptTrace = {
   tools_accessed: ToolAccessItem[];
   response_preview?: string | null;
   error?: string | null;
+  skill?: string | null;
+  skill_trigger?: string | null;
+  intent?: string | null;
+};
+
+export type SkillItem = {
+  name: string;
+  description: string;
+  keywords: string[];
+  instructions: string;
+  tools: string[];
+  slash_command: string;
 };
 
 export type AdminStats = {

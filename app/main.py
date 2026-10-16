@@ -128,6 +128,13 @@ async def capabilities():
     }
 
 
+@app.get("/api/v1/skills")
+async def list_skills():
+    from app.skills.registry import get_all_skills_data
+    return {"skills": get_all_skills_data()}
+
+
+
 @app.post("/api/v1/chat")
 async def chat(
     payload: ChatRequest,
