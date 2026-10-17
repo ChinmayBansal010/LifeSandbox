@@ -269,7 +269,7 @@ function DateTimeField({
               <span className="life-clock-center" />
               <span className="life-clock-hand" style={{ '--clock-angle': `${clockMode === 'hour' ? (displayHour % 12) * 30 : minuteAngle}deg` } as CSSProperties} />
               {clockMode === 'hour'
-                ? clockValues.map((clockValue, index) => <span key={clockValue} className={`life-clock-number ${clockValue === displayHour ? 'is-selected' : ''}`} style={{ '--clock-angle': `${index * 30}deg` } as CSSProperties}>{String(clockValue).padStart(2, '0')}</span>)
+                ? clockValues.map((clockValue) => <span key={clockValue} className={`life-clock-number ${clockValue === displayHour ? 'is-selected' : ''}`} style={{ '--clock-angle': `${(clockValue % 12) * 30}deg` } as CSSProperties}>{clockValue}</span>)
                 : Array.from({ length: 12 }, (_, index) => index * 5).map((minuteValue, index) => <span key={minuteValue} className={`life-clock-number ${minuteValue === minute ? 'is-selected' : ''}`} style={{ '--clock-angle': `${index * 30}deg` } as CSSProperties}>{String(minuteValue).padStart(2, '0')}</span>)}
             </div>
             <p className="mt-2 text-center text-[10px] text-fg-muted">Click or drag the dial to set the {clockMode}.</p>
