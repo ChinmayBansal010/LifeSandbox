@@ -354,6 +354,11 @@
     font-family: inherit;
   }
 
+  .life-clock-hour .life-clock-number.is-selected {
+    background: var(--color-accent);
+    color: var(--color-accent-fg);
+  }
+
   .life-clock-hand {
     position: absolute;
     top: 50%;
