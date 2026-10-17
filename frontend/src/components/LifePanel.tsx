@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useEffect, useRef, useState, type FormEvent, type SelectHTMLAttributes } from 'react';
+import { startTransition, useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { Archive, Bell, BrainCircuit, CalendarDays, Check, ChevronDown, FolderKanban, ListTodo, Pencil, Play, Plus, RefreshCw, Trash2, X } from 'lucide-react';
 
 type Item = Record<string, any>;
@@ -59,23 +59,164 @@ function PolicySwitch({
   );
 }
 
-function SelectField({
+type ComboOption = { value: string; label: string };
+
+function ComboBox({
   name,
   label,
-  children,
+  options,
+  defaultValue = '',
+  value,
+  onChange,
+  disabled = false,
   className = '',
-  ...props
-}: SelectHTMLAttributes<HTMLSelectElement> & { label: string }) {
+}: {
+  name?: string;
+  label: string;
+  options: ComboOption[];
+  defaultValue?: string;
+  value?: string;
+  onChange?: (value: string) => void;
+  disabled?: boolean;
+  className?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [selected, setSelected] = useState(value ?? defaultValue);
+  const root = useRef<HTMLDivElement>(null);
+  const current = options.find((option) => option.value === selected) ?? options[0];
+
+  useEffect(() => {
+    if (value !== undefined) setSelected(value);
+  }, [value]);
+
+  useEffect(() => {
+    const close = (event: MouseEvent) => {
+      if (root.current && !root.current.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, []);
+
+  function choose(next: string) {
+    setSelected(next);
+    onChange?.(next);
+    setOpen(false);
+  }
+
   return (
-    <label className={`life-field ${className}`}>
+    <div className={`life-field ${className}`} ref={root}>
       <span className="life-field-label">{label}</span>
+      {name && <input type="hidden" name={name} value={selected} />}
       <span className="relative block">
-        <select {...props} name={name} aria-label={props['aria-label'] ?? label} className="app-select life-control w-full">
-          {children}
-        </select>
-        <ChevronDown aria-hidden="true" size={15} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-fg-muted" />
+        <button
+          type="button"
+          className="life-control flex w-full items-center justify-between gap-2 text-left"
+          aria-haspopup="listbox"
+          aria-expanded={open}
+          aria-label={label}
+          disabled={disabled}
+          onClick={() => setOpen((currentOpen) => !currentOpen)}
+        >
+          <span className={current ? 'truncate text-fg' : 'text-fg-muted'}>{current?.label ?? 'Choose an option'}</span>
+          <ChevronDown aria-hidden="true" size={15} className={`shrink-0 text-fg-muted transition-transform ${open ? 'rotate-180' : ''}`} />
+        </button>
+        {open && (
+          <div className="life-combobox-menu" role="listbox" aria-label={label}>
+            {options.map((option) => (
+              <button
+                type="button"
+                role="option"
+                aria-selected={option.value === selected}
+                key={option.value}
+                className={`life-combobox-option ${option.value === selected ? 'is-selected' : ''}`}
+                onClick={() => choose(option.value)}
+              >
+                <span>{option.label}</span>
+                {option.value === selected && <Check size={14} />}
+              </button>
+            ))}
+          </div>
+        )}
       </span>
-    </label>
+    </div>
+  );
+}
+
+function DateTimeField({
+  name,
+  label,
+  defaultValue = '',
+  required = false,
+}: {
+  name: string;
+  label: string;
+  defaultValue?: string;
+  required?: boolean;
+}) {
+  const initial = defaultValue || '';
+  const [value, setValue] = useState(initial);
+  const [open, setOpen] = useState(false);
+  const [month, setMonth] = useState(() => {
+    const source = initial ? new Date(initial) : new Date();
+    return new Date(source.getFullYear(), source.getMonth(), 1);
+  });
+  const root = useRef<HTMLDivElement>(null);
+  const datePart = value.split('T')[0] || '';
+  const timePart = value.split('T')[1] || '09:00';
+  const year = month.getFullYear();
+  const monthIndex = month.getMonth();
+  const daysInMonth = new Date(year, monthIndex + 1, 0).getDate();
+  const firstDay = new Date(year, monthIndex, 1).getDay();
+  const monthName = month.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  const dayCells = Array.from({ length: firstDay + daysInMonth }, (_, index) => {
+    if (index < firstDay) return null;
+    return index - firstDay + 1;
+  });
+
+  useEffect(() => {
+    const close = (event: MouseEvent) => {
+      if (root.current && !root.current.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, []);
+
+  function updateDate(day: number) {
+    const nextDate = `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    setValue(`${nextDate}T${timePart}`);
+  }
+
+  return (
+    <div className="life-field relative" ref={root}>
+      <span className="life-field-label">{label}</span>
+      <input type="hidden" name={name} value={value} required={required} />
+      <button type="button" className="life-control flex w-full items-center justify-between gap-2 text-left" onClick={() => setOpen((currentOpen) => !currentOpen)} aria-expanded={open} aria-label={label}>
+        <span className={value ? 'text-fg' : 'text-fg-muted'}>{value ? `${datePart} · ${timePart}` : 'Choose date and time'}</span>
+        <CalendarDays size={15} className="shrink-0 text-fg-muted" />
+      </button>
+      {open && (
+        <div className="life-date-popover">
+          <div className="flex items-center justify-between gap-3">
+            <button type="button" className="life-icon-button" aria-label="Previous month" onClick={() => setMonth(new Date(year, monthIndex - 1, 1))}>‹</button>
+            <strong className="text-sm">{monthName}</strong>
+            <button type="button" className="life-icon-button" aria-label="Next month" onClick={() => setMonth(new Date(year, monthIndex + 1, 1))}>›</button>
+          </div>
+          <div className="mt-3 grid grid-cols-7 gap-1 text-center text-[10px] font-semibold text-fg-muted">
+            {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((day, index) => <span key={`${day}-${index}`}>{day}</span>)}
+          </div>
+          <div className="mt-1 grid grid-cols-7 gap-1">
+            {dayCells.map((day, index) => day === null ? <span key={`blank-${index}`} /> : (
+              <button type="button" key={day} className={`life-calendar-day ${datePart === `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}` ? 'is-selected' : ''}`} onClick={() => updateDate(day)}>{day}</button>
+            ))}
+          </div>
+          <div className="mt-3 border-t border-border pt-3">
+            <span className="life-field-label">Time</span>
+            <input type="time" className="life-control mt-1 w-full" value={timePart} onChange={(event) => setValue(`${datePart || new Date().toISOString().slice(0, 10)}T${event.target.value}`)} />
+          </div>
+          <button type="button" className="mt-3 w-full rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-accent-fg hover:bg-accent-hover" onClick={() => setOpen(false)}>Apply</button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -393,16 +534,16 @@ export default function LifePanel({ onClose }: { onClose: () => void }) {
               <SectionHeading icon={BrainCircuit} title="Saved memories" count={memories.length} />
               <form className="mb-4 grid gap-2 sm:grid-cols-[minmax(12rem,2fr)_1fr_1fr_auto]" onSubmit={(event) => void saveMemory(event)}>
                 <input name="content" aria-label="Memory content" className={field} placeholder="A fact you explicitly want remembered" required maxLength={2000} />
-                <select name="category" aria-label="Memory category" className={`${field} app-select`}><option value="preference">Preference</option><option value="profile">Profile</option><option value="project">Project</option><option value="episode">Episode</option></select>
-                <select name="project_id" aria-label="Related project" className={`${field} app-select`}><option value="">No project link</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.title}</option>)}</select>
+                <ComboBox name="category" label="Category" defaultValue="preference" options={[{ value: 'preference', label: 'Preference' }, { value: 'profile', label: 'Profile' }, { value: 'project', label: 'Project' }, { value: 'episode', label: 'Episode' }]} />
+                <ComboBox name="project_id" label="Related project" options={[{ value: '', label: 'No project link' }, ...projects.map((project) => ({ value: project.id, label: project.title }))]} />
                 <button className={primary} disabled={busy}><Plus size={15} />Save</button>
               </form>
-              <div className="mb-3 flex items-center gap-2"><label htmlFor="memory-category-filter" className="text-sm text-fg-muted">Category</label><select id="memory-category-filter" className={`${field} app-select`} value={memoryCategoryFilter} onChange={(event) => setMemoryCategoryFilter(event.target.value)}><option value="all">All</option>{Array.from(new Set(memories.map((memory) => memory.category))).map((category) => <option key={category}>{category}</option>)}</select></div>
+              <div className="mb-3 max-w-48"><ComboBox label="Filter category" value={memoryCategoryFilter} onChange={setMemoryCategoryFilter} options={[{ value: 'all', label: 'All categories' }, ...Array.from(new Set(memories.map((memory) => memory.category))).map((category) => ({ value: category, label: category }))]} /></div>
               <ul className="divide-y divide-border">{memories.filter((memory) => memoryCategoryFilter === 'all' || memory.category === memoryCategoryFilter).map((memory) => <li key={memory.id} className="py-3">
                 {editingMemory === memory.id ? <form className="grid gap-2 sm:grid-cols-[2fr_1fr_1fr_auto_auto]" onSubmit={(event) => void saveMemory(event, memory.id)}>
                   <input name="content" aria-label="Edit memory" className={field} defaultValue={memory.content} required maxLength={2000} />
-                  <select name="category" aria-label="Edit memory category" className={`${field} app-select`} defaultValue={memory.category}>{['preference', 'profile', 'project', 'episode'].map((category) => <option key={category}>{category}</option>)}</select>
-                  <select name="project_id" aria-label="Link memory to project" className={`${field} app-select`} defaultValue={memory.project_id ?? ''}><option value="">No project link</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.title}</option>)}</select>
+                  <ComboBox name="category" label="Category" defaultValue={memory.category} options={['preference', 'profile', 'project', 'episode'].map((category) => ({ value: category, label: category }))} />
+                  <ComboBox name="project_id" label="Related project" defaultValue={memory.project_id ?? ''} options={[{ value: '', label: 'No project link' }, ...projects.map((project) => ({ value: project.id, label: project.title }))]} />
                   <button className={primary} disabled={busy}><Check size={15} />Save</button><button type="button" className={secondary} onClick={() => setEditingMemory(null)}>Cancel</button>
                 </form> : <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0"><span className="mr-2 text-xs uppercase text-fg-muted">{memory.category} · {memory.status}</span><p>{memory.content}</p><p className="mt-1 text-xs text-fg-muted">{memory.source} · {timestamp(memory.updated_at)}{memory.project_id ? ` · ${projects.find((project) => project.id === memory.project_id)?.title ?? 'Linked project'}` : ''}</p></div>
@@ -421,19 +562,19 @@ export default function LifePanel({ onClose }: { onClose: () => void }) {
               <input name="next_action" aria-label="Next action" className={field} placeholder="Next action" />
               <input name="progress" aria-label="Project progress" className={field} placeholder="Progress" />
               <input name="blocker" aria-label="Project blocker" className={field} placeholder="Blocker" />
-              <input name="target_at" aria-label="Project target date" className={`${field} app-date-time`} type="datetime-local" />
+              <DateTimeField name="target_at" label="Target date" />
               <button className={primary} disabled={busy}><Plus size={15} />Add project</button>
             </form>
             <ul className="divide-y divide-border">{projects.map((project) => <li key={project.id} className="py-3">
               {editingProject === project.id ? <form className="grid gap-2 md:grid-cols-3" onSubmit={(event) => void saveProject(event, project.id)}>
                 <input name="title" aria-label="Edit project title" className={field} defaultValue={project.title} required />
                 <input name="description" aria-label="Edit project description" className={field} defaultValue={project.description} />
-                <select name="status" aria-label="Project status" className={`${field} app-select`} defaultValue={project.status}><option>active</option><option>paused</option><option>completed</option><option>cancelled</option></select>
-                <select name="priority" aria-label="Project priority" className={`${field} app-select`} defaultValue={project.priority}><option>low</option><option>normal</option><option>high</option></select>
+                <ComboBox name="status" label="Status" defaultValue={project.status} options={['active', 'paused', 'completed', 'cancelled'].map((status) => ({ value: status, label: status }))} />
+                <ComboBox name="priority" label="Priority" defaultValue={project.priority} options={['low', 'normal', 'high'].map((priority) => ({ value: priority, label: priority }))} />
                 <input name="progress" aria-label="Project progress" className={field} defaultValue={project.progress} placeholder="Progress" />
                 <input name="blocker" aria-label="Project blocker" className={field} defaultValue={project.blocker} placeholder="Blocker" />
                 <input name="next_action" aria-label="Next action" className={field} defaultValue={project.next_action} placeholder="Next action" />
-                <input name="target_at" aria-label="Target date" className={`${field} app-date-time`} type="datetime-local" defaultValue={localDateTime(project.target_at)} />
+                <DateTimeField name="target_at" label="Target date" defaultValue={localDateTime(project.target_at)} />
                 <span className="flex gap-2"><button className={primary} disabled={busy}><Check size={15} />Save</button><button type="button" className={secondary} onClick={() => setEditingProject(null)}>Cancel</button></span>
               </form> : <div className="flex items-start justify-between gap-3">
                 <div><h3 className="font-medium">{project.title}</h3><p className="text-sm text-fg-muted">{project.status} · {project.priority}{project.target_at ? ` · target ${timestamp(project.target_at)}` : ''}</p>{project.progress && <p className="mt-1 text-sm">Progress: {project.progress}</p>}{project.blocker && <p className="text-sm">Blocker: {project.blocker}</p>}{project.next_action && <p className="text-sm">Next: {project.next_action}</p>}<p className="mt-1 text-xs text-fg-muted">{tasks.filter((task) => task.project_id === project.id).length} linked tasks · {memories.filter((memory) => memory.project_id === project.id).length} linked memories</p></div>
@@ -444,13 +585,13 @@ export default function LifePanel({ onClose }: { onClose: () => void }) {
           </section>}
 
           {section === 'tasks' && <section className="life-card">
-            <div className="mb-3 flex flex-wrap items-end justify-between gap-3"><SectionHeading icon={ListTodo} title="Tasks" count={tasks.length} /><SelectField label="Filter" value={taskStatusFilter} onChange={(event) => setTaskStatusFilter(event.target.value)}><option value="all">All statuses</option><option>pending</option><option>in_progress</option><option>completed</option><option>cancelled</option></SelectField></div>
+            <div className="mb-3 flex flex-wrap items-end justify-between gap-3"><SectionHeading icon={ListTodo} title="Tasks" count={tasks.length} /><ComboBox label="Filter status" value={taskStatusFilter} onChange={setTaskStatusFilter} options={[{ value: 'all', label: 'All statuses' }, { value: 'pending', label: 'Pending' }, { value: 'in_progress', label: 'In progress' }, { value: 'completed', label: 'Completed' }, { value: 'cancelled', label: 'Cancelled' }]} /></div>
             <form className="mb-4 grid gap-2 md:grid-cols-3" onSubmit={(event) => void saveTask(event)}>
               <input name="title" aria-label="Task title" className={field} placeholder="Task title" required />
               <input name="description" aria-label="Task description" className={field} placeholder="Description" />
-              <select name="project_id" aria-label="Task project" className={`${field} app-select`}><option value="">No project</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.title}</option>)}</select>
-              <select name="priority" aria-label="Task priority" className={`${field} app-select`}><option>normal</option><option>low</option><option>high</option></select>
-              <input name="due_at" aria-label="Task due date" className={`${field} app-date-time`} type="datetime-local" />
+              <ComboBox name="project_id" label="Project" options={[{ value: '', label: 'No project' }, ...projects.map((project) => ({ value: project.id, label: project.title }))]} />
+              <ComboBox name="priority" label="Priority" defaultValue="normal" options={['normal', 'low', 'high'].map((priority) => ({ value: priority, label: priority }))} />
+              <DateTimeField name="due_at" label="Due date" />
               <input name="timezone" aria-label="Task timezone" className={field} defaultValue={timezone} />
               <button className={primary} disabled={busy}><Plus size={15} />Add task</button>
             </form>
@@ -458,9 +599,9 @@ export default function LifePanel({ onClose }: { onClose: () => void }) {
               {editingTask === task.id ? <form className="grid gap-2 md:grid-cols-3" onSubmit={(event) => void saveTask(event, task.id)}>
                 <input name="title" aria-label="Edit task title" className={field} defaultValue={task.title} required />
                 <input name="description" aria-label="Edit task description" className={field} defaultValue={task.description} />
-                <select name="project_id" aria-label="Edit task project" className={`${field} app-select`} defaultValue={task.project_id ?? ''}><option value="">No project</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.title}</option>)}</select>
-                <select name="priority" aria-label="Edit task priority" className={`${field} app-select`} defaultValue={task.priority}><option>low</option><option>normal</option><option>high</option></select>
-                <input name="due_at" aria-label="Edit task due date" className={`${field} app-date-time`} type="datetime-local" defaultValue={localDateTime(task.due_at)} />
+                <ComboBox name="project_id" label="Project" defaultValue={task.project_id ?? ''} options={[{ value: '', label: 'No project' }, ...projects.map((project) => ({ value: project.id, label: project.title }))]} />
+                <ComboBox name="priority" label="Priority" defaultValue={task.priority} options={['low', 'normal', 'high'].map((priority) => ({ value: priority, label: priority }))} />
+                <DateTimeField name="due_at" label="Due date" defaultValue={localDateTime(task.due_at)} />
                 <input name="timezone" aria-label="Edit task timezone" className={field} defaultValue={task.timezone} />
                 <span className="flex gap-2"><button className={primary} disabled={busy}><Check size={15} />Save</button><button type="button" className={secondary} onClick={() => setEditingTask(null)}>Cancel</button></span>
               </form> : <div className="flex flex-wrap items-start justify-between gap-3">
@@ -476,10 +617,10 @@ export default function LifePanel({ onClose }: { onClose: () => void }) {
             <SectionHeading icon={CalendarDays} title="Reminders and delivery jobs" count={reminders.length} />
             <form className="mb-4 grid gap-2 md:grid-cols-3" onSubmit={(event) => void saveReminder(event)}>
               <input name="text" aria-label="Reminder text" className={field} placeholder="Reminder" required />
-              <input name="scheduled_at" aria-label="Reminder time" className={`${field} app-date-time`} type="datetime-local" required />
+              <DateTimeField name="scheduled_at" label="Reminder date and time" required />
               <input name="timezone" aria-label="Reminder timezone" className={field} defaultValue={timezone} required />
-              <select name="task_id" aria-label="Related task" className={`${field} app-select`}><option value="">No related task</option>{tasks.filter((task) => !['completed', 'cancelled'].includes(task.status)).map((task) => <option key={task.id} value={task.id}>{task.title}</option>)}</select>
-              <select name="recurrence" aria-label="Reminder recurrence" className={`${field} app-select`}><option value="none">One time</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select>
+              <ComboBox name="task_id" label="Related task" options={[{ value: '', label: 'No related task' }, ...tasks.filter((task) => !['completed', 'cancelled'].includes(task.status)).map((task) => ({ value: task.id, label: task.title }))]} />
+              <ComboBox name="recurrence" label="Repeat" defaultValue="none" options={[{ value: 'none', label: 'One time' }, { value: 'daily', label: 'Daily' }, { value: 'weekly', label: 'Weekly' }]} />
               <button className={primary} disabled={busy}><Plus size={15} />Schedule</button>
             </form>
             <ul className="divide-y divide-border">{reminders.map((reminder) => {
@@ -488,10 +629,10 @@ export default function LifePanel({ onClose }: { onClose: () => void }) {
               return <li key={reminder.id} className="py-3">
                 {editingReminder === reminder.id ? <form className="grid gap-2 md:grid-cols-3" onSubmit={(event) => void saveReminder(event, reminder.id)}>
                   <input name="text" aria-label="Edit reminder text" className={field} defaultValue={reminder.text} required />
-                  <input name="scheduled_at" aria-label="Edit reminder time" className={`${field} app-date-time`} type="datetime-local" defaultValue={localDateTime(reminder.scheduled_at)} required />
+                  <DateTimeField name="scheduled_at" label="Reminder date and time" defaultValue={localDateTime(reminder.scheduled_at)} required />
                   <input name="timezone" aria-label="Edit reminder timezone" className={field} defaultValue={reminder.timezone} required />
-                  <select name="task_id" aria-label="Edit related task" className={`${field} app-select`} defaultValue={reminder.task_id ?? ''}><option value="">No related task</option>{tasks.map((task) => <option key={task.id} value={task.id}>{task.title}</option>)}</select>
-                  <select name="recurrence" aria-label="Edit recurrence" className={`${field} app-select`} defaultValue={reminder.recurrence}><option value="none">One time</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select>
+                  <ComboBox name="task_id" label="Related task" defaultValue={reminder.task_id ?? ''} options={[{ value: '', label: 'No related task' }, ...tasks.map((task) => ({ value: task.id, label: task.title }))]} />
+                  <ComboBox name="recurrence" label="Repeat" defaultValue={reminder.recurrence} options={[{ value: 'none', label: 'One time' }, { value: 'daily', label: 'Daily' }, { value: 'weekly', label: 'Weekly' }]} />
                   <span className="flex gap-2"><button className={primary} disabled={busy}><Check size={15} />Save</button><button type="button" className={secondary} onClick={() => setEditingReminder(null)}>Cancel</button></span>
                 </form> : <div className="flex flex-wrap items-start justify-between gap-3">
                   <div><h3 className="font-medium">{reminder.text}</h3><p className="text-sm text-fg-muted">{reminder.status} · {timestamp(reminder.scheduled_at)} · {reminder.timezone} · {reminder.recurrence}</p><p className="text-xs text-fg-muted">Job: {latestJob?.status ?? 'not found'}{latestJob ? ` · ${latestJob.attempts} attempts` : ''} · in-app delivery</p></div>

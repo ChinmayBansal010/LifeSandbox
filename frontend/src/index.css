@@ -186,6 +186,83 @@
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 16%, transparent);
   }
 
+  .life-combobox-menu,
+  .life-date-popover {
+    position: absolute;
+    z-index: 30;
+    top: calc(100% + 0.35rem);
+    left: 0;
+    width: max(100%, 15rem);
+    overflow: hidden;
+    border: 1px solid var(--color-border-strong);
+    border-radius: 0.75rem;
+    background: var(--color-surface);
+    box-shadow: 0 16px 35px rgb(0 0 0 / 24%), 0 2px 8px rgb(0 0 0 / 12%);
+  }
+
+  .life-combobox-menu {
+    max-height: 15rem;
+    overflow-y: auto;
+    padding: 0.3rem;
+  }
+
+  .life-combobox-option {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    border-radius: 0.5rem;
+    padding: 0.65rem 0.7rem;
+    color: var(--color-fg-secondary);
+    font-size: 0.8rem;
+    text-align: left;
+    transition: background 120ms ease, color 120ms ease;
+  }
+
+  .life-combobox-option:hover,
+  .life-combobox-option.is-selected {
+    background: var(--color-accent-muted);
+    color: var(--color-accent);
+  }
+
+  .life-date-popover {
+    width: min(18rem, calc(100vw - 2rem));
+    padding: 0.8rem;
+  }
+
+  .life-icon-button {
+    display: grid;
+    width: 1.8rem;
+    height: 1.8rem;
+    place-items: center;
+    border: 1px solid var(--color-border);
+    border-radius: 0.5rem;
+    color: var(--color-fg-secondary);
+    font-size: 1.2rem;
+    line-height: 1;
+  }
+
+  .life-icon-button:hover {
+    background: var(--color-surface-hover);
+    color: var(--color-fg);
+  }
+
+  .life-calendar-day {
+    display: grid;
+    aspect-ratio: 1;
+    place-items: center;
+    border-radius: 0.45rem;
+    color: var(--color-fg-secondary);
+    font-size: 0.72rem;
+  }
+
+  .life-calendar-day:hover,
+  .life-calendar-day.is-selected {
+    background: var(--color-accent);
+    color: var(--color-accent-fg);
+  }
+
   .life-empty {
     border: 1px dashed var(--color-border-strong);
     border-radius: 0.75rem;
