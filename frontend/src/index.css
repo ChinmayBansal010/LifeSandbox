@@ -263,6 +263,81 @@
     color: var(--color-accent-fg);
   }
 
+  .life-clock-readout {
+    color: var(--color-fg);
+    font-size: 1rem;
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+  }
+
+  .life-clock-readout span {
+    color: var(--color-accent);
+    font-size: 0.68rem;
+    letter-spacing: 0.05em;
+  }
+
+  .life-clock-tab,
+  .life-clock-period {
+    border-radius: 0.45rem;
+    padding: 0.35rem 0.55rem;
+    color: var(--color-fg-muted);
+    font-size: 0.68rem;
+    font-weight: 650;
+    text-transform: capitalize;
+  }
+
+  .life-clock-tab.is-active,
+  .life-clock-period.is-active {
+    background: var(--color-surface);
+    color: var(--color-accent);
+    box-shadow: 0 1px 2px rgb(0 0 0 / 12%);
+  }
+
+  .life-clock {
+    position: relative;
+    width: 13rem;
+    height: 13rem;
+    margin: 0 auto;
+    border: 1px solid color-mix(in srgb, var(--color-accent) 28%, var(--color-border));
+    border-radius: 999px;
+    background: radial-gradient(circle at center, var(--color-accent-muted) 0 2.25rem, var(--color-bg-secondary) 2.3rem 100%);
+  }
+
+  .life-clock-center {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0.45rem;
+    height: 0.45rem;
+    transform: translate(-50%, -50%);
+    border-radius: 999px;
+    background: var(--color-accent);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--color-accent) 18%, transparent);
+  }
+
+  .life-clock-number {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    display: grid;
+    width: 2rem;
+    height: 2rem;
+    place-items: center;
+    border-radius: 999px;
+    color: var(--color-fg-secondary);
+    font-size: 0.68rem;
+    font-variant-numeric: tabular-nums;
+    transform: translate(-50%, -50%) rotate(var(--clock-angle)) translateY(-4.7rem) rotate(calc(var(--clock-angle) * -1));
+    transition: background 120ms ease, color 120ms ease, transform 120ms ease;
+  }
+
+  .life-clock-number:hover,
+  .life-clock-number.is-selected {
+    background: var(--color-accent);
+    color: var(--color-accent-fg);
+    transform: translate(-50%, -50%) rotate(var(--clock-angle)) translateY(-4.7rem) rotate(calc(var(--clock-angle) * -1)) scale(1.08);
+  }
+
   .life-empty {
     border: 1px dashed var(--color-border-strong);
     border-radius: 0.75rem;

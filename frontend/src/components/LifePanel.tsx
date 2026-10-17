@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { startTransition, useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 import { Archive, Bell, BrainCircuit, CalendarDays, Check, ChevronDown, FolderKanban, ListTodo, Pencil, Play, Plus, RefreshCw, Trash2, X } from 'lucide-react';
 
 type Item = Record<string, any>;
@@ -86,10 +86,6 @@ function ComboBox({
   const current = options.find((option) => option.value === selected) ?? options[0];
 
   useEffect(() => {
-    if (value !== undefined) setSelected(value);
-  }, [value]);
-
-  useEffect(() => {
     const close = (event: MouseEvent) => {
       if (root.current && !root.current.contains(event.target as Node)) setOpen(false);
     };
@@ -160,6 +156,7 @@ function DateTimeField({
     const source = initial ? new Date(initial) : new Date();
     return new Date(source.getFullYear(), source.getMonth(), 1);
   });
+  const [today] = useState(() => new Date());
   const root = useRef<HTMLDivElement>(null);
   const datePart = value.split('T')[0] || '';
   const timePart = value.split('T')[1] || '09:00';
@@ -172,12 +169,12 @@ function DateTimeField({
     if (index < firstDay) return null;
     return index - firstDay + 1;
   });
-  const timeOptions = Array.from({ length: 96 }, (_, index) => {
-    const hours = Math.floor(index / 4);
-    const minutes = (index % 4) * 15;
-    const time = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-    return { value: time, label: time };
-  });
+  const [clockMode, setClockMode] = useState<'hour' | 'minute'>('hour');
+  const hour24 = Number(timePart.slice(0, 2)) || 9;
+  const minute = Number(timePart.slice(3, 5)) || 0;
+  const period = hour24 >= 12 ? 'PM' : 'AM';
+  const displayHour = hour24 % 12 || 12;
+  const clockValues = clockMode === 'hour' ? Array.from({ length: 12 }, (_, index) => index + 1) : Array.from({ length: 12 }, (_, index) => index * 5);
 
   useEffect(() => {
     const close = (event: MouseEvent) => {
@@ -190,6 +187,21 @@ function DateTimeField({
   function updateDate(day: number) {
     const nextDate = `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     setValue(`${nextDate}T${timePart}`);
+  }
+
+  function updateHour(nextHour: number) {
+    const nextHour24 = period === 'PM' ? (nextHour % 12) + 12 : nextHour % 12;
+    setValue(`${datePart || today.toISOString().slice(0, 10)}T${String(nextHour24).padStart(2, '0')}:${String(minute).padStart(2, '0')}`);
+    setClockMode('minute');
+  }
+
+  function updateMinute(nextMinute: number) {
+    setValue(`${datePart || today.toISOString().slice(0, 10)}T${String(hour24).padStart(2, '0')}:${String(nextMinute).padStart(2, '0')}`);
+  }
+
+  function updatePeriod(nextPeriod: 'AM' | 'PM') {
+    const nextHour = nextPeriod === 'PM' ? (displayHour % 12) + 12 : displayHour % 12;
+    setValue(`${datePart || today.toISOString().slice(0, 10)}T${String(nextHour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`);
   }
 
   return (
@@ -216,7 +228,25 @@ function DateTimeField({
             ))}
           </div>
           <div className="mt-3 border-t border-border pt-3">
-            <ComboBox label="Time" value={timePart} onChange={(next) => setValue(`${datePart || new Date().toISOString().slice(0, 10)}T${next}`)} options={timeOptions} />
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="life-field-label">Time</span>
+              <span className="life-clock-readout">{displayHour}:{String(minute).padStart(2, '0')} <span>{period}</span></span>
+            </div>
+            <div className="mb-3 flex items-center justify-between gap-2 rounded-lg bg-bg-secondary p-1">
+              <div className="flex gap-1">
+                {(['hour', 'minute'] as const).map((mode) => <button key={mode} type="button" className={`life-clock-tab ${clockMode === mode ? 'is-active' : ''}`} onClick={() => setClockMode(mode)}>{mode === 'hour' ? 'Hour' : 'Minute'}</button>)}
+              </div>
+              <div className="flex gap-1">
+                {(['AM', 'PM'] as const).map((nextPeriod) => <button key={nextPeriod} type="button" className={`life-clock-period ${period === nextPeriod ? 'is-active' : ''}`} onClick={() => updatePeriod(nextPeriod)}>{nextPeriod}</button>)}
+              </div>
+            </div>
+            <div className="life-clock" aria-label={`Choose ${clockMode}`}>
+              <span className="life-clock-center" />
+              {clockValues.map((clockValue, index) => {
+                const selected = clockMode === 'hour' ? clockValue === displayHour : clockValue === minute;
+                return <button key={clockValue} type="button" className={`life-clock-number ${selected ? 'is-selected' : ''}`} style={{ '--clock-angle': `${index * 30}deg` } as CSSProperties} onClick={() => clockMode === 'hour' ? updateHour(clockValue) : updateMinute(clockValue)}>{String(clockValue).padStart(2, '0')}</button>;
+              })}
+            </div>
           </div>
           <button type="button" className="mt-3 w-full rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-accent-fg hover:bg-accent-hover" onClick={() => setOpen(false)}>Apply</button>
         </div>
@@ -450,6 +480,7 @@ export default function LifePanel({ onClose }: { onClose: () => void }) {
 
   const field = 'min-h-10 min-w-0 rounded-md border border-border-strong bg-surface px-3 py-2 text-sm text-fg placeholder:text-fg-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/20';
   const primary = 'inline-flex min-h-10 items-center justify-center gap-1.5 rounded-md bg-accent px-3 py-2 text-sm font-medium text-accent-fg transition-colors hover:bg-accent-hover disabled:opacity-50';
+  const formPrimary = `${primary} self-end h-10 min-h-0`;
   const secondary = 'inline-flex min-h-10 items-center justify-center gap-1.5 rounded-md border border-border-strong bg-surface px-3 py-2 text-sm text-fg transition-colors hover:bg-surface-hover disabled:opacity-50';
   const danger = 'inline-flex min-h-10 items-center justify-center gap-1.5 rounded-md px-3 py-2 text-sm text-error transition-colors hover:bg-error/10 disabled:opacity-50';
   const nav: { id: Section; label: string }[] = [
@@ -541,7 +572,7 @@ export default function LifePanel({ onClose }: { onClose: () => void }) {
                 <input name="content" aria-label="Memory content" className={field} placeholder="A fact you explicitly want remembered" required maxLength={2000} />
                 <ComboBox name="category" label="Category" defaultValue="preference" options={[{ value: 'preference', label: 'Preference' }, { value: 'profile', label: 'Profile' }, { value: 'project', label: 'Project' }, { value: 'episode', label: 'Episode' }]} />
                 <ComboBox name="project_id" label="Related project" options={[{ value: '', label: 'No project link' }, ...projects.map((project) => ({ value: project.id, label: project.title }))]} />
-                <button className={primary} disabled={busy}><Plus size={15} />Save</button>
+                <button className={formPrimary} disabled={busy}><Plus size={15} />Save</button>
               </form>
               <div className="mb-3 max-w-48"><ComboBox label="Filter category" value={memoryCategoryFilter} onChange={setMemoryCategoryFilter} options={[{ value: 'all', label: 'All categories' }, ...Array.from(new Set(memories.map((memory) => memory.category))).map((category) => ({ value: category, label: category }))]} /></div>
               <ul className="divide-y divide-border">{memories.filter((memory) => memoryCategoryFilter === 'all' || memory.category === memoryCategoryFilter).map((memory) => <li key={memory.id} className="py-3">
@@ -549,7 +580,7 @@ export default function LifePanel({ onClose }: { onClose: () => void }) {
                   <input name="content" aria-label="Edit memory" className={field} defaultValue={memory.content} required maxLength={2000} />
                   <ComboBox name="category" label="Category" defaultValue={memory.category} options={['preference', 'profile', 'project', 'episode'].map((category) => ({ value: category, label: category }))} />
                   <ComboBox name="project_id" label="Related project" defaultValue={memory.project_id ?? ''} options={[{ value: '', label: 'No project link' }, ...projects.map((project) => ({ value: project.id, label: project.title }))]} />
-                  <button className={primary} disabled={busy}><Check size={15} />Save</button><button type="button" className={secondary} onClick={() => setEditingMemory(null)}>Cancel</button>
+                  <button className={formPrimary} disabled={busy}><Check size={15} />Save</button><button type="button" className={`${secondary} self-end h-10 min-h-0`} onClick={() => setEditingMemory(null)}>Cancel</button>
                 </form> : <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="min-w-0"><span className="mr-2 text-xs uppercase text-fg-muted">{memory.category} · {memory.status}</span><p>{memory.content}</p><p className="mt-1 text-xs text-fg-muted">{memory.source} · {timestamp(memory.updated_at)}{memory.project_id ? ` · ${projects.find((project) => project.id === memory.project_id)?.title ?? 'Linked project'}` : ''}</p></div>
                   <span className="flex gap-1"><button className={secondary} aria-label="Edit memory" title="Edit memory" onClick={() => setEditingMemory(memory.id)}><Pencil size={15} /></button><button className={secondary} aria-label="Archive memory" title="Archive memory" disabled={busy || memory.status !== 'active'} onClick={() => { if (window.confirm('Archive this memory? It will no longer be used in recall.')) void act(`memories/${memory.id}/archive`, { method: 'POST' }); }}><Archive size={15} /></button><button className={danger} aria-label="Delete memory" title="Delete memory permanently" disabled={busy} onClick={() => { if (window.confirm('Permanently delete this memory?')) void act(`memories/${memory.id}`, { method: 'DELETE' }); }}><Trash2 size={15} /></button></span>
@@ -568,7 +599,7 @@ export default function LifePanel({ onClose }: { onClose: () => void }) {
               <input name="progress" aria-label="Project progress" className={field} placeholder="Progress" />
               <input name="blocker" aria-label="Project blocker" className={field} placeholder="Blocker" />
               <DateTimeField name="target_at" label="Target date" />
-              <button className={primary} disabled={busy}><Plus size={15} />Add project</button>
+              <button className={formPrimary} disabled={busy}><Plus size={15} />Add project</button>
             </form>
             <ul className="divide-y divide-border">{projects.map((project) => <li key={project.id} className="py-3">
               {editingProject === project.id ? <form className="grid gap-2 md:grid-cols-3" onSubmit={(event) => void saveProject(event, project.id)}>
@@ -580,7 +611,7 @@ export default function LifePanel({ onClose }: { onClose: () => void }) {
                 <input name="blocker" aria-label="Project blocker" className={field} defaultValue={project.blocker} placeholder="Blocker" />
                 <input name="next_action" aria-label="Next action" className={field} defaultValue={project.next_action} placeholder="Next action" />
                 <DateTimeField name="target_at" label="Target date" defaultValue={localDateTime(project.target_at)} />
-                <span className="flex gap-2"><button className={primary} disabled={busy}><Check size={15} />Save</button><button type="button" className={secondary} onClick={() => setEditingProject(null)}>Cancel</button></span>
+                <span className="flex gap-2 self-end"><button className={formPrimary} disabled={busy}><Check size={15} />Save</button><button type="button" className={`${secondary} h-10 min-h-0`} onClick={() => setEditingProject(null)}>Cancel</button></span>
               </form> : <div className="flex items-start justify-between gap-3">
                 <div><h3 className="font-medium">{project.title}</h3><p className="text-sm text-fg-muted">{project.status} · {project.priority}{project.target_at ? ` · target ${timestamp(project.target_at)}` : ''}</p>{project.progress && <p className="mt-1 text-sm">Progress: {project.progress}</p>}{project.blocker && <p className="text-sm">Blocker: {project.blocker}</p>}{project.next_action && <p className="text-sm">Next: {project.next_action}</p>}<p className="mt-1 text-xs text-fg-muted">{tasks.filter((task) => task.project_id === project.id).length} linked tasks · {memories.filter((memory) => memory.project_id === project.id).length} linked memories</p></div>
                 <button className={secondary} aria-label="Edit project" onClick={() => setEditingProject(project.id)}><Pencil size={15} />Edit</button>
@@ -598,7 +629,7 @@ export default function LifePanel({ onClose }: { onClose: () => void }) {
               <ComboBox name="priority" label="Priority" defaultValue="normal" options={['normal', 'low', 'high'].map((priority) => ({ value: priority, label: priority }))} />
               <DateTimeField name="due_at" label="Due date" />
               <input name="timezone" aria-label="Task timezone" className={field} defaultValue={timezone} />
-              <button className={primary} disabled={busy}><Plus size={15} />Add task</button>
+              <button className={formPrimary} disabled={busy}><Plus size={15} />Add task</button>
             </form>
             <ul className="divide-y divide-border">{tasks.filter((task) => taskStatusFilter === 'all' || task.status === taskStatusFilter).map((task) => <li key={task.id} className="py-3">
               {editingTask === task.id ? <form className="grid gap-2 md:grid-cols-3" onSubmit={(event) => void saveTask(event, task.id)}>
@@ -608,7 +639,7 @@ export default function LifePanel({ onClose }: { onClose: () => void }) {
                 <ComboBox name="priority" label="Priority" defaultValue={task.priority} options={['low', 'normal', 'high'].map((priority) => ({ value: priority, label: priority }))} />
                 <DateTimeField name="due_at" label="Due date" defaultValue={localDateTime(task.due_at)} />
                 <input name="timezone" aria-label="Edit task timezone" className={field} defaultValue={task.timezone} />
-                <span className="flex gap-2"><button className={primary} disabled={busy}><Check size={15} />Save</button><button type="button" className={secondary} onClick={() => setEditingTask(null)}>Cancel</button></span>
+                <span className="flex gap-2 self-end"><button className={formPrimary} disabled={busy}><Check size={15} />Save</button><button type="button" className={`${secondary} h-10 min-h-0`} onClick={() => setEditingTask(null)}>Cancel</button></span>
               </form> : <div className="flex flex-wrap items-start justify-between gap-3">
                 <div><h3 className="font-medium">{task.title}</h3><p className="text-sm text-fg-muted">{task.status} · {task.priority}{task.due_at ? ` · due ${timestamp(task.due_at)} (${task.timezone})` : ''}</p>{task.description && <p className="mt-1 text-sm">{task.description}</p>}{task.project_id && <p className="text-xs text-fg-muted">Project: {projects.find((project) => project.id === task.project_id)?.title ?? 'Linked project'}</p>}</div>
                 <span className="flex gap-1">{task.status === 'pending' && <button className={secondary} aria-label="Start task" title="Start task" disabled={busy} onClick={() => void act(`tasks/${task.id}/start`, { method: 'POST' })}><Play size={15} /></button>}{task.status !== 'completed' && task.status !== 'cancelled' && <><button className={secondary} aria-label="Complete task" title="Complete task" disabled={busy} onClick={() => void act(`tasks/${task.id}/complete`, { method: 'POST' })}><Check size={15} /></button><button className={danger} aria-label="Cancel task" title="Cancel task" disabled={busy} onClick={() => { if (window.confirm(`Cancel “${task.title}”?`)) void act(`tasks/${task.id}/cancel`, { method: 'POST' }); }}><X size={15} /></button></>}<button className={secondary} aria-label="Edit task" title="Edit task" disabled={busy} onClick={() => setEditingTask(task.id)}><Pencil size={15} /></button><button className={danger} aria-label="Delete task" title="Delete task permanently" disabled={busy} onClick={() => { if (window.confirm(`Permanently delete “${task.title}”?`)) void act(`tasks/${task.id}`, { method: 'DELETE' }); }}><Trash2 size={15} /></button></span>
@@ -626,7 +657,7 @@ export default function LifePanel({ onClose }: { onClose: () => void }) {
               <input name="timezone" aria-label="Reminder timezone" className={field} defaultValue={timezone} required />
               <ComboBox name="task_id" label="Related task" options={[{ value: '', label: 'No related task' }, ...tasks.filter((task) => !['completed', 'cancelled'].includes(task.status)).map((task) => ({ value: task.id, label: task.title }))]} />
               <ComboBox name="recurrence" label="Repeat" defaultValue="none" options={[{ value: 'none', label: 'One time' }, { value: 'daily', label: 'Daily' }, { value: 'weekly', label: 'Weekly' }]} />
-              <button className={primary} disabled={busy}><Plus size={15} />Schedule</button>
+              <button className={formPrimary} disabled={busy}><Plus size={15} />Schedule</button>
             </form>
             <ul className="divide-y divide-border">{reminders.map((reminder) => {
               const reminderJobs = jobs.filter((job) => job.reminder_id === reminder.id);
@@ -638,7 +669,7 @@ export default function LifePanel({ onClose }: { onClose: () => void }) {
                   <input name="timezone" aria-label="Edit reminder timezone" className={field} defaultValue={reminder.timezone} required />
                   <ComboBox name="task_id" label="Related task" defaultValue={reminder.task_id ?? ''} options={[{ value: '', label: 'No related task' }, ...tasks.map((task) => ({ value: task.id, label: task.title }))]} />
                   <ComboBox name="recurrence" label="Repeat" defaultValue={reminder.recurrence} options={[{ value: 'none', label: 'One time' }, { value: 'daily', label: 'Daily' }, { value: 'weekly', label: 'Weekly' }]} />
-                  <span className="flex gap-2"><button className={primary} disabled={busy}><Check size={15} />Save</button><button type="button" className={secondary} onClick={() => setEditingReminder(null)}>Cancel</button></span>
+                  <span className="flex gap-2 self-end"><button className={formPrimary} disabled={busy}><Check size={15} />Save</button><button type="button" className={`${secondary} h-10 min-h-0`} onClick={() => setEditingReminder(null)}>Cancel</button></span>
                 </form> : <div className="flex flex-wrap items-start justify-between gap-3">
                   <div><h3 className="font-medium">{reminder.text}</h3><p className="text-sm text-fg-muted">{reminder.status} · {timestamp(reminder.scheduled_at)} · {reminder.timezone} · {reminder.recurrence}</p><p className="text-xs text-fg-muted">Job: {latestJob?.status ?? 'not found'}{latestJob ? ` · ${latestJob.attempts} attempts` : ''} · in-app delivery</p></div>
                   <span className="flex gap-1">{reminder.status === 'pending' && <><button className={secondary} aria-label="Edit reminder" title="Edit reminder" onClick={() => setEditingReminder(reminder.id)}><Pencil size={15} /></button><button className={danger} aria-label="Cancel reminder" title="Cancel reminder" disabled={busy} onClick={() => { if (window.confirm(`Cancel “${reminder.text}”?`)) void act(`reminders/${reminder.id}`, { method: 'DELETE' }); }}><X size={15} /></button></>}</span>
