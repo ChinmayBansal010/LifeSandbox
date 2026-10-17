@@ -301,6 +301,13 @@
     border: 1px solid color-mix(in srgb, var(--color-accent) 28%, var(--color-border));
     border-radius: 999px;
     background: radial-gradient(circle at center, var(--color-accent-muted) 0 2.25rem, var(--color-bg-secondary) 2.3rem 100%);
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+  }
+
+  .life-clock:active {
+    cursor: grabbing;
   }
 
   .life-clock-center {
@@ -329,6 +336,7 @@
     font-variant-numeric: tabular-nums;
     transform: translate(-50%, -50%) rotate(var(--clock-angle)) translateY(-4.7rem) rotate(calc(var(--clock-angle) * -1));
     transition: background 120ms ease, color 120ms ease, transform 120ms ease;
+    pointer-events: none;
   }
 
   .life-clock-number:hover,

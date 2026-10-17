@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent, type MouseEvent as ReactMouseEvent } from 'react';
+import { startTransition, useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { Archive, Bell, BrainCircuit, CalendarDays, Check, ChevronDown, FolderKanban, ListTodo, Pencil, Play, Plus, RefreshCw, Trash2, X } from 'lucide-react';
 
 type Item = Record<string, any>;
@@ -206,13 +206,27 @@ function DateTimeField({
     setValue(`${datePart || today.toISOString().slice(0, 10)}T${String(nextHour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`);
   }
 
-  function selectMinuteFromClock(event: ReactMouseEvent<HTMLDivElement>) {
+  function selectFromDial(clientX: number, clientY: number) {
     if (!minuteClockRef.current) return;
     const bounds = minuteClockRef.current.getBoundingClientRect();
-    const x = event.clientX - (bounds.left + bounds.width / 2);
-    const y = event.clientY - (bounds.top + bounds.height / 2);
+    const x = clientX - (bounds.left + bounds.width / 2);
+    const y = clientY - (bounds.top + bounds.height / 2);
     const angle = (Math.atan2(x, -y) + Math.PI * 2) % (Math.PI * 2);
-    updateMinute(Math.round((angle / (Math.PI * 2)) * 60) % 60);
+    if (clockMode === 'hour') {
+      const nextHour = Math.round((angle / (Math.PI * 2)) * 12) % 12 || 12;
+      updateHour(nextHour);
+    } else {
+      updateMinute(Math.round((angle / (Math.PI * 2)) * 60) % 60);
+    }
+  }
+
+  function handleDialPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    event.currentTarget.setPointerCapture(event.pointerId);
+    selectFromDial(event.clientX, event.clientY);
+  }
+
+  function handleDialPointerMove(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.buttons) selectFromDial(event.clientX, event.clientY);
   }
 
   return (
@@ -251,14 +265,14 @@ function DateTimeField({
                 {(['AM', 'PM'] as const).map((nextPeriod) => <button key={nextPeriod} type="button" className={`life-clock-period ${period === nextPeriod ? 'is-active' : ''}`} onClick={() => updatePeriod(nextPeriod)}>{nextPeriod}</button>)}
               </div>
             </div>
-            <div ref={clockMode === 'minute' ? minuteClockRef : undefined} className={`life-clock ${clockMode === 'minute' ? 'life-clock-minute' : ''}`} aria-label={`Choose ${clockMode}`} onClick={clockMode === 'minute' ? selectMinuteFromClock : undefined}>
+            <div ref={minuteClockRef} className={`life-clock ${clockMode === 'minute' ? 'life-clock-minute' : ''}`} role="slider" tabIndex={0} aria-label={`Choose ${clockMode}`} aria-valuemin={clockMode === 'hour' ? 1 : 0} aria-valuemax={clockMode === 'hour' ? 12 : 59} aria-valuenow={clockMode === 'hour' ? displayHour : minute} onPointerDown={handleDialPointerDown} onPointerMove={handleDialPointerMove}>
               <span className="life-clock-center" />
-              {clockMode === 'minute' && <span className="life-clock-hand" style={{ '--clock-angle': `${minuteAngle}deg` } as CSSProperties} />}
+              <span className="life-clock-hand" style={{ '--clock-angle': `${clockMode === 'hour' ? (displayHour % 12) * 30 : minuteAngle}deg` } as CSSProperties} />
               {clockMode === 'hour'
-                ? clockValues.map((clockValue, index) => <button key={clockValue} type="button" className={`life-clock-number ${clockValue === displayHour ? 'is-selected' : ''}`} style={{ '--clock-angle': `${index * 30}deg` } as CSSProperties} onClick={() => updateHour(clockValue)}>{String(clockValue).padStart(2, '0')}</button>)
-                : Array.from({ length: 12 }, (_, index) => index * 5).map((minuteValue, index) => <button key={minuteValue} type="button" aria-label={`Minute ${String(minuteValue).padStart(2, '0')}`} className={`life-clock-number ${minuteValue === minute ? 'is-selected' : ''}`} style={{ '--clock-angle': `${index * 30}deg` } as CSSProperties} onClick={(event) => { event.stopPropagation(); updateMinute(minuteValue); }}>{String(minuteValue).padStart(2, '0')}</button>)}
+                ? clockValues.map((clockValue, index) => <span key={clockValue} className={`life-clock-number ${clockValue === displayHour ? 'is-selected' : ''}`} style={{ '--clock-angle': `${index * 30}deg` } as CSSProperties}>{String(clockValue).padStart(2, '0')}</span>)
+                : Array.from({ length: 12 }, (_, index) => index * 5).map((minuteValue, index) => <span key={minuteValue} className={`life-clock-number ${minuteValue === minute ? 'is-selected' : ''}`} style={{ '--clock-angle': `${index * 30}deg` } as CSSProperties}>{String(minuteValue).padStart(2, '0')}</span>)}
             </div>
-            {clockMode === 'minute' && <p className="mt-2 text-center text-[10px] text-fg-muted">Tap anywhere around the clock for an exact minute.</p>}
+            <p className="mt-2 text-center text-[10px] text-fg-muted">Click or drag the dial to set the {clockMode}.</p>
           </div>
           <button type="button" className="mt-3 w-full rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-accent-fg hover:bg-accent-hover" onClick={() => setOpen(false)}>Apply</button>
         </div>
