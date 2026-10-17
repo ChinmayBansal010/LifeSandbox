@@ -1,5 +1,5 @@
-import { startTransition, useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { Archive, Check, Pencil, Play, Plus, RefreshCw, Trash2, X } from 'lucide-react';
+import { startTransition, useCallback, useEffect, useRef, useState, type FormEvent, type SelectHTMLAttributes } from 'react';
+import { Archive, Bell, BrainCircuit, CalendarDays, Check, ChevronDown, FolderKanban, ListTodo, Pencil, Play, Plus, RefreshCw, Trash2, X } from 'lucide-react';
 
 type Item = Record<string, any>;
 type Section = 'memories' | 'projects' | 'tasks' | 'reminders' | 'approvals';
@@ -56,6 +56,36 @@ function PolicySwitch({
         />
       </span>
     </label>
+  );
+}
+
+function SelectField({
+  name,
+  label,
+  children,
+  className = '',
+  ...props
+}: SelectHTMLAttributes<HTMLSelectElement> & { label: string }) {
+  return (
+    <label className={`life-field ${className}`}>
+      <span className="life-field-label">{label}</span>
+      <span className="relative block">
+        <select {...props} name={name} aria-label={props['aria-label'] ?? label} className="app-select life-control w-full">
+          {children}
+        </select>
+        <ChevronDown aria-hidden="true" size={15} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-fg-muted" />
+      </span>
+    </label>
+  );
+}
+
+function SectionHeading({ icon: Icon, title, count }: { icon: typeof BrainCircuit; title: string; count?: number }) {
+  return (
+    <div className="life-section-heading">
+      <span className="life-section-icon"><Icon size={16} /></span>
+      <h2>{title}</h2>
+      {count !== undefined && <span className="life-count">{count}</span>}
+    </div>
   );
 }
 
@@ -291,21 +321,21 @@ export default function LifePanel({ onClose }: { onClose: () => void }) {
         </div>
         <button className={secondary} onClick={onClose}><X size={16} />Back to chat</button>
       </header>
-      <nav className="mx-auto mb-4 flex w-full max-w-6xl flex-wrap items-center gap-1 border-b border-border" aria-label="Follow-through sections">
+      <nav className="life-tabs mx-auto mb-4 flex w-full max-w-6xl flex-wrap items-center gap-1" aria-label="Follow-through sections" role="tablist">
         {nav.map((item) => (
           <button key={item.id} role="tab" aria-selected={section === item.id}
             className={`border-b-2 px-3 py-2 text-sm ${section === item.id ? 'border-accent font-semibold text-fg' : 'border-transparent text-fg-muted hover:text-fg'}`}
             onClick={() => setSection(item.id)}>{item.label}</button>
         ))}
-        <button className="mb-1 ml-auto inline-grid h-9 w-9 place-items-center rounded-md text-fg-muted transition-colors hover:bg-surface-hover hover:text-fg disabled:opacity-50" onClick={() => void refresh()} disabled={busy} aria-label="Refresh data" title="Refresh data"><RefreshCw size={15} /></button>
+        <button className="mb-1 ml-auto inline-grid h-9 w-9 place-items-center rounded-lg border border-border bg-surface text-fg-muted shadow-xs transition-colors hover:border-border-strong hover:bg-surface-hover hover:text-fg disabled:opacity-50" onClick={() => void refresh()} disabled={busy} aria-label="Refresh data" title="Refresh data"><RefreshCw size={15} /></button>
       </nav>
       {error && <p role="alert" className="mx-auto mb-3 w-full max-w-6xl border-l-2 border-error px-3 py-1.5 text-sm text-error">{error}</p>}
       {notice && <p role="status" className="mx-auto mb-3 flex w-full max-w-6xl items-center gap-1.5 text-xs text-success"><Check size={14} />{notice}</p>}
       {loading ? <p role="status" className="py-8 text-sm text-fg-muted">Loading your data…</p> : (
         <div className="mx-auto min-w-0 w-full max-w-6xl flex-1 space-y-6">
           {section === 'memories' && <>
-            <section className="border-b border-border pb-5">
-              <h2 className="mb-3 font-semibold">Memory policy</h2>
+            <section className="life-card">
+              <SectionHeading icon={BrainCircuit} title="Memory policy" />
               {policy && <div className="grid max-w-3xl gap-x-8 gap-y-2 text-sm sm:grid-cols-2">
                 <PolicySwitch label="Allow local memory recall" checked={policy.enabled} disabled={busy} onChange={(enabled) => void act('memory-policy', { method: 'PUT', body: JSON.stringify({ ...policy, enabled }) })} />
                 <PolicySwitch label="Allow opted-in exchanges to use Mem0" checked={policy.hosted_memory_allowed} disabled={busy} onChange={(hosted_memory_allowed) => void act('memory-policy', { method: 'PUT', body: JSON.stringify({ ...policy, hosted_memory_allowed }) })} />
@@ -352,15 +382,15 @@ export default function LifePanel({ onClose }: { onClose: () => void }) {
                 <p className="text-xs text-fg-muted sm:col-span-2">Sensitive categories are never auto-saved. Without an explicit category permission, “remember” requests wait here for your approval.</p>
               </div>}
             </section>
-            <section className="border-b border-border pb-5">
-              <h2 className="mb-3 font-semibold">Pending memory review <span className="font-normal text-fg-muted">{candidates.length}</span></h2>
+            <section className="life-card">
+              <SectionHeading icon={Bell} title="Pending memory review" count={candidates.length} />
               {candidates.length ? <ul className="divide-y divide-border">{candidates.map((candidate) => <li key={candidate.id} className="flex flex-wrap items-start justify-between gap-3 py-3">
                 <div className="min-w-0"><span className="mr-2 text-xs uppercase text-fg-muted">{candidate.category}</span><p>{candidate.content}</p><p className="mt-1 text-xs text-fg-muted">From {timestamp(candidate.created_at)} · confidence {Math.round(candidate.confidence * 100)}%{candidate.source_conversation_id ? ` · conversation ${candidate.source_conversation_id}` : ''}</p></div>
                 <span className="flex gap-2"><button className={primary} disabled={busy} onClick={() => void resolveCandidate(candidate, 'approve')}><Check size={15} />Approve</button><button className={danger} disabled={busy} onClick={() => void resolveCandidate(candidate, 'reject')}><X size={15} />Reject</button></span>
               </li>)}</ul> : <p className="text-sm text-fg-muted">No memories awaiting review.</p>}
             </section>
-            <section className="border-b border-border pb-5">
-              <h2 className="mb-3 font-semibold">Saved memories</h2>
+            <section className="life-card">
+              <SectionHeading icon={BrainCircuit} title="Saved memories" count={memories.length} />
               <form className="mb-4 grid gap-2 sm:grid-cols-[minmax(12rem,2fr)_1fr_1fr_auto]" onSubmit={(event) => void saveMemory(event)}>
                 <input name="content" aria-label="Memory content" className={field} placeholder="A fact you explicitly want remembered" required maxLength={2000} />
                 <select name="category" aria-label="Memory category" className={`${field} app-select`}><option value="preference">Preference</option><option value="profile">Profile</option><option value="project">Project</option><option value="episode">Episode</option></select>
@@ -383,8 +413,8 @@ export default function LifePanel({ onClose }: { onClose: () => void }) {
             </section>
           </>}
 
-          {section === 'projects' && <section>
-            <h2 className="mb-3 font-semibold">Projects</h2>
+          {section === 'projects' && <section className="life-card">
+            <SectionHeading icon={FolderKanban} title="Projects" count={projects.length} />
             <form className="mb-4 grid gap-2 md:grid-cols-3" onSubmit={(event) => void saveProject(event)}>
               <input name="title" aria-label="Project title" className={field} placeholder="Project title" required />
               <input name="description" aria-label="Project description" className={field} placeholder="Description" />
@@ -413,8 +443,8 @@ export default function LifePanel({ onClose }: { onClose: () => void }) {
             {!projects.length && <p className="text-sm text-fg-muted">No projects yet.</p>}
           </section>}
 
-          {section === 'tasks' && <section>
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-3"><h2 className="font-semibold">Tasks</h2><select aria-label="Filter tasks by status" className={`${field} app-select`} value={taskStatusFilter} onChange={(event) => setTaskStatusFilter(event.target.value)}><option value="all">All statuses</option><option>pending</option><option>in_progress</option><option>completed</option><option>cancelled</option></select></div>
+          {section === 'tasks' && <section className="life-card">
+            <div className="mb-3 flex flex-wrap items-end justify-between gap-3"><SectionHeading icon={ListTodo} title="Tasks" count={tasks.length} /><SelectField label="Filter" value={taskStatusFilter} onChange={(event) => setTaskStatusFilter(event.target.value)}><option value="all">All statuses</option><option>pending</option><option>in_progress</option><option>completed</option><option>cancelled</option></SelectField></div>
             <form className="mb-4 grid gap-2 md:grid-cols-3" onSubmit={(event) => void saveTask(event)}>
               <input name="title" aria-label="Task title" className={field} placeholder="Task title" required />
               <input name="description" aria-label="Task description" className={field} placeholder="Description" />
@@ -435,14 +465,15 @@ export default function LifePanel({ onClose }: { onClose: () => void }) {
                 <span className="flex gap-2"><button className={primary} disabled={busy}><Check size={15} />Save</button><button type="button" className={secondary} onClick={() => setEditingTask(null)}>Cancel</button></span>
               </form> : <div className="flex flex-wrap items-start justify-between gap-3">
                 <div><h3 className="font-medium">{task.title}</h3><p className="text-sm text-fg-muted">{task.status} · {task.priority}{task.due_at ? ` · due ${timestamp(task.due_at)} (${task.timezone})` : ''}</p>{task.description && <p className="mt-1 text-sm">{task.description}</p>}{task.project_id && <p className="text-xs text-fg-muted">Project: {projects.find((project) => project.id === task.project_id)?.title ?? 'Linked project'}</p>}</div>
-                <span className="flex gap-1">{task.status === 'pending' && <button className={secondary} aria-label="Start task" title="Start task" disabled={busy} onClick={() => void act(`tasks/${task.id}/start`, { method: 'POST' })}><Play size={15} /></button>}{task.status !== 'completed' && task.status !== 'cancelled' && <><button className={secondary} aria-label="Complete task" title="Complete task" disabled={busy} onClick={() => void act(`tasks/${task.id}/complete`, { method: 'POST' })}><Check size={15} /></button><button className={danger} aria-label="Cancel task" title="Cancel task" disabled={busy} onClick={() => { if (window.confirm(`Cancel “${task.title}”?`)) void act(`tasks/${task.id}/cancel`, { method: 'POST' }); }}><X size={15} /></button></>}<button className={secondary} aria-label="Edit task" title="Edit task" onClick={() => setEditingTask(task.id)}><Pencil size={15} /></button></span>
+                <span className="flex gap-1">{task.status === 'pending' && <button className={secondary} aria-label="Start task" title="Start task" disabled={busy} onClick={() => void act(`tasks/${task.id}/start`, { method: 'POST' })}><Play size={15} /></button>}{task.status !== 'completed' && task.status !== 'cancelled' && <><button className={secondary} aria-label="Complete task" title="Complete task" disabled={busy} onClick={() => void act(`tasks/${task.id}/complete`, { method: 'POST' })}><Check size={15} /></button><button className={danger} aria-label="Cancel task" title="Cancel task" disabled={busy} onClick={() => { if (window.confirm(`Cancel “${task.title}”?`)) void act(`tasks/${task.id}/cancel`, { method: 'POST' }); }}><X size={15} /></button></>}<button className={secondary} aria-label="Edit task" title="Edit task" disabled={busy} onClick={() => setEditingTask(task.id)}><Pencil size={15} /></button><button className={danger} aria-label="Delete task" title="Delete task permanently" disabled={busy} onClick={() => { if (window.confirm(`Permanently delete “${task.title}”?`)) void act(`tasks/${task.id}`, { method: 'DELETE' }); }}><Trash2 size={15} /></button></span>
               </div>}
             </li>)}</ul>
-            {!tasks.length && <p className="text-sm text-fg-muted">No tasks yet.</p>}
+            {!tasks.length && <p className="life-empty">No tasks yet. Add one above to start moving a project forward.</p>}
+            {tasks.length > 0 && !tasks.some((task) => taskStatusFilter === 'all' || task.status === taskStatusFilter) && <p className="life-empty">No tasks match this status filter.</p>}
           </section>}
 
-          {section === 'reminders' && <section>
-            <h2 className="mb-3 font-semibold">Reminders and delivery jobs</h2>
+          {section === 'reminders' && <section className="life-card">
+            <SectionHeading icon={CalendarDays} title="Reminders and delivery jobs" count={reminders.length} />
             <form className="mb-4 grid gap-2 md:grid-cols-3" onSubmit={(event) => void saveReminder(event)}>
               <input name="text" aria-label="Reminder text" className={field} placeholder="Reminder" required />
               <input name="scheduled_at" aria-label="Reminder time" className={`${field} app-date-time`} type="datetime-local" required />

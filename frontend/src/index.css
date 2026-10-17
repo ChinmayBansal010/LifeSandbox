@@ -105,6 +105,96 @@
 }
 
 @layer components {
+  .life-card {
+    border: 1px solid var(--color-border);
+    border-radius: 1rem;
+    background: var(--color-surface);
+    padding: 1.25rem;
+    box-shadow: 0 1px 2px rgb(28 25 23 / 4%);
+  }
+
+  .life-tabs {
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .life-section-heading {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin-bottom: 1rem;
+    color: var(--color-fg);
+    font-size: 0.95rem;
+    font-weight: 650;
+  }
+
+  .life-section-icon {
+    display: grid;
+    width: 2rem;
+    height: 2rem;
+    place-items: center;
+    border: 1px solid color-mix(in srgb, var(--color-accent) 22%, transparent);
+    border-radius: 0.65rem;
+    background: var(--color-accent-muted);
+    color: var(--color-accent);
+  }
+
+  .life-count {
+    min-width: 1.5rem;
+    padding: 0.15rem 0.45rem;
+    border-radius: 999px;
+    background: var(--color-bg-secondary);
+    color: var(--color-fg-secondary);
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-align: center;
+  }
+
+  .life-field {
+    display: grid;
+    min-width: 0;
+    gap: 0.35rem;
+    color: var(--color-fg-secondary);
+    font-size: 0.72rem;
+    font-weight: 600;
+  }
+
+  .life-field-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .life-control {
+    min-height: 2.65rem;
+    border: 1px solid var(--color-border-strong);
+    border-radius: 0.65rem;
+    background: var(--color-bg);
+    color: var(--color-fg);
+    padding: 0.6rem 0.75rem;
+    font-size: 0.82rem;
+    font-weight: 400;
+    outline: none;
+    transition: border-color 150ms ease, box-shadow 150ms ease, background 150ms ease;
+  }
+
+  .life-control:hover {
+    border-color: var(--color-fg-muted);
+  }
+
+  .life-control:focus {
+    border-color: var(--color-accent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 16%, transparent);
+  }
+
+  .life-empty {
+    border: 1px dashed var(--color-border-strong);
+    border-radius: 0.75rem;
+    background: var(--color-bg-secondary);
+    color: var(--color-fg-muted);
+    padding: 1rem;
+    font-size: 0.82rem;
+  }
+
   .app-select {
     appearance: none;
     background-image:
@@ -116,6 +206,7 @@
     background-repeat: no-repeat;
     background-size: 5px 5px;
     padding-right: 2.25rem;
+    cursor: pointer;
   }
 
   .app-select option {
@@ -125,6 +216,7 @@
 
   .app-date-time {
     color-scheme: light;
+    cursor: pointer;
   }
 
   .dark .app-date-time {
