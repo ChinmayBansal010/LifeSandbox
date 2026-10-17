@@ -172,6 +172,12 @@ function DateTimeField({
     if (index < firstDay) return null;
     return index - firstDay + 1;
   });
+  const timeOptions = Array.from({ length: 96 }, (_, index) => {
+    const hours = Math.floor(index / 4);
+    const minutes = (index % 4) * 15;
+    const time = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+    return { value: time, label: time };
+  });
 
   useEffect(() => {
     const close = (event: MouseEvent) => {
@@ -210,8 +216,7 @@ function DateTimeField({
             ))}
           </div>
           <div className="mt-3 border-t border-border pt-3">
-            <span className="life-field-label">Time</span>
-            <input type="time" className="life-control mt-1 w-full" value={timePart} onChange={(event) => setValue(`${datePart || new Date().toISOString().slice(0, 10)}T${event.target.value}`)} />
+            <ComboBox label="Time" value={timePart} onChange={(next) => setValue(`${datePart || new Date().toISOString().slice(0, 10)}T${next}`)} options={timeOptions} />
           </div>
           <button type="button" className="mt-3 w-full rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-accent-fg hover:bg-accent-hover" onClick={() => setOpen(false)}>Apply</button>
         </div>
