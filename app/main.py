@@ -11,6 +11,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.life import router as life_router
+from app.api.memory import router as memory_router
+from app.api.workflow import router as workflow_router
 from app.core.config import get_settings
 from app.core.security import Principal, current_principal
 from app.domain.simulation import SimulationRequest, simulate
@@ -48,6 +50,8 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="Life Sandbox API", version="0.1.0", lifespan=lifespan)
 app.include_router(life_router)
+app.include_router(memory_router)
+app.include_router(workflow_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,

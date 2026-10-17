@@ -773,7 +773,7 @@ export default function AdminPanel({ onClose, initialSelectedTraceId }: AdminPan
                       <div className="space-y-1.5 pt-2 border-t border-border/60">
                         <div className="flex items-center justify-between text-[10px]">
                           <span className="text-fg-muted">Trigger Keywords:</span>
-                          <span className="font-mono text-fg-secondary truncate max-w-[140px]" title={skill.keywords.join(', ')}>
+                          <span className="font-mono text-fg-secondary truncate max-w-35" title={skill.keywords.join(', ')}>
                             {skill.keywords.slice(0, 3).join(', ')}...
                           </span>
                         </div>

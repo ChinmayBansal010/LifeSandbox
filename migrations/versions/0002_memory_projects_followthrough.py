@@ -42,7 +42,8 @@ def upgrade():
     ):
         model.__table__.create(op.get_bind(), checkfirst=True)
     op.execute("UPDATE memories SET updated_at = created_at WHERE updated_at IS NULL")
-    op.alter_column("memories", "updated_at", nullable=False)
+    with op.batch_alter_table("memories") as batch:
+        batch.alter_column("updated_at", existing_type=sa.DateTime(timezone=True), nullable=False)
 
 
 def downgrade():

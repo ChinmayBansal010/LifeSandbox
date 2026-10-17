@@ -47,8 +47,29 @@ class MemoryRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
     source_conversation_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    project_id: Mapped[str | None] = mapped_column(
+        ForeignKey("projects.id", ondelete="SET NULL", name="fk_memories_project_id_projects"),
+        nullable=True,
+        index=True,
+    )
     confidence: Mapped[float] = mapped_column(default=1.0)
     identity_key: Mapped[str | None] = mapped_column(String(200), nullable=True)
+
+
+class MemoryCandidateRow(Base):
+    __tablename__ = "memory_candidates"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(String(200), index=True)
+    content: Mapped[str] = mapped_column(String(2000))
+    category: Mapped[str] = mapped_column(String(100))
+    source_conversation_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
+    confidence: Mapped[float] = mapped_column(default=0.75)
+    memory_id: Mapped[str | None] = mapped_column(
+        ForeignKey("memories.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class MemoryPolicyRow(Base):
@@ -114,6 +135,8 @@ class ReminderRow(Base):
     text: Mapped[str] = mapped_column(String(500))
     scheduled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     timezone: Mapped[str] = mapped_column(String(100), default="UTC")
+    recurrence: Mapped[str] = mapped_column(String(20), default="none")
+    channel: Mapped[str] = mapped_column(String(30), default="in_app")
     status: Mapped[str] = mapped_column(String(30), default="pending", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
@@ -158,7 +181,11 @@ class ApprovalRow(Base):
     payload_hash: Mapped[str] = mapped_column(String(64))
     status: Mapped[str] = mapped_column(String(30), default="pending", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    correlation_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    result_resource_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    result_resource_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
 
 class AuditRow(Base):
@@ -180,6 +207,7 @@ class IdempotencyRow(Base):
     key: Mapped[str] = mapped_column(String(200))
     resource_id: Mapped[str] = mapped_column(String(36))
     resource_type: Mapped[str] = mapped_column(String(50))
+    request_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class FeedbackRow(Base):

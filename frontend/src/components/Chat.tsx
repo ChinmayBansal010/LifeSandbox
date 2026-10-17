@@ -477,7 +477,7 @@ export default function Chat({
                 id="remember-with-mem0"
                 icon={Sparkles}
                 title="Mem0 hosted memory"
-                description="Search and save this exchange in your Mem0 account. Sent to Mem0."
+                description="Your message is sent to Mem0 for search; the exchange is sent after the reply to save."
                 setupHint="Add MEM0_API_KEY to backend environment to enable hosted memory."
                 configured={mem0Enabled}
                 checked={rememberWithMem0}
@@ -488,8 +488,8 @@ export default function Chat({
                 id="allow-browser-use"
                 icon={Globe}
                 title="Browser Use research"
-                description="Use a local browser to check public GitHub pages for this reply."
-                setupHint="Install Browser Use and Chromium, then set BROWSER_USE_ENABLED=true."
+                description="A fresh local browser visits public GitHub pages only; it uses no login profile and downloads no files."
+                setupHint="Install Browser Use and Chromium in the backend, enable BROWSER_USE_ENABLED, and configure a model."
                 configured={browserUseEnabled}
                 checked={allowBrowserUse}
                 disabled={isPending}

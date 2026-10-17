@@ -160,6 +160,12 @@ async def edit_memory(
         ),
         "Memory",
     )
+    if row.content == payload.content.strip() and row.category == payload.category:
+        row.source_conversation_id = payload.source_conversation_id or row.source_conversation_id
+        row.updated_at = datetime.now(UTC)
+        await db.commit()
+        await db.refresh(row)
+        return memory_view(row)
     try:
         replacement = await save_memory(
             db,
@@ -463,6 +469,37 @@ async def complete_task(
         AuditRow(
             user_id=principal.user_id,
             action="task.complete",
+            resource_id=row.id,
+            outcome="succeeded",
+        )
+    )
+    await db.commit()
+    await db.refresh(row)
+    return task_view(row)
+
+
+@router.post("/tasks/{task_id}/start")
+async def start_task(
+    task_id: str,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(get_session),
+):
+    row = owned_or_404(
+        await db.scalar(
+            select(TaskRow).where(TaskRow.id == task_id, TaskRow.user_id == principal.user_id)
+        ),
+        "Task",
+    )
+    if row.status in {"completed", "cancelled"}:
+        raise HTTPException(
+            409, detail={"code": "task_resolved", "message": "Task is already resolved"}
+        )
+    row.status = "in_progress"
+    row.completed_at = None
+    db.add(
+        AuditRow(
+            user_id=principal.user_id,
+            action="task.start",
             resource_id=row.id,
             outcome="succeeded",
         )

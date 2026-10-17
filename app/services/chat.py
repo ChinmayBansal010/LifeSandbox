@@ -5,7 +5,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.conversation.graph import conversation_graph
-from app.memory.service import policy_for, search_memories
+from app.memory.service import (
+    policy_for,
+    process_explicit_memory_request,
+    search_memories,
+)
 from app.persistence.models import ConversationRow, MessageRow
 from app.providers.mem0 import remember_exchange
 from app.providers.mem0 import search_memories as search_hosted_memories
@@ -100,11 +104,21 @@ async def run_chat(
                     "history": history,
                     "memories": memories,
                     "allow_browser_use": browse,
+                    "db": db,
                 }
             )
         except Exception:
             await db.rollback()
             raise
+
+        memory_request = None
+        try:
+            async with db.begin_nested():
+                memory_request = await process_explicit_memory_request(db, user_id, message, row.id)
+        except Exception:
+            logging.getLogger("life_sandbox.memory").exception(
+                "Explicit memory request processing failed"
+            )
 
         db.add(MessageRow(conversation_id=row.id, role="assistant", content=state["reply"]))
         await db.commit()
@@ -136,7 +150,7 @@ async def run_chat(
             "provider": state["provider"],
             "model": state.get("model"),
             "memory_saved": memory_saved,
+            "memory_request": memory_request,
             "trace_id": trace_data.get("id"),
             "tools_accessed": trace_data.get("tools_accessed", []),
         }
-

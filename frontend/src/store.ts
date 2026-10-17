@@ -164,7 +164,7 @@ export function useStore() {
           signal: controller.signal,
           body: JSON.stringify({
             message: userMessage,
-            conversation_id: conversationId,
+            conversation_id: currentConv.serverConversationId ?? null,
             history,
             remember,
             browse,
@@ -220,6 +220,7 @@ export function useStore() {
               ...currentState.conversations,
               [conversationId]: {
                 ...convToUpdate,
+                serverConversationId: payload.conversation_id,
                 messages: updatedMessages,
                 updatedAt: Date.now(),
               },

@@ -27,6 +27,7 @@ export type ChatMessage = {
 
 export type Conversation = {
   id: string;
+  serverConversationId?: string;
   title: string;
   messages: ChatMessage[];
   createdAt: number;

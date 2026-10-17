@@ -1,28 +1,71 @@
 import asyncio
 import logging
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
-from sqlalchemy import select, update
+from sqlalchemy import and_, or_, select, update
 
 from app.persistence.models import JobRow, NotificationRow, ReminderRow
 from app.persistence.session import SessionLocal
 
 logger = logging.getLogger("life_sandbox.jobs")
+MAX_ATTEMPTS = 3
+LEASE_SECONDS = 300
+
+
+def next_occurrence(scheduled_at: datetime, timezone: str, recurrence: str) -> datetime:
+    local_time = scheduled_at.astimezone(ZoneInfo(timezone))
+    increment = timedelta(days=1 if recurrence == "daily" else 7)
+    return (local_time + increment).astimezone(UTC)
 
 
 async def run_due_once(now: datetime | None = None, limit: int = 25) -> int:
-    """Claim and deliver due reminders. The unique job notification prevents duplicates."""
+    """Claim due reminders, recover expired worker leases, and persist delivery once."""
     now = now or datetime.now(UTC)
+    stale_before = now - timedelta(seconds=LEASE_SECONDS)
     processed = 0
     async with SessionLocal() as db:
+        exhausted_reminders = set(
+            (
+                await db.scalars(
+                    select(JobRow.reminder_id).where(
+                        JobRow.job_type == "reminder_delivery",
+                        JobRow.status == "running",
+                        JobRow.started_at <= stale_before,
+                        JobRow.attempts >= MAX_ATTEMPTS,
+                        JobRow.reminder_id.is_not(None),
+                    )
+                )
+            ).all()
+        )
+        await db.execute(
+            update(JobRow)
+            .where(
+                JobRow.job_type == "reminder_delivery",
+                JobRow.status == "running",
+                JobRow.started_at <= stale_before,
+                JobRow.attempts >= MAX_ATTEMPTS,
+            )
+            .values(status="failed", completed_at=now, last_error="worker_lease_expired")
+        )
+        if exhausted_reminders:
+            await db.execute(
+                update(ReminderRow)
+                .where(ReminderRow.id.in_(exhausted_reminders), ReminderRow.status == "pending")
+                .values(status="failed")
+            )
+        await db.commit()
         ids = list(
             (
                 await db.scalars(
                     select(JobRow.id)
                     .where(
                         JobRow.job_type == "reminder_delivery",
-                        JobRow.status == "queued",
-                        JobRow.scheduled_at <= now,
+                        or_(
+                            and_(JobRow.status == "queued", JobRow.scheduled_at <= now),
+                            and_(JobRow.status == "running", JobRow.started_at <= stale_before),
+                        ),
+                        JobRow.attempts < MAX_ATTEMPTS,
                     )
                     .order_by(JobRow.scheduled_at)
                     .limit(limit)
@@ -33,7 +76,14 @@ async def run_due_once(now: datetime | None = None, limit: int = 25) -> int:
         async with SessionLocal() as db:
             claim = await db.execute(
                 update(JobRow)
-                .where(JobRow.id == job_id, JobRow.status == "queued")
+                .where(
+                    JobRow.id == job_id,
+                    JobRow.attempts < MAX_ATTEMPTS,
+                    or_(
+                        and_(JobRow.status == "queued", JobRow.scheduled_at <= now),
+                        and_(JobRow.status == "running", JobRow.started_at <= stale_before),
+                    ),
+                )
                 .values(status="running", started_at=now, attempts=JobRow.attempts + 1)
                 .returning(JobRow.id)
             )
@@ -55,7 +105,23 @@ async def run_due_once(now: datetime | None = None, limit: int = 25) -> int:
                         db.add(
                             NotificationRow(user_id=job.user_id, job_id=job.id, text=reminder.text)
                         )
-                    reminder.status = "delivered"
+                    if reminder.recurrence in {"daily", "weekly"}:
+                        reminder.scheduled_at = next_occurrence(
+                            reminder.scheduled_at, reminder.timezone, reminder.recurrence
+                        )
+                        reminder.status = "pending"
+                        db.add(
+                            JobRow(
+                                user_id=reminder.user_id,
+                                reminder_id=reminder.id,
+                                scheduled_at=reminder.scheduled_at,
+                                idempotency_key=(
+                                    f"reminder:{reminder.id}:{reminder.scheduled_at.isoformat()}"
+                                ),
+                            )
+                        )
+                    else:
+                        reminder.status = "delivered"
                     job.status = "succeeded"
                 job.completed_at = now
                 await db.commit()
@@ -66,9 +132,8 @@ async def run_due_once(now: datetime | None = None, limit: int = 25) -> int:
                 async with SessionLocal() as retry_db:
                     retry = await retry_db.get(JobRow, job_id)
                     if retry:
-                        retry.attempts += 1
                         retry.last_error = type(exc).__name__
-                        retry.status = "failed" if retry.attempts >= 3 else "queued"
+                        retry.status = "failed" if retry.attempts >= MAX_ATTEMPTS else "queued"
                         if retry.status == "queued":
                             retry.scheduled_at = now + timedelta(seconds=30 * retry.attempts)
                         else:
@@ -87,7 +152,10 @@ async def run_due_once(now: datetime | None = None, limit: int = 25) -> int:
 
 async def run_worker(poll_seconds: float = 2.0):
     while True:
-        await run_due_once()
+        try:
+            await run_due_once()
+        except Exception:
+            logger.exception("reminder worker poll failed")
         await asyncio.sleep(poll_seconds)
 
 

@@ -10,6 +10,24 @@ from urllib.parse import quote_plus
 
 from app.core.config import get_settings
 
+GITHUB_RESERVED_PATHS = {
+    "about",
+    "apps",
+    "collections",
+    "contact",
+    "enterprise",
+    "features",
+    "login",
+    "marketplace",
+    "orgs",
+    "organizations",
+    "pricing",
+    "security",
+    "site",
+    "sponsors",
+    "topics",
+}
+
 
 def is_configured() -> bool:
     settings = get_settings()
@@ -20,6 +38,15 @@ def is_configured() -> bool:
     if settings.llm_provider == "nebius":
         return bool(settings.nebius_api_key and settings.nebius_model)
     return False
+
+
+def is_repository_url(url: str) -> bool:
+    match = re.fullmatch(r"https://github\.com/([^/]+)/([^/]+)/?", url.rstrip("/"))
+    return bool(match and match.group(1).lower() not in GITHUB_RESERVED_PATHS)
+
+
+def has_no_repository_results(text: str) -> bool:
+    return "your search did not match any repositories" in text.lower()
 
 
 def _github_search_terms(query: str) -> list[str]:
@@ -70,7 +97,7 @@ async def research_with_browser(query: str) -> dict[str, str]:
                 await page.goto(search_url)
                 await asyncio.sleep(1.5)
                 raw = await page.evaluate(
-                    """() => JSON.stringify({
+                    r"""() => JSON.stringify({
                         title: document.title,
                         text: (document.body?.innerText || '').slice(0, 5000),
                         links: Array.from(document.querySelectorAll('a[href]'))
@@ -79,17 +106,16 @@ async def research_with_browser(query: str) -> dict[str, str]:
                     })"""
                 )
                 page_data = json.loads(raw or "{}")
+                search_text = page_data.get("text", "")
+                if has_no_repository_results(search_text):
+                    continue
                 for link in page_data.get("links", []):
                     url = link.get("href", "").rstrip("/")
-                    path = url.removeprefix("https://github.com/")
-                    if path and path.count("/") == 1 and path not in {
-                        "features/actions",
-                        "login/device",
-                    }:
+                    if is_repository_url(url):
+                        path = url.removeprefix("https://github.com/")
                         search_results.append(
                             {"url": url, "name": link.get("text", "").strip() or path}
                         )
-                search_text = page_data.get("text", "")
                 if len({item["url"] for item in search_results}) >= 3:
                     break
 
