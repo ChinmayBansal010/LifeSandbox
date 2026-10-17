@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     mem0_host: str = "https://api.mem0.ai"
     browser_use_enabled: bool = False
     llm_timeout_seconds: float = 30
+    mem0_search_timeout_seconds: float = 10.0
+    mem0_add_timeout_seconds: float = 10.0
+    # Keep each model completion short enough that multi-step tool turns finish
+    # before the browser's 105-second safety timeout.
+    openrouter_timeout_seconds: float = 30.0
+    chat_request_timeout_seconds: float = 95.0
     llm_max_tokens: int = 1000
     research_provider: Literal["disabled", "tavily"] = "disabled"
     tavily_api_key: str | None = None

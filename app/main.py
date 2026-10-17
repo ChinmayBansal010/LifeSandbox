@@ -142,6 +142,7 @@ async def list_skills():
 @app.post("/api/v1/chat")
 async def chat(
     payload: ChatRequest,
+    request: Request,
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(get_session),
 ):
@@ -153,7 +154,8 @@ async def chat(
                 "message": "Browser Use is disabled or not configured",
             },
         )
-    result = await run_chat(
+    try:
+        result = await run_chat(
         db,
         principal.user_id,
         payload.message,
@@ -161,7 +163,12 @@ async def chat(
         payload.history,
         payload.remember,
         payload.browse,
-    )
+            request.is_disconnected,
+        )
+    except LLMError as exc:
+        timeout = exc.code == "timeout"
+        message = "Model response timed out (OpenRouter). Mem0 save was not attempted." if timeout and exc.provider == "openrouter" else "The model provider failed. Mem0 save was not attempted."
+        return JSONResponse(status_code=504 if timeout else 502, content={"error": {"code": "llm_provider_error", "provider": exc.provider, "upstream_status": exc.status_code, "message": message, "mem0_opt_in": payload.remember, "mem0_search_status": "not_requested", "mem0_save_status": "not_attempted" if payload.remember else "not_requested", "failure_detail": {"provider": exc.provider, "stage": "llm_generate", "code": exc.code, "message": message, "retriable": True}}})
     if result is None:
         raise HTTPException(404, detail={"code": "not_found", "message": "Conversation not found"})
     return result
@@ -170,6 +177,7 @@ async def chat(
 @app.post("/api/v1/chat/stream")
 async def chat_stream(
     payload: ChatRequest,
+    request: Request,
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(get_session),
 ):
@@ -197,6 +205,7 @@ async def chat_stream(
                 payload.history,
                 payload.remember,
                 payload.browse,
+                request.is_disconnected,
             )
             if result is None:
                 event_data = {"run_id": run_id, "code": "not_found"}

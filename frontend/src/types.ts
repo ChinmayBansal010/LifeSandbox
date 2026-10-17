@@ -23,6 +23,17 @@ export type ChatMessage = {
   skill?: string | null;
   skillTrigger?: string | null;
   intent?: string | null;
+  mem0OptIn?: boolean;
+  mem0SearchStatus?: 'not_requested' | 'succeeded' | 'failed' | 'timed_out';
+  mem0SaveStatus?: 'not_requested' | 'saved' | 'not_attempted' | 'failed' | 'timed_out' | 'cancelled';
+};
+
+export type StageFailureDetail = {
+  provider: 'openrouter' | 'mem0' | 'client' | 'internal';
+  stage: 'mem0_search' | 'llm_generate' | 'mem0_add' | 'client_timeout';
+  code: 'timeout' | 'upstream_error' | 'cancelled' | 'validation_error';
+  message: string;
+  retriable: boolean;
 };
 
 export type Conversation = {

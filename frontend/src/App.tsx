@@ -87,7 +87,7 @@ export default function App() {
 
   const handleSendMessage = useCallback(
     async (userMessage: string, remember: boolean, browse: boolean) => {
-      if (!activeConversation) return false;
+      if (!activeConversation) return '{}';
       return sendMessage(activeConversation.id, userMessage, remember, browse);
     },
     [activeConversation, sendMessage]

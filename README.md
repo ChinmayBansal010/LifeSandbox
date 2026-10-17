@@ -79,12 +79,12 @@ uv sync --locked
 uv run uvicorn app.main:app --reload
 ```
 
-In development, FastAPI creates the local SQLite schema on startup. Keep the frontend running in a separate terminal using the steps above. If you want the native backend to use the Compose PostgreSQL database instead, start it with `docker compose up -d db` and set `DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/lifesandbox` in `.env`; run `uv run alembic upgrade head` before starting the backend. The Docker API service always uses the internal Compose database URL, regardless of the `DATABASE_URL` value in `.env`.
+In development, FastAPI creates the local SQLite schema on startup. Keep the frontend running in a separate terminal using the steps above. If you want the native backend to use the Compose PostgreSQL database instead, start it with `docker compose up -d db` and set `DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/lifesandbox` in `.env`; run `uv run alembic upgrade head` before starting the backend. The Docker API service always uses the internal Compose database URL, regardless of the `DATABASE_URL` value in `.env`. Compose applies Alembic migrations before starting the API and worker.
 
 ### Applying changes
 
 - Frontend source changes under `frontend/src` are applied by Vite HMR while `npm run dev` is running. Changes to frontend dependencies require `npm ci` and a Vite restart.
-- With the Docker backend, Python source changes are **not** applied automatically: the image contains a copy of the source and Compose does not mount the source directory. Rebuild and restart the API with `docker compose up --build -d api`.
+- With the Docker backend, Python source changes are **not** applied automatically: the image contains a copy of the source and Compose does not mount the source directory. Rebuild and restart with `docker compose up --build -d` so the migration job and API use the new image.
 - Changes to `.env` are **not** applied to an already-running API container. Recreate it with `docker compose up -d --force-recreate api`. If you changed Python dependencies in `pyproject.toml` or `uv.lock`, use `docker compose up --build -d api` instead.
 - After editing `docker-compose.yml`, apply the updated service configuration with `docker compose up -d`; add `--build` if the change affects the image.
 - The Compose API service explicitly sets `DATABASE_URL` to the internal `db` service address. Changing `DATABASE_URL` in `.env` therefore affects a native backend, but not the Docker API's database connection.

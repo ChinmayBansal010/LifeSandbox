@@ -1,4 +1,5 @@
 import logging
+import asyncio
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -24,6 +25,7 @@ async def run_chat(
     history_override: list[dict[str, str]] | None = None,
     remember: bool = False,
     browse: bool = False,
+    is_disconnected=None,
 ):
     if conversation_id:
         row = await db.scalar(
@@ -60,6 +62,7 @@ async def run_chat(
         db=db,
     ) as trace_data:
         memories = []
+        hosted_search_status = "not_requested"
         try:
             # Isolate optional memory-store failures so they do not poison the
             # conversation transaction and fail after the model has responded.
@@ -74,29 +77,27 @@ async def run_chat(
             hosted_allowed = False
             try:
                 async with db.begin_nested():
-                    hosted_allowed = (await policy_for(db, user_id)).hosted_memory_allowed
+                    policy = await policy_for(db, user_id)
+                    # The per-message switch is explicit consent for this exchange.
+                    # Keep the global memory policy as the user's master off switch.
+                    hosted_allowed = policy.enabled
             except Exception:
                 logging.getLogger("life_sandbox.memory").exception("Memory policy lookup failed")
             if hosted_allowed:
-                async with trace_tool(
-                    "mem0_search", "memory", {"query": message, "user_id": user_id}
-                ) as mem_event:
+                hosted_search_status = "succeeded"
+                async with trace_tool("mem0_search", "memory", {"user_id": user_id}) as mem_event:
                     try:
                         memories.extend(await search_hosted_memories(message, user_id))
-                        mem_event["output_data"] = {
-                            "count": len(memories),
-                            "memories": memories[:3],
-                        }
+                        mem_event["output_data"] = {"count": len(memories)}
                     except Exception as exc:
-                        logging.getLogger("life_sandbox.mem0").exception(
-                            "Mem0 memory search failed"
-                        )
+                        hosted_search_status = "timed_out" if isinstance(exc, (TimeoutError, asyncio.TimeoutError)) else "failed"
+                        logging.getLogger("life_sandbox.mem0").warning("provider_call_failed provider=mem0 stage=mem0_search outcome=%s", "timeout" if isinstance(exc, (TimeoutError, asyncio.TimeoutError)) else "upstream_error")
                         mem_event["status"] = "error"
-                        mem_event["error"] = str(exc)
+                        mem_event["error"] = "provider call failed"
 
         db.add(MessageRow(conversation_id=row.id, role="user", content=message))
         try:
-            state = await conversation_graph.ainvoke(
+            model_task = asyncio.create_task(conversation_graph.ainvoke(
                 {
                     "user_id": user_id,
                     "conversation_id": row.id,
@@ -106,7 +107,16 @@ async def run_chat(
                     "allow_browser_use": browse,
                     "db": db,
                 }
-            )
+            ))
+            if is_disconnected is not None:
+                while not model_task.done():
+                    if await is_disconnected():
+                        model_task.cancel()
+                        await asyncio.gather(model_task, return_exceptions=True)
+                        logging.getLogger("life_sandbox.chat").info("chat_turn_cancelled provider=openrouter stage=client_disconnect outcome=cancelled")
+                        raise asyncio.CancelledError
+                    await asyncio.sleep(0.2)
+            state = await model_task
         except Exception:
             await db.rollback()
             raise
@@ -124,14 +134,32 @@ async def run_chat(
         await db.commit()
 
         memory_saved = False
+        mem0_search_status = hosted_search_status
+        mem0_save_status = "not_requested" if not remember else "not_attempted"
+        failure_detail = None
+        if mem0_search_status in {"failed", "timed_out"}:
+            failure_detail = {
+                "provider": "mem0", "stage": "mem0_search",
+                "code": "timeout" if mem0_search_status == "timed_out" else "upstream_error",
+                "message": "Mem0 search failed; this reply was generated without recalled memories.",
+                "retriable": True,
+            }
         if remember and hosted_allowed:
             async with trace_tool("mem0_save", "memory", {"user_id": user_id}) as save_event:
                 try:
                     await remember_exchange(user_id, message, state["reply"])
                     memory_saved = True
+                    mem0_save_status = "saved"
                     save_event["output_data"] = {"saved": True}
                 except Exception as exc:
-                    logging.getLogger("life_sandbox.mem0").exception("Mem0 memory write failed")
+                    mem0_save_status = "timed_out" if isinstance(exc, (TimeoutError, asyncio.TimeoutError)) else "failed"
+                    failure_detail = {
+                        "provider": "mem0", "stage": "mem0_add",
+                        "code": "timeout" if mem0_save_status == "timed_out" else "upstream_error",
+                        "message": "The reply was generated, but Mem0 could not confirm saving this exchange.",
+                        "retriable": True,
+                    }
+                    logging.getLogger("life_sandbox.mem0").warning("provider_call_failed provider=mem0 stage=mem0_add outcome=%s", mem0_save_status)
                     save_event["status"] = "error"
                     save_event["error"] = str(exc)
 
@@ -150,6 +178,10 @@ async def run_chat(
             "provider": state["provider"],
             "model": state.get("model"),
             "memory_saved": memory_saved,
+            "mem0_opt_in": remember,
+            "mem0_search_status": mem0_search_status,
+            "mem0_save_status": mem0_save_status,
+            "failure_detail": failure_detail,
             "memory_request": memory_request,
             "trace_id": trace_data.get("id"),
             "tools_accessed": trace_data.get("tools_accessed", []),

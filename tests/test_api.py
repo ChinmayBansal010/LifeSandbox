@@ -49,3 +49,20 @@ def test_chat_reports_provider_errors_as_gateway_errors(monkeypatch):
     assert response.status_code == 502
     assert response.json()["error"]["code"] == "llm_provider_error"
     assert response.json()["error"]["upstream_status"] == 429
+
+
+def test_openrouter_timeout_contract_marks_mem0_not_attempted(monkeypatch):
+    async def fail_with_timeout(_state):
+        raise LLMError("request timed out", provider="openrouter", code="timeout")
+
+    monkeypatch.setattr(chat_service.conversation_graph, "ainvoke", fail_with_timeout)
+    with TestClient(app) as client:
+        response = client.post("/api/v1/chat", json={"message": "hello", "remember": True})
+
+    assert response.status_code == 504
+    body = response.json()["error"]
+    assert body["mem0_opt_in"] is True
+    assert body["mem0_save_status"] == "not_attempted"
+    assert body["failure_detail"]["provider"] == "openrouter"
+    assert body["failure_detail"]["stage"] == "llm_generate"
+    assert body["failure_detail"]["code"] == "timeout"

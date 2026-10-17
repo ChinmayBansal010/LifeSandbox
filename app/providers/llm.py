@@ -1,4 +1,5 @@
 import asyncio
+import time
 from dataclasses import dataclass
 from typing import Any
 
@@ -16,10 +17,13 @@ class Completion:
 
 
 class LLMError(RuntimeError):
-    def __init__(self, message: str, *, provider: str, status_code: int | None = None):
+    def __init__(self, message: str, *, provider: str, status_code: int | None = None, code: str = "upstream_error", duration_ms: float = 0):
         super().__init__(message)
         self.provider = provider
         self.status_code = status_code
+        self.code = code
+        self.stage = "llm_generate"
+        self.duration_ms = duration_ms
 
 
 class ChatModel:
@@ -62,6 +66,7 @@ class OpenAICompatibleModel(ChatModel):
         self.fallback_model = fallback_model
 
     async def complete(self, messages, tools=None):
+        started = time.monotonic()
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": messages,
@@ -71,24 +76,36 @@ class OpenAICompatibleModel(ChatModel):
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
         try:
-            async with asyncio.timeout(self.timeout):
-                async with httpx.AsyncClient(timeout=self.timeout) as client:
+            timeout = min(self.timeout, get_settings().openrouter_timeout_seconds) if self.provider == "openrouter" else self.timeout
+            async with asyncio.timeout(timeout):
+                async with httpx.AsyncClient(timeout=timeout) as client:
                     headers = {
                         "Authorization": f"Bearer {self.api_key}",
                         "Content-Type": "application/json",
                     }
-                    attempts = [(self.model, "low"), (self.model, "none")]
+                    attempts = [self.model]
                     if self.provider == "openrouter" and self.fallback_model:
-                        attempts.append((self.fallback_model, "none"))
-                    for requested_model, reasoning_effort in attempts:
+                        attempts.append(self.fallback_model)
+                    else:
+                        attempts.append(self.model)
+                    deadline = started + timeout
+                    for index, requested_model in enumerate(attempts):
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            break
+                        # Reserve time for a configured fallback instead of allowing a
+                        # slow free-tier route to consume the whole request budget.
+                        attempt_budget = remaining if index == len(attempts) - 1 else min(45.0, remaining * 0.6)
                         payload["model"] = requested_model
-                        if self.provider == "openrouter":
-                            # Avoid empty replies when a reasoning model exhausts its budget
-                            # on hidden reasoning. A configured fallback remains LLM-generated.
-                            payload["reasoning_effort"] = reasoning_effort
-                        response = await client.post(
-                            f"{self.base_url}/chat/completions", headers=headers, json=payload
-                        )
+                        try:
+                            async with asyncio.timeout(attempt_budget):
+                                response = await client.post(
+                                    f"{self.base_url}/chat/completions", headers=headers, json=payload
+                                )
+                        except TimeoutError:
+                            if index == len(attempts) - 1:
+                                raise
+                            continue
                         response.raise_for_status()
                         body = response.json()
                         message = body["choices"][0]["message"]
@@ -107,12 +124,13 @@ class OpenAICompatibleModel(ChatModel):
                     )
         except httpx.HTTPStatusError as exc:
             raise LLMError(
-                f"{self.provider} returned HTTP {exc.response.status_code}: {exc.response.text}",
+                f"{self.provider} returned HTTP {exc.response.status_code}",
                 provider=self.provider,
                 status_code=exc.response.status_code,
+                duration_ms=(time.monotonic() - started) * 1000,
             ) from exc
         except (httpx.TimeoutException, TimeoutError) as exc:
-            raise LLMError(f"{self.provider} request timed out", provider=self.provider) from exc
+            raise LLMError(f"{self.provider} request timed out", provider=self.provider, code="timeout", duration_ms=(time.monotonic() - started) * 1000) from exc
         except (httpx.RequestError, KeyError, IndexError, TypeError, ValueError) as exc:
             raise LLMError(
                 f"{self.provider} returned an invalid response", provider=self.provider
@@ -130,7 +148,7 @@ def model_for(provider: str | None = None, model: str | None = None) -> ChatMode
             s.nebius_base_url,
             s.nebius_api_key or "",
             model or s.nebius_model,
-            s.llm_timeout_seconds,
+            s.openrouter_timeout_seconds,
             s.llm_max_tokens,
         )
     if provider == "openrouter":

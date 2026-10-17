@@ -11,6 +11,15 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+  migrate:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/lifesandbox
+    command: [".venv/bin/alembic", "upgrade", "head"]
+    depends_on:
+      db:
+        condition: service_healthy
   api:
     build: .
     env_file: .env
@@ -18,8 +27,8 @@ services:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/lifesandbox
     ports: ["8000:8000"]
     depends_on:
-      db:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
   worker:
     build: .
     restart: unless-stopped
@@ -28,5 +37,5 @@ services:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/lifesandbox
     command: [".venv/bin/python", "-m", "app.jobs.worker"]
     depends_on:
-      db:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully

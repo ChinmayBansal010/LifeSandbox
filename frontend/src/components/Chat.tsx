@@ -24,7 +24,7 @@ type ChatProps = {
     userMessage: string,
     remember: boolean,
     browse: boolean,
-  ) => Promise<boolean>;
+  ) => Promise<string>;
   mem0Enabled: boolean;
   browserUseEnabled: boolean;
   onRenameConversation?: (conversationId: string, title: string) => void;
@@ -254,14 +254,18 @@ export default function Chat({
     setInput('');
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
     setMemoryStatus('');
-    const saved = await onSendMessage(
+    const result = await onSendMessage(
       msg,
       rememberWithMem0,
       allowBrowserUse,
     );
-    if (rememberWithMem0 && !saved) {
-      setMemoryStatus('Mem0 did not confirm saving this exchange.');
-    }
+    const status = JSON.parse(result || '{}');
+    if (status.error === 'CHAT_CLIENT_TIMEOUT') setMemoryStatus('Chat request timed out after 105s waiting for a response. Mem0 save was not completed.');
+    else if (status.error === 'OPENROUTER_TIMEOUT') setMemoryStatus('Model response timed out (OpenRouter). Mem0 save was not attempted.');
+    else if (status.error === 'OPENROUTER_FAILURE') setMemoryStatus('OpenRouter failed to generate a reply. Mem0 save was not attempted.');
+    else if (status.search === 'failed' || status.search === 'timed_out') setMemoryStatus('Mem0 search failed before reply generation; response generated without recalled memories.');
+    else if (status.save === 'failed' || status.save === 'timed_out') setMemoryStatus('Mem0 failed to save this exchange (Mem0 add error/timeout).');
+    else if (status.save === 'saved') setMemoryStatus('Saved to Mem0');
     setRememberWithMem0(false);
     setAllowBrowserUse(false);
   };
