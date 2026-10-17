@@ -346,6 +346,14 @@
     transform: translate(-50%, -50%) rotate(var(--clock-angle)) translateY(-4.7rem) rotate(calc(var(--clock-angle) * -1)) scale(1.08);
   }
 
+  .life-clock-hour .life-clock-number {
+    pointer-events: auto;
+    cursor: pointer;
+    border: 0;
+    background: transparent;
+    font-family: inherit;
+  }
+
   .life-clock-hand {
     position: absolute;
     top: 50%;

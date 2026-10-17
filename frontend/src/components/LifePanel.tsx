@@ -265,11 +265,11 @@ function DateTimeField({
                 {(['AM', 'PM'] as const).map((nextPeriod) => <button key={nextPeriod} type="button" className={`life-clock-period ${period === nextPeriod ? 'is-active' : ''}`} onClick={() => updatePeriod(nextPeriod)}>{nextPeriod}</button>)}
               </div>
             </div>
-            <div ref={minuteClockRef} className={`life-clock ${clockMode === 'minute' ? 'life-clock-minute' : ''}`} role="slider" tabIndex={0} aria-label={`Choose ${clockMode}`} aria-valuemin={clockMode === 'hour' ? 1 : 0} aria-valuemax={clockMode === 'hour' ? 12 : 59} aria-valuenow={clockMode === 'hour' ? displayHour : minute} onPointerDown={handleDialPointerDown} onPointerMove={handleDialPointerMove}>
+            <div ref={minuteClockRef} className={`life-clock ${clockMode === 'minute' ? 'life-clock-minute' : 'life-clock-hour'}`} role="slider" tabIndex={0} aria-label={`Choose ${clockMode}`} aria-valuemin={clockMode === 'hour' ? 1 : 0} aria-valuemax={clockMode === 'hour' ? 12 : 59} aria-valuenow={clockMode === 'hour' ? displayHour : minute} onPointerDown={clockMode === 'minute' ? handleDialPointerDown : undefined} onPointerMove={clockMode === 'minute' ? handleDialPointerMove : undefined}>
               <span className="life-clock-center" />
               <span className="life-clock-hand" style={{ '--clock-angle': `${clockMode === 'hour' ? (displayHour % 12) * 30 : minuteAngle}deg` } as CSSProperties} />
               {clockMode === 'hour'
-                ? clockValues.map((clockValue) => <span key={clockValue} className={`life-clock-number ${clockValue === displayHour ? 'is-selected' : ''}`} style={{ '--clock-angle': `${(clockValue % 12) * 30}deg` } as CSSProperties}>{clockValue}</span>)
+                ? clockValues.map((clockValue) => <button key={clockValue} type="button" className={`life-clock-number ${clockValue === displayHour ? 'is-selected' : ''}`} style={{ '--clock-angle': `${(clockValue % 12) * 30}deg` } as CSSProperties} onClick={() => updateHour(clockValue)}>{clockValue}</button>)
                 : Array.from({ length: 12 }, (_, index) => index * 5).map((minuteValue, index) => <span key={minuteValue} className={`life-clock-number ${minuteValue === minute ? 'is-selected' : ''}`} style={{ '--clock-angle': `${index * 30}deg` } as CSSProperties}>{String(minuteValue).padStart(2, '0')}</span>)}
             </div>
             <p className="mt-2 text-center text-[10px] text-fg-muted">Click or drag the dial to set the {clockMode}.</p>
