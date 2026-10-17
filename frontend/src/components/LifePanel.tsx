@@ -174,7 +174,8 @@ function DateTimeField({
   const minute = Number(timePart.slice(3, 5)) || 0;
   const period = hour24 >= 12 ? 'PM' : 'AM';
   const displayHour = hour24 % 12 || 12;
-  const clockValues = clockMode === 'hour' ? Array.from({ length: 12 }, (_, index) => index + 1) : Array.from({ length: 12 }, (_, index) => index * 5);
+  const clockValues = Array.from({ length: 12 }, (_, index) => index + 1);
+  const minuteValues = Array.from({ length: 60 }, (_, index) => index);
 
   useEffect(() => {
     const close = (event: MouseEvent) => {
@@ -240,13 +241,16 @@ function DateTimeField({
                 {(['AM', 'PM'] as const).map((nextPeriod) => <button key={nextPeriod} type="button" className={`life-clock-period ${period === nextPeriod ? 'is-active' : ''}`} onClick={() => updatePeriod(nextPeriod)}>{nextPeriod}</button>)}
               </div>
             </div>
-            <div className="life-clock" aria-label={`Choose ${clockMode}`}>
-              <span className="life-clock-center" />
-              {clockValues.map((clockValue, index) => {
-                const selected = clockMode === 'hour' ? clockValue === displayHour : clockValue === minute;
-                return <button key={clockValue} type="button" className={`life-clock-number ${selected ? 'is-selected' : ''}`} style={{ '--clock-angle': `${index * 30}deg` } as CSSProperties} onClick={() => clockMode === 'hour' ? updateHour(clockValue) : updateMinute(clockValue)}>{String(clockValue).padStart(2, '0')}</button>;
-              })}
-            </div>
+            {clockMode === 'hour' ? (
+              <div className="life-clock" aria-label="Choose hour">
+                <span className="life-clock-center" />
+                {clockValues.map((clockValue, index) => <button key={clockValue} type="button" className={`life-clock-number ${clockValue === displayHour ? 'is-selected' : ''}`} style={{ '--clock-angle': `${index * 30}deg` } as CSSProperties} onClick={() => updateHour(clockValue)}>{String(clockValue).padStart(2, '0')}</button>)}
+              </div>
+            ) : (
+              <div className="life-minute-grid" aria-label="Choose exact minute">
+                {minuteValues.map((minuteValue) => <button key={minuteValue} type="button" className={`life-minute-option ${minuteValue === minute ? 'is-selected' : ''}`} onClick={() => updateMinute(minuteValue)}>{String(minuteValue).padStart(2, '0')}</button>)}
+              </div>
+            )}
           </div>
           <button type="button" className="mt-3 w-full rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-accent-fg hover:bg-accent-hover" onClick={() => setOpen(false)}>Apply</button>
         </div>
