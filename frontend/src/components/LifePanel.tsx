@@ -1,4 +1,4 @@
-import { startTransition, useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
+import { startTransition, useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import { Archive, Bell, BrainCircuit, CalendarDays, Check, ChevronDown, FolderKanban, ListTodo, Pencil, Play, Plus, RefreshCw, Trash2, X } from 'lucide-react';
 
 type Item = Record<string, any>;
@@ -175,7 +175,8 @@ function DateTimeField({
   const period = hour24 >= 12 ? 'PM' : 'AM';
   const displayHour = hour24 % 12 || 12;
   const clockValues = Array.from({ length: 12 }, (_, index) => index + 1);
-  const minuteValues = Array.from({ length: 60 }, (_, index) => index);
+  const minuteClockRef = useRef<HTMLDivElement>(null);
+  const minuteAngle = minute * 6;
 
   useEffect(() => {
     const close = (event: MouseEvent) => {
@@ -203,6 +204,15 @@ function DateTimeField({
   function updatePeriod(nextPeriod: 'AM' | 'PM') {
     const nextHour = nextPeriod === 'PM' ? (displayHour % 12) + 12 : displayHour % 12;
     setValue(`${datePart || today.toISOString().slice(0, 10)}T${String(nextHour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`);
+  }
+
+  function selectMinuteFromClock(event: ReactMouseEvent<HTMLDivElement>) {
+    if (!minuteClockRef.current) return;
+    const bounds = minuteClockRef.current.getBoundingClientRect();
+    const x = event.clientX - (bounds.left + bounds.width / 2);
+    const y = event.clientY - (bounds.top + bounds.height / 2);
+    const angle = (Math.atan2(x, -y) + Math.PI * 2) % (Math.PI * 2);
+    updateMinute(Math.round((angle / (Math.PI * 2)) * 60) % 60);
   }
 
   return (
@@ -241,12 +251,14 @@ function DateTimeField({
                 {(['AM', 'PM'] as const).map((nextPeriod) => <button key={nextPeriod} type="button" className={`life-clock-period ${period === nextPeriod ? 'is-active' : ''}`} onClick={() => updatePeriod(nextPeriod)}>{nextPeriod}</button>)}
               </div>
             </div>
-            <div className={`life-clock ${clockMode === 'minute' ? 'life-clock-minute' : ''}`} aria-label={`Choose ${clockMode}`}>
+            <div ref={clockMode === 'minute' ? minuteClockRef : undefined} className={`life-clock ${clockMode === 'minute' ? 'life-clock-minute' : ''}`} aria-label={`Choose ${clockMode}`} onClick={clockMode === 'minute' ? selectMinuteFromClock : undefined}>
               <span className="life-clock-center" />
+              {clockMode === 'minute' && <span className="life-clock-hand" style={{ '--clock-angle': `${minuteAngle}deg` } as CSSProperties} />}
               {clockMode === 'hour'
                 ? clockValues.map((clockValue, index) => <button key={clockValue} type="button" className={`life-clock-number ${clockValue === displayHour ? 'is-selected' : ''}`} style={{ '--clock-angle': `${index * 30}deg` } as CSSProperties} onClick={() => updateHour(clockValue)}>{String(clockValue).padStart(2, '0')}</button>)
-                : minuteValues.map((minuteValue) => <button key={minuteValue} type="button" aria-label={`Minute ${String(minuteValue).padStart(2, '0')}`} title={`:${String(minuteValue).padStart(2, '0')}`} className={`life-clock-number ${minuteValue === minute ? 'is-selected' : ''}`} style={{ '--clock-angle': `${minuteValue * 6}deg` } as CSSProperties} onClick={() => updateMinute(minuteValue)}>{minuteValue % 5 === 0 || minuteValue === minute ? String(minuteValue).padStart(2, '0') : '·'}</button>)}
+                : Array.from({ length: 12 }, (_, index) => index * 5).map((minuteValue, index) => <button key={minuteValue} type="button" aria-label={`Minute ${String(minuteValue).padStart(2, '0')}`} className={`life-clock-number ${minuteValue === minute ? 'is-selected' : ''}`} style={{ '--clock-angle': `${index * 30}deg` } as CSSProperties} onClick={(event) => { event.stopPropagation(); updateMinute(minuteValue); }}>{String(minuteValue).padStart(2, '0')}</button>)}
             </div>
+            {clockMode === 'minute' && <p className="mt-2 text-center text-[10px] text-fg-muted">Tap anywhere around the clock for an exact minute.</p>}
           </div>
           <button type="button" className="mt-3 w-full rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-accent-fg hover:bg-accent-hover" onClick={() => setOpen(false)}>Apply</button>
         </div>
