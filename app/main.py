@@ -1,11 +1,13 @@
+import importlib.util
 import logging
 import uuid
 from contextlib import asynccontextmanager
+from functools import lru_cache
 
 import sentry_sdk
-from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,6 +22,7 @@ from app.persistence.models import (
     Base,
     ConversationRow,
     FeedbackRow,
+    FileChunkRow,
     FileRow,
     MessageRow,
 )
@@ -31,6 +34,27 @@ from app.services.chat import run_chat
 from app.services.tool_tracker import clear_traces, get_stats, get_trace_by_id, get_traces
 
 settings = get_settings()
+
+
+@lru_cache(maxsize=1)
+def _whisper_model():
+    import importlib
+
+    whisper_module = importlib.import_module("faster_whisper")
+    return whisper_module.WhisperModel(
+        settings.stt_model,
+        device=settings.stt_device,
+        compute_type=settings.stt_compute_type,
+    )
+
+
+@lru_cache(maxsize=1)
+def _kokoro_pipeline():
+    import importlib
+
+    return importlib.import_module("kokoro").KPipeline(lang_code="a")
+
+
 logging.basicConfig(
     level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s %(message)s"
 )
@@ -122,21 +146,35 @@ class ChatRequest(BaseModel):
     history: list[dict[str, str]] = Field(default_factory=list, max_length=12)
     remember: bool = False
     browse: bool = False
+    attachment_ids: list[str] = Field(default_factory=list, max_length=5)
 
 
 @app.get("/api/v1/capabilities")
 async def capabilities():
+    stt_available = (
+        settings.stt_provider == "faster_whisper"
+        and importlib.util.find_spec("faster_whisper") is not None
+    )
+    tts_available = (
+        settings.tts_provider == "kokoro"
+        and importlib.util.find_spec("kokoro") is not None
+        and importlib.util.find_spec("numpy") is not None
+        and importlib.util.find_spec("soundfile") is not None
+    )
     return {
         "mem0_enabled": mem0_is_configured(),
         "browser_use_enabled": browser_use_is_configured(),
+        "stt_enabled": stt_available,
+        "tts_enabled": tts_available,
+        "file_upload_enabled": True,
     }
 
 
 @app.get("/api/v1/skills")
 async def list_skills():
     from app.skills.registry import get_all_skills_data
-    return {"skills": get_all_skills_data()}
 
+    return {"skills": get_all_skills_data()}
 
 
 @app.post("/api/v1/chat")
@@ -156,19 +194,49 @@ async def chat(
         )
     try:
         result = await run_chat(
-        db,
-        principal.user_id,
-        payload.message,
-        payload.conversation_id,
-        payload.history,
-        payload.remember,
-        payload.browse,
+            db,
+            principal.user_id,
+            payload.message,
+            payload.conversation_id,
+            payload.history,
+            payload.remember,
+            payload.browse,
             request.is_disconnected,
+            payload.attachment_ids,
         )
     except LLMError as exc:
         timeout = exc.code == "timeout"
-        message = "Model response timed out (OpenRouter). Mem0 save was not attempted." if timeout and exc.provider == "openrouter" else "The model provider failed. Mem0 save was not attempted."
-        return JSONResponse(status_code=504 if timeout else 502, content={"error": {"code": "llm_provider_error", "provider": exc.provider, "upstream_status": exc.status_code, "message": message, "mem0_opt_in": payload.remember, "mem0_search_status": "not_requested", "mem0_save_status": "not_attempted" if payload.remember else "not_requested", "failure_detail": {"provider": exc.provider, "stage": "llm_generate", "code": exc.code, "message": message, "retriable": True}}})
+        message = (
+            "Model response timed out (OpenRouter). Mem0 save was not attempted."
+            if timeout and exc.provider == "openrouter"
+            else "The model provider failed. Mem0 save was not attempted."
+        )
+        return JSONResponse(
+            status_code=504 if timeout else 502,
+            content={
+                "error": {
+                    "code": "llm_provider_error",
+                    "provider": exc.provider,
+                    "upstream_status": exc.status_code,
+                    "message": message,
+                    "mem0_opt_in": payload.remember,
+                    "mem0_search_status": "not_requested",
+                    "mem0_save_status": "not_attempted" if payload.remember else "not_requested",
+                    "failure_detail": {
+                        "provider": exc.provider,
+                        "stage": "llm_generate",
+                        "code": exc.code,
+                        "message": message,
+                        "retriable": True,
+                    },
+                }
+            },
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            422,
+            detail={"code": "invalid_attachment", "message": str(exc)},
+        ) from exc
     if result is None:
         raise HTTPException(404, detail={"code": "not_found", "message": "Conversation not found"})
     return result
@@ -206,6 +274,7 @@ async def chat_stream(
                 payload.remember,
                 payload.browse,
                 request.is_disconnected,
+                payload.attachment_ids,
             )
             if result is None:
                 event_data = {"run_id": run_id, "code": "not_found"}
@@ -369,6 +438,265 @@ async def create_upload(
     return {"file_id": row.id, "upload_url": url, "expires_in": 300, "status": row.status}
 
 
+@app.post("/api/v1/files", status_code=201)
+async def upload_file(
+    file: UploadFile = File(...),
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(get_session),
+):
+    from app.services.files import (
+        chunks,
+        extract_pages,
+        make_key,
+        read_upload,
+        safe_filename,
+        storage_path,
+        validate_bytes,
+    )
+
+    try:
+        filename = safe_filename(file.filename or "")
+        data = await read_upload(file)
+        mime, ext = validate_bytes(filename, data)
+        declared = (file.content_type or "").split(";")[0].lower()
+        aliases = {
+            "text/markdown": {"text/markdown", "text/plain"},
+            "application/json": {"application/json", "text/json"},
+            "text/csv": {"text/csv", "application/vnd.ms-excel"},
+            "text/plain": {"text/plain"},
+            "application/pdf": {"application/pdf"},
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
+                "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            },
+        }
+        if declared and declared != "application/octet-stream" and declared not in aliases[mime]:
+            raise ValueError("Declared MIME type does not match the file extension")
+        pages = extract_pages(ext, data)
+        extracted = chunks(pages)
+    except Exception as exc:
+        # Parser diagnostics may contain internal paths or archive member names.
+        message = (
+            str(exc)
+            if isinstance(exc, (ValueError, UnicodeDecodeError))
+            else "Document processing failed; check that the file is valid and unencrypted"
+        )
+        raise HTTPException(400, detail={"code": "invalid_file", "message": message[:200]}) from exc
+    key = make_key()
+    path = storage_path(key)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(data)
+    row = FileRow(
+        id=key,
+        user_id=principal.user_id,
+        filename=filename,
+        mime_type=mime,
+        size_bytes=len(data),
+        status="ready",
+        storage_key=key,
+    )
+    db.add(row)
+    for index, page, content in extracted:
+        db.add(
+            FileChunkRow(
+                file_id=key,
+                user_id=principal.user_id,
+                chunk_index=index,
+                page_number=page,
+                content=content,
+            )
+        )
+    await db.commit()
+    return file_view(row)
+
+
+def file_view(row: FileRow):
+    return {
+        "id": row.id,
+        "filename": row.filename,
+        "mime_type": row.mime_type,
+        "size_bytes": row.size_bytes,
+        "status": row.status,
+        "error_message": row.error_message,
+        "created_at": row.created_at,
+        "download_available": row.status == "ready",
+    }
+
+
+@app.get("/api/v1/files/{file_id}/download")
+async def download_file(
+    file_id: str,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(get_session),
+):
+    from app.services.files import storage_path
+
+    row = await db.scalar(
+        select(FileRow).where(
+            FileRow.id == file_id, FileRow.user_id == principal.user_id, FileRow.status == "ready"
+        )
+    )
+    if row is None:
+        raise HTTPException(404, detail={"code": "not_found", "message": "File not found"})
+    path = storage_path(row.storage_key)
+    if not path.is_file():
+        raise HTTPException(
+            404, detail={"code": "object_missing", "message": "Stored file is unavailable"}
+        )
+    return FileResponse(path, media_type=row.mime_type, filename=row.filename)
+
+
+@app.post("/api/v1/audio/transcriptions")
+async def transcribe_audio(
+    file: UploadFile = File(...),
+    language: str | None = Form(None, max_length=20, pattern=r"^[a-zA-Z-]+$"),
+    _: Principal = Depends(current_principal),
+):
+    if settings.stt_provider == "disabled":
+        raise HTTPException(
+            503, detail={"code": "stt_disabled", "message": "Speech transcription is disabled"}
+        )
+    if (file.content_type or "").split(";")[0] not in {
+        "audio/webm",
+        "audio/wav",
+        "audio/x-wav",
+        "audio/mpeg",
+        "audio/mp4",
+        "audio/ogg",
+    }:
+        raise HTTPException(
+            415,
+            detail={
+                "code": "unsupported_audio",
+                "message": "Use WebM, WAV, MP3, MP4, or OGG audio",
+            },
+        )
+    data = await file.read(settings.stt_max_bytes + 1)
+    if not data or len(data) > settings.stt_max_bytes:
+        raise HTTPException(
+            400, detail={"code": "invalid_audio", "message": "Audio is empty or too large"}
+        )
+    mime = (file.content_type or "").split(";")[0]
+    signatures = {
+        "audio/webm": data.startswith(b"\x1aE\xdf\xa3"),
+        "audio/wav": data.startswith(b"RIFF") and data[8:12] == b"WAVE",
+        "audio/x-wav": data.startswith(b"RIFF") and data[8:12] == b"WAVE",
+        "audio/mpeg": data.startswith(b"ID3")
+        or (len(data) > 1 and data[0] == 0xFF and data[1] & 0xE0 == 0xE0),
+        "audio/mp4": b"ftyp" in data[:16],
+        "audio/ogg": data.startswith(b"OggS"),
+    }
+    if not signatures.get(mime, False):
+        raise HTTPException(
+            415,
+            detail={
+                "code": "unsupported_audio",
+                "message": "Audio content does not match a supported format",
+            },
+        )
+    import asyncio
+    import os
+    import tempfile
+
+    if importlib.util.find_spec("faster_whisper") is None:
+        raise HTTPException(
+            503,
+            detail={
+                "code": "stt_dependency_missing",
+                "message": "Install the optional voice dependencies",
+            },
+        )
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".audio", delete=False) as temp:
+            temp.write(data)
+            temp_path = temp.name
+        model = _whisper_model()
+
+        def transcribe():
+            segment_iter, info = model.transcribe(temp_path, language=language)
+            return list(segment_iter), info
+
+        segments, info = await asyncio.wait_for(
+            asyncio.to_thread(transcribe), settings.stt_timeout_seconds
+        )
+        if info.duration and info.duration > settings.stt_max_duration_seconds:
+            raise HTTPException(
+                413,
+                detail={
+                    "code": "audio_too_long",
+                    "message": "Recording exceeds the duration limit",
+                },
+            )
+        return {
+            "text": " ".join(segment.text.strip() for segment in segments).strip(),
+            "language": info.language,
+            "duration_seconds": info.duration,
+            "provider": settings.stt_provider,
+            "model": settings.stt_model,
+            "id": str(uuid.uuid4()),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            422,
+            detail={"code": "transcription_failed", "message": "Audio could not be transcribed"},
+        ) from exc
+    finally:
+        if "temp_path" in locals():
+            os.unlink(temp_path)
+
+
+@app.post("/api/v1/audio/speech")
+async def speech(payload: dict, _: Principal = Depends(current_principal)):
+    if settings.tts_provider == "disabled":
+        raise HTTPException(
+            503, detail={"code": "tts_disabled", "message": "Speech generation is disabled"}
+        )
+    from app.services.speech import speech_text
+
+    raw_text = payload.get("text", "")
+    if (
+        not isinstance(raw_text, str)
+        or not raw_text.strip()
+        or len(raw_text) > settings.tts_max_chars
+    ):
+        raise HTTPException(
+            400, detail={"code": "invalid_text", "message": "Text is empty or too long"}
+        )
+    text = speech_text(raw_text)
+    voice = payload.get("voice", settings.tts_voice)
+    if voice not in {"af_heart", "af_bella", "am_adam", "am_michael"}:
+        raise HTTPException(
+            422, detail={"code": "unsupported_voice", "message": "That voice is not supported"}
+        )
+    try:
+        import importlib
+        import io
+
+        numpy = importlib.import_module("numpy")
+        soundfile = importlib.import_module("soundfile")
+
+        pipeline = _kokoro_pipeline()
+        audio_parts = [audio for _, _, audio in pipeline(text, voice=voice)]
+        buffer = io.BytesIO()
+        soundfile.write(buffer, numpy.concatenate(audio_parts), 24000, format="WAV")
+        from fastapi.responses import Response
+
+        return Response(buffer.getvalue(), media_type="audio/wav")
+    except ImportError as exc:
+        raise HTTPException(
+            503,
+            detail={
+                "code": "tts_dependency_missing",
+                "message": "Install the optional voice dependencies",
+            },
+        ) from exc
+    except Exception as exc:
+        raise HTTPException(
+            502, detail={"code": "synthesis_failed", "message": "Speech synthesis failed"}
+        ) from exc
+
+
 @app.post("/api/v1/files/{file_id}/complete")
 async def complete_upload(
     file_id: str,
@@ -410,6 +738,8 @@ async def list_files(
                 "size_bytes": f.size_bytes,
                 "status": f.status,
                 "created_at": f.created_at,
+                "download_available": f.status == "ready",
+                "error_message": f.error_message,
             }
             for f in rows
         ]
@@ -434,6 +764,8 @@ async def get_file(
         "size_bytes": row.size_bytes,
         "status": row.status,
         "created_at": row.created_at,
+        "download_available": row.status == "ready",
+        "error_message": row.error_message,
     }
 
 
@@ -448,6 +780,10 @@ async def delete_file(
     )
     if row is None:
         raise HTTPException(404, detail={"code": "not_found", "message": "File not found"})
+    from app.services.files import storage_path
+
+    if row.storage_key:
+        storage_path(row.storage_key).unlink(missing_ok=True)
     await db.delete(row)
     await db.commit()
 

@@ -76,6 +76,7 @@ Install the Python dependencies and start FastAPI:
 
 ```bash
 uv sync --locked
+uv run alembic upgrade head
 uv run uvicorn app.main:app --reload
 ```
 
@@ -107,6 +108,12 @@ In development, authentication maps to `local-user`. Before deployment, set `APP
 ## API
 
 See [docs/api.md](docs/api.md). Main capabilities include chat and SSE, conversation/memory/project/task/reminder CRUD, durable reminder jobs, approval records, simulations, research, file upload metadata, feedback, health and readiness.
+
+### Voice and document input
+
+Document uploads work locally without cloud credentials. The chat paperclip uploads PDF, DOCX, TXT, Markdown, CSV, and JSON files to `FILE_STORAGE_DIR` (default `./data/uploads`), extracts bounded text, and lets users attach ready files to a chat request. Files are private by authenticated API ownership. Apply Alembic migrations before production use. The existing S3 presigned upload URL remains available for deployments, but that legacy upload route does not yet run document extraction; use the multipart `/api/v1/files` workflow for processed files.
+
+Speech providers are opt-in and are installed outside the locked base environment: run `uv pip install --python .venv/bin/python 'faster-whisper>=1.1,<2' 'kokoro>=0.9,<1' 'soundfile>=0.13,<1'` (or use your virtualenv's `pip`). Set `STT_PROVIDER=faster_whisper` or `TTS_PROVIDER=kokoro` to enable an endpoint and restart the API. The first use downloads configured model weights (Whisper `tiny`, Kokoro 82M by default), requiring network access and additional disk/RAM. No model weights are bundled. faster-whisper code is MIT licensed and Kokoro code/model are Apache-2.0; transitive runtime and voice assets have separate terms and need review before redistribution. Leave providers disabled to keep the normal installation light. Browser recording requires MediaRecorder and microphone permission; transcript review is required before sending. See `.env.example` for limits and `docs/api.md` for routes.
 
 ## Architecture and operations
 

@@ -33,6 +33,8 @@ export default function App() {
 
   const [mem0Enabled, setMem0Enabled] = useState(false);
   const [browserUseEnabled, setBrowserUseEnabled] = useState(false);
+  const [sttEnabled, setSttEnabled] = useState(false);
+  const [ttsEnabled, setTtsEnabled] = useState(false);
 
   useEffect(() => {
     fetch('/api/v1/capabilities')
@@ -40,10 +42,14 @@ export default function App() {
       .then((capabilities) => {
         setMem0Enabled(capabilities?.mem0_enabled === true);
         setBrowserUseEnabled(capabilities?.browser_use_enabled === true);
+        setSttEnabled(capabilities?.stt_enabled === true);
+        setTtsEnabled(capabilities?.tts_enabled === true);
       })
       .catch(() => {
         setMem0Enabled(false);
         setBrowserUseEnabled(false);
+        setSttEnabled(false);
+        setTtsEnabled(false);
       });
   }, []);
 
@@ -86,9 +92,9 @@ export default function App() {
   );
 
   const handleSendMessage = useCallback(
-    async (userMessage: string, remember: boolean, browse: boolean) => {
+    async (userMessage: string, remember: boolean, browse: boolean, attachmentIds: string[]) => {
       if (!activeConversation) return '{}';
-      return sendMessage(activeConversation.id, userMessage, remember, browse);
+      return sendMessage(activeConversation.id, userMessage, remember, browse, attachmentIds);
     },
     [activeConversation, sendMessage]
   );
@@ -197,6 +203,8 @@ export default function App() {
               isPending={isPending}
               mem0Enabled={mem0Enabled}
               browserUseEnabled={browserUseEnabled}
+              sttEnabled={sttEnabled}
+              ttsEnabled={ttsEnabled}
             />
           </div>
         ) : (

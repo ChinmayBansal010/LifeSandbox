@@ -106,6 +106,7 @@ export function useStore() {
       userMessage: string,
       remember = false,
       browse = false,
+      attachmentIds: string[] = [],
     ) => {
       if (isPending) return '{}';
       setIsPending(true);
@@ -168,6 +169,7 @@ export function useStore() {
             history,
             remember,
             browse,
+            attachment_ids: attachmentIds,
           }),
         });
 

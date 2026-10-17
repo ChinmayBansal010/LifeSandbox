@@ -1,6 +1,6 @@
 /* ─── Chat interface: Clean Linear Conversation + Composer ──────────── */
 
-import { useState, useRef, useEffect, type KeyboardEvent } from 'react';
+import { useState, useRef, useEffect, useCallback, type KeyboardEvent } from 'react';
 import {
   Send,
   Copy,
@@ -12,6 +12,10 @@ import {
   MessageSquare,
   Activity,
   Command,
+  Mic,
+  Paperclip,
+  Square,
+  Volume2,
   type LucideIcon,
 } from 'lucide-react';
 import type { Conversation, ChatMessage } from '../types';
@@ -24,13 +28,18 @@ type ChatProps = {
     userMessage: string,
     remember: boolean,
     browse: boolean,
+    attachmentIds: string[],
   ) => Promise<string>;
   mem0Enabled: boolean;
   browserUseEnabled: boolean;
+  sttEnabled: boolean;
+  ttsEnabled: boolean;
   onRenameConversation?: (conversationId: string, title: string) => void;
   onOpenAdminPanel?: (traceId?: string) => void;
   isPending: boolean;
 };
+
+let activeSpeech: HTMLAudioElement | null = null;
 
 function IntegrationOption({
   id,
@@ -106,14 +115,43 @@ function MessageBubble({
   message,
   onCopyResponse,
   onOpenAdminPanel,
+  ttsEnabled,
+  autoRead,
 }: {
   message: ChatMessage;
   onCopyResponse: (text: string) => void;
   onOpenAdminPanel?: (traceId?: string) => void;
+  ttsEnabled: boolean;
+  autoRead: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   const isLoading = message.assistantMessage === '';
   const toolsCount = message.toolsAccessed?.length ?? 0;
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [speechBusy, setSpeechBusy] = useState(false);
+  const [speechPlaying, setSpeechPlaying] = useState(false);
+  const [hasAudio, setHasAudio] = useState(false);
+  const [speechError, setSpeechError] = useState('');
+
+  const playSpeech = async () => {
+    setSpeechError(''); setSpeechBusy(true);
+    try {
+      const response = await fetch('/api/v1/audio/speech', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({text: message.assistantMessage}) });
+      if (!response.ok) { const body = await response.json(); throw new Error(body.detail?.message || 'Speech generation failed'); }
+      const url = URL.createObjectURL(await response.blob());
+      if (activeSpeech) { activeSpeech.pause(); URL.revokeObjectURL(activeSpeech.src); }
+      const audio = new Audio(url); audioRef.current = audio;
+      activeSpeech = audio;
+      setHasAudio(true);
+      audio.onplay = () => setSpeechPlaying(true);
+      audio.onpause = () => setSpeechPlaying(false);
+      audio.onended = () => { URL.revokeObjectURL(url); audioRef.current = null; activeSpeech = null; setHasAudio(false); setSpeechPlaying(false); };
+      await audio.play();
+    } catch (error) { setSpeechError(error instanceof Error ? error.message : 'Speech generation failed'); }
+    finally { setSpeechBusy(false); }
+  };
+
+  useEffect(() => { if (autoRead && ttsEnabled && !isLoading) void playSpeech(); }, [autoRead, ttsEnabled, isLoading, message.id]);
 
   const handleCopy = () => {
     onCopyResponse(message.assistantMessage);
@@ -169,6 +207,7 @@ function MessageBubble({
 
           {/* Actions & Tool trace row */}
           {!isLoading && (
+          <>
             <div className="flex items-center justify-between gap-2 mt-2 px-1 flex-wrap">
               <div className="flex items-center gap-2">
                 <button
@@ -179,6 +218,12 @@ function MessageBubble({
                   {copied ? <Check size={12} className="text-success" /> : <Copy size={12} />}
                   <span>{copied ? 'Copied' : 'Copy'}</span>
                 </button>
+                {ttsEnabled && <>
+                  <button onClick={() => { const audio = audioRef.current; if (audio && !audio.paused) audio.pause(); else if (audio) void audio.play(); else void playSpeech(); }} className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] text-fg-muted hover:text-fg hover:bg-surface-hover" aria-label="Play or pause response">
+                    {speechBusy ? <Loader2 size={12} className="animate-spin"/> : <Volume2 size={12}/>}<span>{speechPlaying ? 'Pause' : hasAudio ? 'Resume' : 'Listen'}</span>
+                  </button>
+                  {hasAudio && <button onClick={() => { const audio = audioRef.current; if(audio){ audio.pause(); audio.currentTime=0; URL.revokeObjectURL(audio.src); audioRef.current=null; if(activeSpeech===audio) activeSpeech=null; setHasAudio(false); setSpeechPlaying(false); } }} className="text-[11px] text-fg-muted">Stop</button>}
+                </>}
               </div>
 
               {toolsCount > 0 && onOpenAdminPanel && (
@@ -192,6 +237,8 @@ function MessageBubble({
                 </button>
               )}
             </div>
+            {speechError && <p className="text-[10px] text-error mt-1">{speechError}</p>}
+          </>
           )}
         </div>
       </div>
@@ -207,6 +254,8 @@ export default function Chat({
   isPending,
   mem0Enabled,
   browserUseEnabled,
+  sttEnabled,
+  ttsEnabled,
 }: ChatProps) {
   const [input, setInput] = useState('');
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -214,6 +263,19 @@ export default function Chat({
   const [rememberWithMem0, setRememberWithMem0] = useState(false);
   const [allowBrowserUse, setAllowBrowserUse] = useState(false);
   const [memoryStatus, setMemoryStatus] = useState('');
+  const [attachments, setAttachments] = useState<{id:string;filename:string;status:string}[]>([]);
+  const [library, setLibrary] = useState<{id:string;filename:string;status:string}[]>([]);
+  const [fileStatus, setFileStatus] = useState('');
+  const [recording, setRecording] = useState(false);
+  const [autoRead, setAutoRead] = useState(() => localStorage.getItem('life-sandbox-auto-read') === 'true');
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const recordedRef = useRef<Blob[]>([]);
+
+  const refreshFiles = useCallback(async () => {
+    try { const response = await fetch('/api/v1/files'); if(response.ok){const body=await response.json();setLibrary(body.items ?? []);} } catch { /* upload still works if list retrieval is temporarily unavailable */ }
+  }, []);
+  useEffect(() => { void refreshFiles(); }, [refreshFiles]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -258,6 +320,7 @@ export default function Chat({
       msg,
       rememberWithMem0,
       allowBrowserUse,
+      attachments.map((file) => file.id),
     );
     const status = JSON.parse(result || '{}');
     if (status.error === 'CHAT_CLIENT_TIMEOUT') setMemoryStatus('Chat request timed out after 105s waiting for a response. Mem0 save was not completed.');
@@ -268,7 +331,50 @@ export default function Chat({
     else if (status.save === 'saved') setMemoryStatus('Saved to Mem0');
     setRememberWithMem0(false);
     setAllowBrowserUse(false);
+    setAttachments([]);
   };
+
+  const uploadAttachment = async (file: File) => {
+    setFileStatus(`Uploading ${file.name}…`);
+    const form = new FormData(); form.append('file', file);
+    try {
+      const response = await fetch('/api/v1/files', { method: 'POST', body: form });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.detail?.message || 'Upload failed');
+      setAttachments((items) => [...items, { id: result.id, filename: result.filename, status: result.status }]);
+      await refreshFiles();
+      setFileStatus(`${file.name} ready`);
+    } catch (error) { setFileStatus(error instanceof Error ? error.message : 'Upload failed'); }
+  };
+
+  const startRecording = async () => {
+    if (!sttEnabled || !navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) return;
+    try {
+      setFileStatus('Requesting microphone permission…');
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const recorder = new MediaRecorder(stream);
+      recorderRef.current = recorder; recordedRef.current = [];
+      recorder.ondataavailable = (event) => { if (event.data.size) recordedRef.current.push(event.data); };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((track) => track.stop()); streamRef.current = null;
+        const blob = new Blob(recordedRef.current, { type: recorder.mimeType || 'audio/webm' });
+        const form = new FormData(); form.append('file', blob, 'recording.webm');
+        setFileStatus('Transcribing audio…');
+        try {
+          const response = await fetch('/api/v1/audio/transcriptions', { method: 'POST', body: form });
+          const body = await response.json();
+          if (!response.ok) throw new Error(body.detail?.message || 'Transcription failed');
+          setInput(body.text); setFileStatus('Transcript ready. Review and edit before sending.');
+          textareaRef.current?.focus();
+        } catch (error) { setFileStatus(error instanceof Error ? error.message : 'Transcription failed'); }
+      };
+      recorder.start(); setRecording(true); setFileStatus('Recording…');
+    } catch { streamRef.current?.getTracks().forEach((track) => track.stop()); streamRef.current = null; setFileStatus('Microphone permission was denied or unavailable.'); }
+  };
+
+  const stopRecording = () => { recorderRef.current?.stop(); setRecording(false); };
+  useEffect(() => () => { streamRef.current?.getTracks().forEach((track) => track.stop()); }, []);
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -392,6 +498,8 @@ export default function Chat({
                 message={message}
                 onCopyResponse={handleCopyResponse}
                 onOpenAdminPanel={onOpenAdminPanel}
+                ttsEnabled={ttsEnabled}
+                autoRead={autoRead && message.id === [...messages].reverse().find((item) => item.assistantMessage.trim())?.id}
               />
             ))}
           </div>
@@ -433,6 +541,12 @@ export default function Chat({
           </div>
 
           <div className="flex items-end gap-2 bg-surface border border-border rounded-xl px-3 py-2 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent/30 transition-all shadow-xs">
+            <label className="p-2 rounded-lg text-fg-muted hover:text-accent cursor-pointer" title="Upload a document">
+              <Paperclip size={16}/><input type="file" className="hidden" accept=".pdf,.docx,.txt,.md,.markdown,.csv,.json" onChange={(event) => { const file=event.target.files?.[0]; if(file) void uploadAttachment(file); event.target.value=''; }}/>
+            </label>
+            <button type="button" disabled={!sttEnabled || isPending} onClick={recording ? stopRecording : () => void startRecording()} className="p-2 rounded-lg text-fg-muted hover:text-accent disabled:opacity-40" aria-label={recording ? 'Stop recording' : sttEnabled ? 'Record voice message' : 'Speech transcription unavailable'} title={fileStatus || (sttEnabled ? 'Record voice message' : 'Enable STT_PROVIDER on the backend')}>
+              {recording ? <Square size={16}/> : <Mic size={16}/>}
+            </button>
             <textarea
               ref={textareaRef}
               value={input}
@@ -457,9 +571,10 @@ export default function Chat({
               )}
             </button>
           </div>
-          <p className="text-[10px] text-fg-muted mt-1.5 text-center">
-            Press Enter to send · Shift+Enter for new line
-          </p>
+          {attachments.length > 0 && <div className="mt-2 flex flex-wrap gap-2">{attachments.map((file)=><span key={file.id} className="rounded-lg border border-border bg-surface px-2 py-1 text-[10px]">{file.filename} · {file.status}<button className="ml-2 text-error" onClick={()=>setAttachments((items)=>items.filter((item)=>item.id!==file.id))} aria-label={`Remove ${file.filename}`}>×</button></span>)}</div>}
+          {library.length > 0 && <details className="mt-2 text-[10px] text-fg-secondary"><summary className="cursor-pointer">File library ({library.length})</summary><div className="mt-1 space-y-1">{library.map((file)=><div key={file.id} className="flex items-center gap-2 rounded border border-border px-2 py-1"><span className="flex-1 truncate">{file.filename} · {file.status}</span>{file.status==='ready'&&<><button onClick={()=>setAttachments((items)=>items.some((item)=>item.id===file.id)?items:[...items,file])} className="text-accent">Attach</button><a href={`/api/v1/files/${file.id}/download`} className="text-accent" download>Download</a></>}<button onClick={async()=>{const response=await fetch(`/api/v1/files/${file.id}`,{method:'DELETE'});if(response.ok){setLibrary((items)=>items.filter((item)=>item.id!==file.id));setAttachments((items)=>items.filter((item)=>item.id!==file.id));}}} className="text-error">Delete</button></div>)}</div></details>}
+          <div className="flex items-center justify-between mt-1"><p className="text-[10px] text-fg-muted">Press Enter to send · Shift+Enter for new line</p><label className="text-[10px] text-fg-muted flex items-center gap-1"><input type="checkbox" checked={autoRead} onChange={(event)=>{setAutoRead(event.target.checked);localStorage.setItem('life-sandbox-auto-read',String(event.target.checked));}} disabled={!ttsEnabled}/>Read replies aloud</label></div>
+          {fileStatus && <p className="text-[10px] text-fg-muted mt-1 text-center">{fileStatus}</p>}
 
           <section
             className="mt-3 rounded-2xl border border-border bg-bg-secondary/70 p-3"

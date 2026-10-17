@@ -1,5 +1,5 @@
-import logging
 import asyncio
+import logging
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -11,7 +11,7 @@ from app.memory.service import (
     process_explicit_memory_request,
     search_memories,
 )
-from app.persistence.models import ConversationRow, MessageRow
+from app.persistence.models import ConversationRow, FileChunkRow, FileRow, MessageRow
 from app.providers.mem0 import remember_exchange
 from app.providers.mem0 import search_memories as search_hosted_memories
 from app.services.tool_tracker import trace_prompt, trace_tool
@@ -26,6 +26,7 @@ async def run_chat(
     remember: bool = False,
     browse: bool = False,
     is_disconnected=None,
+    attachment_ids: list[str] | None = None,
 ):
     if conversation_id:
         row = await db.scalar(
@@ -54,6 +55,46 @@ async def run_chat(
         if history_override is not None
         else [{"role": m.role, "content": m.content} for m in history_rows]
     )
+
+    file_context = ""
+    if attachment_ids:
+        files = list(
+            (
+                await db.scalars(
+                    select(FileRow).where(
+                        FileRow.id.in_(attachment_ids),
+                        FileRow.user_id == user_id,
+                        FileRow.status == "ready",
+                    )
+                )
+            ).all()
+        )
+        if len(files) != len(set(attachment_ids)):
+            raise ValueError("One or more attached files are unavailable or not ready")
+        chunks = list(
+            (
+                await db.scalars(
+                    select(FileChunkRow)
+                    .where(
+                        FileChunkRow.file_id.in_(attachment_ids), FileChunkRow.user_id == user_id
+                    )
+                    .order_by(FileChunkRow.chunk_index)
+                )
+            ).all()
+        )
+        remaining = 16000
+        excerpts = []
+        for chunk in chunks:
+            if remaining <= 0:
+                break
+            file_row = next(item for item in files if item.id == chunk.file_id)
+            text = chunk.content[:remaining]
+            pos = f", page {chunk.page_number}" if chunk.page_number else ""
+            excerpts.append(f"[{file_row.filename}{pos}]\n{text}")
+            remaining -= len(text)
+        if not excerpts:
+            raise ValueError("Attached files have no extracted text")
+        file_context = "\n\n".join(excerpts)
 
     async with trace_prompt(
         prompt=message,
@@ -90,30 +131,45 @@ async def run_chat(
                         memories.extend(await search_hosted_memories(message, user_id))
                         mem_event["output_data"] = {"count": len(memories)}
                     except Exception as exc:
-                        hosted_search_status = "timed_out" if isinstance(exc, (TimeoutError, asyncio.TimeoutError)) else "failed"
-                        logging.getLogger("life_sandbox.mem0").warning("provider_call_failed provider=mem0 stage=mem0_search outcome=%s", "timeout" if isinstance(exc, (TimeoutError, asyncio.TimeoutError)) else "upstream_error")
+                        hosted_search_status = (
+                            "timed_out"
+                            if isinstance(exc, (TimeoutError, asyncio.TimeoutError))
+                            else "failed"
+                        )
+                        logging.getLogger("life_sandbox.mem0").warning(
+                            "provider_call_failed provider=mem0 stage=mem0_search outcome=%s",
+                            "timeout"
+                            if isinstance(exc, (TimeoutError, asyncio.TimeoutError))
+                            else "upstream_error",
+                        )
                         mem_event["status"] = "error"
                         mem_event["error"] = "provider call failed"
 
         db.add(MessageRow(conversation_id=row.id, role="user", content=message))
         try:
-            model_task = asyncio.create_task(conversation_graph.ainvoke(
-                {
-                    "user_id": user_id,
-                    "conversation_id": row.id,
-                    "message": message,
-                    "history": history,
-                    "memories": memories,
-                    "allow_browser_use": browse,
-                    "db": db,
-                }
-            ))
+            model_task = asyncio.create_task(
+                conversation_graph.ainvoke(
+                    {
+                        "user_id": user_id,
+                        "conversation_id": row.id,
+                        "message": message,
+                        "history": history,
+                        "memories": memories,
+                        "file_context": file_context,
+                        "allow_browser_use": browse,
+                        "db": db,
+                    }
+                )
+            )
             if is_disconnected is not None:
                 while not model_task.done():
                     if await is_disconnected():
                         model_task.cancel()
                         await asyncio.gather(model_task, return_exceptions=True)
-                        logging.getLogger("life_sandbox.chat").info("chat_turn_cancelled provider=openrouter stage=client_disconnect outcome=cancelled")
+                        logging.getLogger("life_sandbox.chat").info(
+                            "chat_turn_cancelled provider=openrouter "
+                            "stage=client_disconnect outcome=cancelled"
+                        )
                         raise asyncio.CancelledError
                     await asyncio.sleep(0.2)
             state = await model_task
@@ -139,9 +195,12 @@ async def run_chat(
         failure_detail = None
         if mem0_search_status in {"failed", "timed_out"}:
             failure_detail = {
-                "provider": "mem0", "stage": "mem0_search",
+                "provider": "mem0",
+                "stage": "mem0_search",
                 "code": "timeout" if mem0_search_status == "timed_out" else "upstream_error",
-                "message": "Mem0 search failed; this reply was generated without recalled memories.",
+                "message": (
+                    "Mem0 search failed; this reply was generated without recalled memories."
+                ),
                 "retriable": True,
             }
         if remember and hosted_allowed:
@@ -152,14 +211,25 @@ async def run_chat(
                     mem0_save_status = "saved"
                     save_event["output_data"] = {"saved": True}
                 except Exception as exc:
-                    mem0_save_status = "timed_out" if isinstance(exc, (TimeoutError, asyncio.TimeoutError)) else "failed"
+                    mem0_save_status = (
+                        "timed_out"
+                        if isinstance(exc, (TimeoutError, asyncio.TimeoutError))
+                        else "failed"
+                    )
                     failure_detail = {
-                        "provider": "mem0", "stage": "mem0_add",
+                        "provider": "mem0",
+                        "stage": "mem0_add",
                         "code": "timeout" if mem0_save_status == "timed_out" else "upstream_error",
-                        "message": "The reply was generated, but Mem0 could not confirm saving this exchange.",
+                        "message": (
+                            "The reply was generated, but Mem0 could not "
+                            "confirm saving this exchange."
+                        ),
                         "retriable": True,
                     }
-                    logging.getLogger("life_sandbox.mem0").warning("provider_call_failed provider=mem0 stage=mem0_add outcome=%s", mem0_save_status)
+                    logging.getLogger("life_sandbox.mem0").warning(
+                        "provider_call_failed provider=mem0 stage=mem0_add outcome=%s",
+                        mem0_save_status,
+                    )
                     save_event["status"] = "error"
                     save_event["error"] = str(exc)
 
