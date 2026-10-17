@@ -338,6 +338,19 @@
     transform: translate(-50%, -50%) rotate(var(--clock-angle)) translateY(-4.7rem) rotate(calc(var(--clock-angle) * -1)) scale(1.08);
   }
 
+  .life-clock-minute .life-clock-number {
+    width: 1.3rem;
+    height: 1.3rem;
+    font-size: 0.52rem;
+    font-weight: 600;
+    transform: translate(-50%, -50%) rotate(var(--clock-angle)) translateY(-4.7rem) rotate(calc(var(--clock-angle) * -1));
+  }
+
+  .life-clock-minute .life-clock-number:hover,
+  .life-clock-minute .life-clock-number.is-selected {
+    transform: translate(-50%, -50%) rotate(var(--clock-angle)) translateY(-4.7rem) rotate(calc(var(--clock-angle) * -1)) scale(1.2);
+  }
+
   .life-minute-grid {
     display: grid;
     max-height: 13rem;

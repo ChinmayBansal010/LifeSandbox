@@ -241,16 +241,12 @@ function DateTimeField({
                 {(['AM', 'PM'] as const).map((nextPeriod) => <button key={nextPeriod} type="button" className={`life-clock-period ${period === nextPeriod ? 'is-active' : ''}`} onClick={() => updatePeriod(nextPeriod)}>{nextPeriod}</button>)}
               </div>
             </div>
-            {clockMode === 'hour' ? (
-              <div className="life-clock" aria-label="Choose hour">
-                <span className="life-clock-center" />
-                {clockValues.map((clockValue, index) => <button key={clockValue} type="button" className={`life-clock-number ${clockValue === displayHour ? 'is-selected' : ''}`} style={{ '--clock-angle': `${index * 30}deg` } as CSSProperties} onClick={() => updateHour(clockValue)}>{String(clockValue).padStart(2, '0')}</button>)}
-              </div>
-            ) : (
-              <div className="life-minute-grid" aria-label="Choose exact minute">
-                {minuteValues.map((minuteValue) => <button key={minuteValue} type="button" className={`life-minute-option ${minuteValue === minute ? 'is-selected' : ''}`} onClick={() => updateMinute(minuteValue)}>{String(minuteValue).padStart(2, '0')}</button>)}
-              </div>
-            )}
+            <div className={`life-clock ${clockMode === 'minute' ? 'life-clock-minute' : ''}`} aria-label={`Choose ${clockMode}`}>
+              <span className="life-clock-center" />
+              {clockMode === 'hour'
+                ? clockValues.map((clockValue, index) => <button key={clockValue} type="button" className={`life-clock-number ${clockValue === displayHour ? 'is-selected' : ''}`} style={{ '--clock-angle': `${index * 30}deg` } as CSSProperties} onClick={() => updateHour(clockValue)}>{String(clockValue).padStart(2, '0')}</button>)
+                : minuteValues.map((minuteValue) => <button key={minuteValue} type="button" aria-label={`Minute ${String(minuteValue).padStart(2, '0')}`} title={`:${String(minuteValue).padStart(2, '0')}`} className={`life-clock-number ${minuteValue === minute ? 'is-selected' : ''}`} style={{ '--clock-angle': `${minuteValue * 6}deg` } as CSSProperties} onClick={() => updateMinute(minuteValue)}>{minuteValue % 5 === 0 || minuteValue === minute ? String(minuteValue).padStart(2, '0') : '·'}</button>)}
+            </div>
           </div>
           <button type="button" className="mt-3 w-full rounded-lg bg-accent px-3 py-2 text-xs font-semibold text-accent-fg hover:bg-accent-hover" onClick={() => setOpen(false)}>Apply</button>
         </div>
