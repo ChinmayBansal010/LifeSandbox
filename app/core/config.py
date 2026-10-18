@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     mem0_add_timeout_seconds: float = 10.0
     # Keep each model completion short enough that multi-step tool turns finish
     # before the browser's 105-second safety timeout.
-    openrouter_timeout_seconds: float = 30.0
+    openrouter_timeout_seconds: float = 75.0
     chat_request_timeout_seconds: float = 95.0
     llm_max_tokens: int = 1000
     research_provider: Literal["disabled", "tavily"] = "disabled"
@@ -60,6 +60,8 @@ class Settings(BaseSettings):
     tts_provider: Literal["disabled", "kokoro"] = "disabled"
     tts_max_chars: int = 5000
     tts_voice: str = "af_heart"
+    vision_enabled: bool = False
+    image_max_bytes: int = 5_000_000
     rate_limit_per_minute: int = 60
     langsmith_tracing: bool = False
     langfuse_public_key: str | None = None

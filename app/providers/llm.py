@@ -76,7 +76,11 @@ class OpenAICompatibleModel(ChatModel):
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
         try:
-            timeout = min(self.timeout, get_settings().openrouter_timeout_seconds) if self.provider == "openrouter" else self.timeout
+            timeout = (
+                get_settings().openrouter_timeout_seconds
+                if self.provider == "openrouter"
+                else self.timeout
+            )
             async with asyncio.timeout(timeout):
                 async with httpx.AsyncClient(timeout=timeout) as client:
                     headers = {
@@ -84,40 +88,66 @@ class OpenAICompatibleModel(ChatModel):
                         "Content-Type": "application/json",
                     }
                     attempts = [self.model]
-                    if self.provider == "openrouter" and self.fallback_model:
+                    if (
+                        self.provider == "openrouter"
+                        and self.fallback_model
+                        and self.fallback_model != self.model
+                    ):
                         attempts.append(self.fallback_model)
-                    else:
-                        attempts.append(self.model)
                     deadline = started + timeout
                     for index, requested_model in enumerate(attempts):
-                        remaining = deadline - time.monotonic()
-                        if remaining <= 0:
-                            break
-                        # Reserve time for a configured fallback instead of allowing a
-                        # slow free-tier route to consume the whole request budget.
-                        attempt_budget = remaining if index == len(attempts) - 1 else min(45.0, remaining * 0.6)
-                        payload["model"] = requested_model
-                        try:
-                            async with asyncio.timeout(attempt_budget):
-                                response = await client.post(
-                                    f"{self.base_url}/chat/completions", headers=headers, json=payload
-                                )
-                        except TimeoutError:
-                            if index == len(attempts) - 1:
-                                raise
-                            continue
-                        response.raise_for_status()
-                        body = response.json()
-                        message = body["choices"][0]["message"]
-                        text = message.get("content")
-                        tool_calls = message.get("tool_calls") or []
-                        if (isinstance(text, str) and text.strip()) or tool_calls:
-                            return Completion(
-                                text or "",
-                                self.provider,
-                                body.get("model", requested_model),
-                                tool_calls,
+                        # Some OpenRouter reasoning models can return HTTP 200 with
+                        # reasoning but no user-facing content. Retry that case once
+                        # with reasoning disabled, instead of repeating the same call.
+                        reasoning_variants = (
+                            [False, True] if self.provider == "openrouter" else [False]
+                        )
+                        for reasoning_disabled in reasoning_variants:
+                            remaining = deadline - time.monotonic()
+                            if remaining <= 0:
+                                break
+                            # Reserve time for a configured fallback after a slow
+                            # primary route, while retaining most of the request budget.
+                            attempt_budget = (
+                                remaining
+                                if index == len(attempts) - 1
+                                else min(45.0, remaining * 0.6)
                             )
+                            payload["model"] = requested_model
+                            if reasoning_disabled:
+                                payload["reasoning"] = {"effort": "none"}
+                            else:
+                                payload.pop("reasoning", None)
+                            try:
+                                async with asyncio.timeout(attempt_budget):
+                                    response = await client.post(
+                                        f"{self.base_url}/chat/completions",
+                                        headers=headers,
+                                        json=payload,
+                                    )
+                            except TimeoutError:
+                                if index == len(attempts) - 1:
+                                    raise
+                                break
+                            response.raise_for_status()
+                            body = response.json()
+                            message = body["choices"][0]["message"]
+                            text = message.get("content")
+                            if isinstance(text, list):
+                                text = "".join(
+                                    part.get("text", "")
+                                    for part in text
+                                    if isinstance(part, dict)
+                                    and part.get("type") == "text"
+                                )
+                            tool_calls = message.get("tool_calls") or []
+                            if (isinstance(text, str) and text.strip()) or tool_calls:
+                                return Completion(
+                                    text or "",
+                                    self.provider,
+                                    body.get("model", requested_model),
+                                    tool_calls,
+                                )
                     raise LLMError(
                         "Provider returned empty content after all configured attempts",
                         provider=self.provider,

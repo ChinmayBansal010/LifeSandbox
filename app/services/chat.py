@@ -1,4 +1,5 @@
 import asyncio
+import base64
 import logging
 from uuid import uuid4
 
@@ -6,14 +7,22 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.conversation.graph import conversation_graph
+from app.core.config import get_settings
 from app.memory.service import (
     policy_for,
     process_explicit_memory_request,
     search_memories,
 )
-from app.persistence.models import ConversationRow, FileChunkRow, FileRow, MessageRow
+from app.persistence.models import (
+    ConversationFileRow,
+    ConversationRow,
+    FileChunkRow,
+    FileRow,
+    MessageRow,
+)
 from app.providers.mem0 import remember_exchange
 from app.providers.mem0 import search_memories as search_hosted_memories
+from app.services.files import storage_path
 from app.services.tool_tracker import trace_prompt, trace_tool
 
 
@@ -50,38 +59,90 @@ async def run_chat(
         )
     ).all()
     history_rows = list(reversed(history_rows))
-    history = (
-        history_override
-        if history_override is not None
-        else [{"role": m.role, "content": m.content} for m in history_rows]
-    )
+    # Persisted messages are authoritative. Client-provided history can be stale,
+    # truncated, or empty after a reload, which otherwise makes the chat forget.
+    history = [{"role": m.role, "content": m.content} for m in history_rows]
 
     file_context = ""
-    if attachment_ids:
+    image_inputs: list[dict[str, str]] = []
+    if attachment_ids or conversation_id:
+        previous_file_ids = list(
+            (
+                await db.scalars(
+                    select(ConversationFileRow.file_id)
+                    .where(
+                        ConversationFileRow.conversation_id == row.id,
+                        ConversationFileRow.user_id == user_id,
+                    )
+                    .order_by(ConversationFileRow.created_at.desc())
+                    .limit(5)
+                )
+            ).all()
+        )
+        requested_file_ids = list(dict.fromkeys(attachment_ids or []))
+        retained_file_ids = list(dict.fromkeys(requested_file_ids + previous_file_ids))[:5]
         files = list(
             (
                 await db.scalars(
                     select(FileRow).where(
-                        FileRow.id.in_(attachment_ids),
+                        FileRow.id.in_(retained_file_ids),
                         FileRow.user_id == user_id,
                         FileRow.status == "ready",
                     )
                 )
             ).all()
         )
-        if len(files) != len(set(attachment_ids)):
+        available_file_ids = {file.id for file in files}
+        if not set(requested_file_ids).issubset(available_file_ids):
             raise ValueError("One or more attached files are unavailable or not ready")
+        known_file_ids = available_file_ids
+        for file_id in requested_file_ids:
+            if not await db.scalar(
+                select(ConversationFileRow.id).where(
+                    ConversationFileRow.conversation_id == row.id,
+                    ConversationFileRow.file_id == file_id,
+                    ConversationFileRow.user_id == user_id,
+                )
+            ):
+                db.add(
+                    ConversationFileRow(
+                        conversation_id=row.id, file_id=file_id, user_id=user_id
+                    )
+                )
         chunks = list(
             (
                 await db.scalars(
                     select(FileChunkRow)
                     .where(
-                        FileChunkRow.file_id.in_(attachment_ids), FileChunkRow.user_id == user_id
+                        FileChunkRow.file_id.in_(known_file_ids), FileChunkRow.user_id == user_id
                     )
                     .order_by(FileChunkRow.chunk_index)
                 )
             ).all()
         )
+        image_files = [file for file in files if file.mime_type in {"image/png", "image/jpeg"}]
+        settings = get_settings()
+        if image_files and (not settings.vision_enabled or settings.llm_provider == "mock"):
+            raise ValueError(
+                "Image understanding is disabled; configure a vision-capable model "
+                "and enable VISION_ENABLED"
+            )
+        total_image_bytes = 0
+        for image_file in image_files:
+            image_path = storage_path(image_file.storage_key)
+            if not image_path.is_file():
+                raise ValueError(f"Attached image is unavailable: {image_file.filename}")
+            image_bytes = image_path.read_bytes()
+            total_image_bytes += len(image_bytes)
+            if total_image_bytes > get_settings().image_max_bytes:
+                raise ValueError("Attached images exceed the combined context size limit")
+            image_inputs.append(
+                {
+                    "filename": image_file.filename,
+                    "mime_type": image_file.mime_type,
+                    "data": base64.b64encode(image_bytes).decode("ascii"),
+                }
+            )
         remaining = 16000
         excerpts = []
         for chunk in chunks:
@@ -92,7 +153,7 @@ async def run_chat(
             pos = f", page {chunk.page_number}" if chunk.page_number else ""
             excerpts.append(f"[{file_row.filename}{pos}]\n{text}")
             remaining -= len(text)
-        if not excerpts:
+        if requested_file_ids and not excerpts and not image_inputs:
             raise ValueError("Attached files have no extracted text")
         file_context = "\n\n".join(excerpts)
 
@@ -156,6 +217,7 @@ async def run_chat(
                         "history": history,
                         "memories": memories,
                         "file_context": file_context,
+                        "image_inputs": image_inputs,
                         "allow_browser_use": browse,
                         "db": db,
                     }

@@ -1,7 +1,7 @@
 /* ─── Application store hook: Sequential Chats & State Orchestration ─── */
 
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
-import type { AppState, ChatMessage, Conversation, ThemePreference } from './types';
+import type { AppState, ChatMessage, Conversation, FileAttachment, ThemePreference } from './types';
 import { createId } from './graph-utils';
 import { loadState, saveState } from './persistence';
 
@@ -106,7 +106,7 @@ export function useStore() {
       userMessage: string,
       remember = false,
       browse = false,
-      attachmentIds: string[] = [],
+      attachments: FileAttachment[] = [],
     ) => {
       if (isPending) return '{}';
       setIsPending(true);
@@ -124,6 +124,7 @@ export function useStore() {
         userMessage,
         assistantMessage: '',
         createdAt: now,
+        attachments,
       };
 
       const updatedTitle =
@@ -169,7 +170,7 @@ export function useStore() {
             history,
             remember,
             browse,
-            attachment_ids: attachmentIds,
+            attachment_ids: attachments.map((file) => file.id),
           }),
         });
 

@@ -4,8 +4,10 @@ import csv
 import io
 import json
 import re
+import struct
 import uuid
 import zipfile
+import zlib
 from pathlib import Path
 from xml.etree import ElementTree
 
@@ -21,7 +23,12 @@ ALLOWED = {
     ".markdown": "text/markdown",
     ".csv": "text/csv",
     ".json": "application/json",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
 }
+
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg"}
 
 
 def safe_filename(filename: str) -> str:
@@ -57,6 +64,19 @@ def validate_bytes(filename: str, data: bytes) -> tuple[str, str]:
         raise ValueError("Supported formats are PDF, DOCX, TXT, Markdown, CSV, and JSON")
     if ext == ".pdf" and not data.startswith(b"%PDF-"):
         raise ValueError("File content is not a valid PDF")
+    if ext in IMAGE_EXTENSIONS:
+        image_max = get_settings().image_max_bytes
+        if len(data) > image_max:
+            raise ValueError("Image exceeds the configured size limit")
+        width, height = _image_dimensions(ext, data)
+        if (
+            width < 1
+            or height < 1
+            or width > 20000
+            or height > 20000
+            or width * height > 40_000_000
+        ):
+            raise ValueError("Image dimensions exceed the supported limit")
     if ext == ".docx":
         try:
             with zipfile.ZipFile(io.BytesIO(data)) as archive:
@@ -68,7 +88,59 @@ def validate_bytes(filename: str, data: bytes) -> tuple[str, str]:
     return mime, ext
 
 
+def _image_dimensions(ext: str, data: bytes) -> tuple[int, int]:
+    if ext == ".png":
+        if len(data) < 24 or data[:8] != b"\x89PNG\r\n\x1a\n":
+            raise ValueError("File content is not a valid PNG image")
+        offset = 8
+        width = height = 0
+        saw_image_data = saw_end = False
+        while offset + 12 <= len(data):
+            length = int.from_bytes(data[offset : offset + 4], "big")
+            chunk_end = offset + 12 + length
+            if chunk_end > len(data):
+                break
+            name = data[offset + 4 : offset + 8]
+            chunk = data[offset + 8 : offset + 8 + length]
+            expected_crc = int.from_bytes(data[offset + 8 + length : chunk_end], "big")
+            if zlib.crc32(name + chunk) & 0xFFFFFFFF != expected_crc:
+                raise ValueError("PNG image data is corrupted")
+            if name == b"IHDR" and length == 13:
+                width, height = struct.unpack(">II", chunk[:8])
+            elif name == b"IDAT":
+                saw_image_data = True
+            elif name == b"IEND":
+                saw_end = True
+                break
+            offset = chunk_end
+        if not saw_image_data or not saw_end:
+            raise ValueError("PNG image is incomplete")
+        return width, height
+    if not data.startswith(b"\xff\xd8\xff") or not data.endswith(b"\xff\xd9"):
+        raise ValueError("File content is not a valid JPEG image")
+    index = 2
+    while index + 4 <= len(data):
+        if data[index] != 0xFF:
+            index += 1
+            continue
+        marker = data[index + 1]
+        index += 2
+        if marker in {0xD8, 0xD9} or 0xD0 <= marker <= 0xD7:
+            continue
+        length = int.from_bytes(data[index : index + 2], "big")
+        if length < 2 or index + length > len(data):
+            break
+        if marker in {0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7, 0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF}:
+            height = int.from_bytes(data[index + 3 : index + 5], "big")
+            width = int.from_bytes(data[index + 5 : index + 7], "big")
+            return width, height
+        index += length
+    raise ValueError("JPEG image dimensions could not be validated")
+
+
 def extract_pages(ext: str, data: bytes) -> list[tuple[int | None, str]]:
+    if ext in IMAGE_EXTENSIONS:
+        return []
     if ext == ".pdf":
         from pypdf import PdfReader
 

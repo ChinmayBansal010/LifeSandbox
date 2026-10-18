@@ -161,12 +161,14 @@ async def capabilities():
         and importlib.util.find_spec("numpy") is not None
         and importlib.util.find_spec("soundfile") is not None
     )
+    image_available = settings.vision_enabled and settings.llm_provider in {"nebius", "openrouter"}
     return {
         "mem0_enabled": mem0_is_configured(),
         "browser_use_enabled": browser_use_is_configured(),
         "stt_enabled": stt_available,
         "tts_enabled": tts_available,
         "file_upload_enabled": True,
+        "image_understanding_enabled": image_available,
     }
 
 
@@ -468,11 +470,13 @@ async def upload_file(
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
                 "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             },
+            "image/png": {"image/png"},
+            "image/jpeg": {"image/jpeg"},
         }
         if declared and declared != "application/octet-stream" and declared not in aliases[mime]:
             raise ValueError("Declared MIME type does not match the file extension")
         pages = extract_pages(ext, data)
-        extracted = chunks(pages)
+        extracted = [] if ext in {".png", ".jpg", ".jpeg"} else chunks(pages)
     except Exception as exc:
         # Parser diagnostics may contain internal paths or archive member names.
         message = (

@@ -1,6 +1,6 @@
 /* ─── Chat interface: Clean Linear Conversation + Composer ──────────── */
 
-import { useState, useRef, useEffect, useCallback, type KeyboardEvent } from 'react';
+import { useState, useRef, useEffect, type KeyboardEvent } from 'react';
 import {
   Send,
   Copy,
@@ -16,9 +16,11 @@ import {
   Paperclip,
   Square,
   Volume2,
+  FileText,
+  Image as ImageIcon,
   type LucideIcon,
 } from 'lucide-react';
-import type { Conversation, ChatMessage } from '../types';
+import type { Conversation, ChatMessage, FileAttachment } from '../types';
 import { formatTimestamp } from '../graph-utils';
 import { FormattedMessage } from './FormattedMessage';
 
@@ -28,12 +30,13 @@ type ChatProps = {
     userMessage: string,
     remember: boolean,
     browse: boolean,
-    attachmentIds: string[],
+    attachments: FileAttachment[],
   ) => Promise<string>;
   mem0Enabled: boolean;
   browserUseEnabled: boolean;
   sttEnabled: boolean;
   ttsEnabled: boolean;
+  imageUnderstandingEnabled: boolean;
   onRenameConversation?: (conversationId: string, title: string) => void;
   onOpenAdminPanel?: (traceId?: string) => void;
   isPending: boolean;
@@ -166,6 +169,16 @@ function MessageBubble({
         <div className="max-w-[85%] sm:max-w-[70%] lg:max-w-[60%]">
           <div className="bg-accent text-accent-fg px-4 py-3 rounded-2xl rounded-br-md text-sm leading-relaxed shadow-xs">
             {message.userMessage}
+            {message.attachments && message.attachments.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5 border-t border-white/20 pt-2">
+                {message.attachments.map((file) => (
+                  <span key={file.id} className="inline-flex max-w-full items-center gap-1.5 rounded-md bg-white/15 px-2 py-1 text-[11px]" title={file.filename}>
+                    {file.mime_type?.startsWith('image/') ? <ImageIcon size={12} /> : <FileText size={12} />}
+                    <span className="truncate">{file.filename}</span>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
           <div className="flex justify-end mt-1 px-1">
             <span className="text-[10px] text-fg-muted">
@@ -256,6 +269,7 @@ export default function Chat({
   browserUseEnabled,
   sttEnabled,
   ttsEnabled,
+  imageUnderstandingEnabled,
 }: ChatProps) {
   const [input, setInput] = useState('');
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -263,19 +277,13 @@ export default function Chat({
   const [rememberWithMem0, setRememberWithMem0] = useState(false);
   const [allowBrowserUse, setAllowBrowserUse] = useState(false);
   const [memoryStatus, setMemoryStatus] = useState('');
-  const [attachments, setAttachments] = useState<{id:string;filename:string;status:string}[]>([]);
-  const [library, setLibrary] = useState<{id:string;filename:string;status:string}[]>([]);
+  const [attachments, setAttachments] = useState<FileAttachment[]>([]);
   const [fileStatus, setFileStatus] = useState('');
   const [recording, setRecording] = useState(false);
   const [autoRead, setAutoRead] = useState(() => localStorage.getItem('life-sandbox-auto-read') === 'true');
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recordedRef = useRef<Blob[]>([]);
-
-  const refreshFiles = useCallback(async () => {
-    try { const response = await fetch('/api/v1/files'); if(response.ok){const body=await response.json();setLibrary(body.items ?? []);} } catch { /* upload still works if list retrieval is temporarily unavailable */ }
-  }, []);
-  useEffect(() => { void refreshFiles(); }, [refreshFiles]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -316,11 +324,13 @@ export default function Chat({
     setInput('');
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
     setMemoryStatus('');
+    const messageAttachments = attachments;
+    setAttachments([]);
     const result = await onSendMessage(
       msg,
       rememberWithMem0,
       allowBrowserUse,
-      attachments.map((file) => file.id),
+      messageAttachments,
     );
     const status = JSON.parse(result || '{}');
     if (status.error === 'CHAT_CLIENT_TIMEOUT') setMemoryStatus('Chat request timed out after 105s waiting for a response. Mem0 save was not completed.');
@@ -331,7 +341,6 @@ export default function Chat({
     else if (status.save === 'saved') setMemoryStatus('Saved to Mem0');
     setRememberWithMem0(false);
     setAllowBrowserUse(false);
-    setAttachments([]);
   };
 
   const uploadAttachment = async (file: File) => {
@@ -341,9 +350,13 @@ export default function Chat({
       const response = await fetch('/api/v1/files', { method: 'POST', body: form });
       const result = await response.json();
       if (!response.ok) throw new Error(result.detail?.message || 'Upload failed');
-      setAttachments((items) => [...items, { id: result.id, filename: result.filename, status: result.status }]);
-      await refreshFiles();
-      setFileStatus(`${file.name} ready`);
+      const isImage = result.mime_type?.startsWith('image/');
+      if (!isImage || imageUnderstandingEnabled) {
+        setAttachments((items) => [...items, { id: result.id, filename: result.filename, status: result.status, mime_type: result.mime_type, size_bytes: result.size_bytes }]);
+      }
+      setFileStatus(isImage && !imageUnderstandingEnabled
+        ? `${file.name} stored. Configure a vision-capable model and VISION_ENABLED to ask questions about it.`
+        : `${file.name} ready`);
     } catch (error) { setFileStatus(error instanceof Error ? error.message : 'Upload failed'); }
   };
 
@@ -541,8 +554,8 @@ export default function Chat({
           </div>
 
           <div className="flex items-end gap-2 bg-surface border border-border rounded-xl px-3 py-2 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent/30 transition-all shadow-xs">
-            <label className="p-2 rounded-lg text-fg-muted hover:text-accent cursor-pointer" title="Upload a document">
-              <Paperclip size={16}/><input type="file" className="hidden" accept=".pdf,.docx,.txt,.md,.markdown,.csv,.json" onChange={(event) => { const file=event.target.files?.[0]; if(file) void uploadAttachment(file); event.target.value=''; }}/>
+            <label className={`p-2 rounded-lg text-fg-muted hover:text-accent ${isPending ? 'cursor-not-allowed opacity-40' : 'cursor-pointer'}`} title="Upload a document for this message">
+              <Paperclip size={16}/><input type="file" className="hidden" disabled={isPending} accept=".pdf,.docx,.txt,.md,.markdown,.csv,.json,.png,.jpg,.jpeg" onChange={(event) => { const file=event.target.files?.[0]; if(file) void uploadAttachment(file); event.target.value=''; }}/>
             </label>
             <button type="button" disabled={!sttEnabled || isPending} onClick={recording ? stopRecording : () => void startRecording()} className="p-2 rounded-lg text-fg-muted hover:text-accent disabled:opacity-40" aria-label={recording ? 'Stop recording' : sttEnabled ? 'Record voice message' : 'Speech transcription unavailable'} title={fileStatus || (sttEnabled ? 'Record voice message' : 'Enable STT_PROVIDER on the backend')}>
               {recording ? <Square size={16}/> : <Mic size={16}/>}
@@ -571,8 +584,24 @@ export default function Chat({
               )}
             </button>
           </div>
-          {attachments.length > 0 && <div className="mt-2 flex flex-wrap gap-2">{attachments.map((file)=><span key={file.id} className="rounded-lg border border-border bg-surface px-2 py-1 text-[10px]">{file.filename} · {file.status}<button className="ml-2 text-error" onClick={()=>setAttachments((items)=>items.filter((item)=>item.id!==file.id))} aria-label={`Remove ${file.filename}`}>×</button></span>)}</div>}
-          {library.length > 0 && <details className="mt-2 text-[10px] text-fg-secondary"><summary className="cursor-pointer">File library ({library.length})</summary><div className="mt-1 space-y-1">{library.map((file)=><div key={file.id} className="flex items-center gap-2 rounded border border-border px-2 py-1"><span className="flex-1 truncate">{file.filename} · {file.status}</span>{file.status==='ready'&&<><button onClick={()=>setAttachments((items)=>items.some((item)=>item.id===file.id)?items:[...items,file])} className="text-accent">Attach</button><a href={`/api/v1/files/${file.id}/download`} className="text-accent" download>Download</a></>}<button onClick={async()=>{const response=await fetch(`/api/v1/files/${file.id}`,{method:'DELETE'});if(response.ok){setLibrary((items)=>items.filter((item)=>item.id!==file.id));setAttachments((items)=>items.filter((item)=>item.id!==file.id));}}} className="text-error">Delete</button></div>)}</div></details>}
+          {attachments.length > 0 && (
+            <section className="mt-2 rounded-xl border border-accent/25 bg-accent-muted/30 p-2.5" aria-label="Files for this message">
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <h2 className="text-[11px] font-semibold text-fg">For this message</h2>
+                <span className="text-[10px] text-fg-muted">Clears after sending</span>
+              </div>
+              <div className="space-y-1.5">
+                {attachments.map((file) => (
+                  <div key={file.id} className="flex min-w-0 items-center gap-2 rounded-lg border border-border bg-surface px-2 py-1.5">
+                    {file.mime_type?.startsWith('image/') ? <ImageIcon size={15} className="shrink-0 text-fg-muted" /> : <FileText size={15} className="shrink-0 text-fg-muted" />}
+                    <span className="min-w-0 flex-1 truncate text-xs text-fg" title={file.filename}>{file.filename}</span>
+                    <span className="text-[10px] text-fg-muted">{file.status}</span>
+                    <button type="button" className="ml-1 text-error" onClick={() => setAttachments((items) => items.filter((item) => item.id !== file.id))} aria-label={`Remove ${file.filename} from this message`}>×</button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
           <div className="flex items-center justify-between mt-1"><p className="text-[10px] text-fg-muted">Press Enter to send · Shift+Enter for new line</p><label className="text-[10px] text-fg-muted flex items-center gap-1"><input type="checkbox" checked={autoRead} onChange={(event)=>{setAutoRead(event.target.checked);localStorage.setItem('life-sandbox-auto-read',String(event.target.checked));}} disabled={!ttsEnabled}/>Read replies aloud</label></div>
           {fileStatus && <p className="text-[10px] text-fg-muted mt-1 text-center">{fileStatus}</p>}
 

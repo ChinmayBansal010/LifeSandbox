@@ -36,6 +36,20 @@ class MessageRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 
+class ConversationFileRow(Base):
+    __tablename__ = "conversation_files"
+    __table_args__ = (UniqueConstraint("conversation_id", "file_id"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    conversation_id: Mapped[str] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), index=True
+    )
+    file_id: Mapped[str] = mapped_column(
+        ForeignKey("files.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[str] = mapped_column(String(200), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
 class MemoryRow(Base):
     __tablename__ = "memories"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
