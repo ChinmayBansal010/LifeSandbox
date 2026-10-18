@@ -5,9 +5,6 @@ import {
   Plus,
   MessageSquare,
   Search,
-  Sun,
-  Moon,
-  Monitor,
   PanelLeftClose,
   PanelLeftOpen,
   Trash2,
@@ -16,6 +13,7 @@ import {
 } from 'lucide-react';
 import type { Conversation, ThemePreference } from '../types';
 import { truncate } from '../graph-utils';
+import ProfileMenu from './ProfileMenu';
 
 type SidebarProps = {
   conversations: Record<string, Conversation>;
@@ -60,18 +58,6 @@ export default function Sidebar({
       )
     : conversationList;
 
-  const themeIcons: Record<ThemePreference, typeof Sun> = {
-    light: Sun,
-    dark: Moon,
-    system: Monitor,
-  };
-  const nextTheme: Record<ThemePreference, ThemePreference> = {
-    light: 'dark',
-    dark: 'system',
-    system: 'light',
-  };
-  const ThemeIcon = themeIcons[theme];
-
   if (collapsed) {
     return (
       <aside className="flex flex-col items-center py-4 px-2 border-r border-border bg-bg-secondary w-12 shrink-0">
@@ -108,13 +94,12 @@ export default function Sidebar({
           title="Memory and tasks"
         ><NotebookTabs size={18} /></button>
         <div className="mt-auto">
-          <button
-            onClick={() => onSetTheme(nextTheme[theme])}
-            className="p-1.5 rounded-md hover:bg-surface-hover text-fg-muted hover:text-fg transition-colors"
-            aria-label={`Switch to ${nextTheme[theme]} theme`}
-          >
-            <ThemeIcon size={16} />
-          </button>
+          <ProfileMenu
+            theme={theme}
+            onSetTheme={onSetTheme}
+            onOpenLifePanel={onOpenLifePanel}
+            compact
+          />
         </div>
       </aside>
     );
@@ -237,16 +222,13 @@ export default function Sidebar({
         </button>
       </div>
 
-      {/* Footer */}
-      <div className="px-3 py-2.5 border-t border-border flex items-center justify-between">
-        <button
-          onClick={() => onSetTheme(nextTheme[theme])}
-          className="flex items-center gap-2 px-2 py-1.5 rounded-md text-xs text-fg-muted hover:text-fg hover:bg-surface-hover transition-colors"
-          aria-label={`Switch to ${nextTheme[theme]} theme`}
-        >
-          <ThemeIcon size={14} />
-          <span className="capitalize">{theme}</span>
-        </button>
+      {/* Footer: User Profile Button replacing old theme toggle */}
+      <div className="px-3 py-2.5 border-t border-border">
+        <ProfileMenu
+          theme={theme}
+          onSetTheme={onSetTheme}
+          onOpenLifePanel={onOpenLifePanel}
+        />
       </div>
     </aside>
   );

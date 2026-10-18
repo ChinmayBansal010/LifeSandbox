@@ -201,31 +201,53 @@ export default function App() {
           </div>
         ) : (
           /* Welcome state */
-          <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
-            <div className="w-16 h-16 rounded-2xl bg-accent-muted flex items-center justify-center mb-6">
-              <MessageSquare size={28} className="text-accent" />
+          <div className="flex-1 flex flex-col items-center justify-center text-center px-6 max-w-4xl mx-auto w-full animate-fade-in">
+            <div className="w-16 h-16 rounded-2xl bg-accent-muted border border-accent/20 flex items-center justify-center mb-5 shadow-sm animate-scale-in">
+              <MessageSquare size={30} className="text-accent" />
             </div>
-            <h1 className="text-2xl font-bold text-fg mb-3 tracking-tight">
+            <h1 className="text-3xl font-bold text-fg mb-3 tracking-tight">
               Life Sandbox
             </h1>
-            <p className="text-sm text-fg-secondary max-w-md leading-relaxed mb-6">
+            <p className="text-sm text-fg-secondary max-w-lg leading-relaxed mb-8">
               A decision support and research assistant. Ask complex questions, weigh multi-criteria scenarios, and monitor all tool execution traces in real time.
             </p>
-            <div className="flex items-center gap-3">
+
+            <div className="flex items-center gap-3 mb-10">
               <button
                 onClick={handleCreateConversation}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-lg bg-accent text-accent-fg text-sm font-medium hover:bg-accent-hover transition-colors shadow-xs"
+                className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-accent text-accent-fg text-sm font-semibold hover:bg-accent-hover transition-all duration-150 shadow-xs hover:shadow-sm active:scale-95"
               >
                 <Plus size={16} />
                 <span>Start a new chat</span>
               </button>
               <button
                 onClick={() => handleOpenAdmin()}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border bg-surface hover:bg-surface-hover text-fg text-sm font-medium transition-colors"
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-border bg-surface hover:bg-surface-hover text-fg text-sm font-semibold transition-all duration-150 shadow-2xs hover:shadow-xs active:scale-95"
               >
                 <Activity size={16} className="text-accent" />
                 <span>Open Admin Panel</span>
               </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 w-full text-left">
+              <div className="p-4 rounded-xl bg-surface border border-border shadow-2xs transition-all hover:-translate-y-0.5 hover:border-accent/40">
+                <span className="text-xs font-semibold text-fg block mb-1">Decision Modeling</span>
+                <p className="text-[11px] text-fg-muted leading-relaxed">
+                  Evaluate trade-offs between competing priorities, time constraints, and budgets.
+                </p>
+              </div>
+              <div className="p-4 rounded-xl bg-surface border border-border shadow-2xs transition-all hover:-translate-y-0.5 hover:border-accent/40">
+                <span className="text-xs font-semibold text-fg block mb-1">Verified Research</span>
+                <p className="text-[11px] text-fg-muted leading-relaxed">
+                  Incorporate grounded facts and web evidence with cited public sources.
+                </p>
+              </div>
+              <div className="p-4 rounded-xl bg-surface border border-border shadow-2xs transition-all hover:-translate-y-0.5 hover:border-accent/40">
+                <span className="text-xs font-semibold text-fg block mb-1">Trace Observability</span>
+                <p className="text-[11px] text-fg-muted leading-relaxed">
+                  Inspect execution round-trips, tool inputs, and performance in the Admin Panel.
+                </p>
+              </div>
             </div>
           </div>
         )}

@@ -8,11 +8,12 @@ import {
   Loader2,
   Pencil,
   Sparkles,
-  Globe,
   MessageSquare,
   Activity,
-  Command,
-  type LucideIcon,
+  Menu,
+  FileText,
+  X,
+  Upload,
 } from 'lucide-react';
 import type { Conversation, ChatMessage } from '../types';
 import { formatTimestamp } from '../graph-utils';
@@ -32,75 +33,20 @@ type ChatProps = {
   isPending: boolean;
 };
 
-function IntegrationOption({
-  id,
-  icon: Icon,
-  title,
-  description,
-  setupHint,
-  configured,
-  checked,
-  disabled,
-  onChange,
-}: {
-  id: string;
-  icon: LucideIcon;
-  title: string;
-  description: string;
-  setupHint: string;
-  configured: boolean;
-  checked: boolean;
-  disabled: boolean;
-  onChange: (checked: boolean) => void;
-}) {
-  const status = checked ? 'On for this reply' : configured ? 'Ready' : 'Setup required';
+type SelectedFile = {
+  name: string;
+  size: number;
+  type: string;
+};
 
-  return (
-    <label
-      htmlFor={id}
-      className={`flex items-start gap-3 p-3 rounded-xl border transition-colors cursor-pointer ${
-        checked
-          ? 'bg-accent-muted border-accent/40'
-          : 'bg-surface border-border hover:border-accent/30'
-      } ${!configured || disabled ? 'opacity-75' : ''}`}
-    >
-      <span className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${checked ? 'bg-accent text-accent-fg' : 'bg-bg-secondary text-fg-secondary'}`}>
-        <Icon size={16} />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="flex items-center justify-between gap-2">
-          <span className="text-xs font-semibold text-fg">{title}</span>
-          <span className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-medium ${
-            checked
-              ? 'bg-accent text-accent-fg'
-              : configured
-                ? 'bg-success/10 text-success'
-                : 'bg-bg-secondary text-fg-muted'
-          }`}>
-            {status}
-          </span>
-        </span>
-        <span className="mt-1 block text-[10px] leading-relaxed text-fg-secondary">
-          {configured ? description : setupHint}
-        </span>
-      </span>
-      <span className="relative mt-1 inline-flex h-5 w-9 shrink-0 items-center">
-        <input
-          id={id}
-          type="checkbox"
-          role="switch"
-          checked={checked}
-          disabled={!configured || disabled}
-          onChange={(event) => onChange(event.target.checked)}
-          className="peer sr-only"
-          aria-label={title}
-        />
-        <span className="absolute inset-0 rounded-full bg-border transition-colors peer-checked:bg-accent peer-disabled:cursor-not-allowed peer-focus-visible:ring-2 peer-focus-visible:ring-accent/50" />
-        <span className="pointer-events-none absolute left-0.5 h-4 w-4 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-4" />
-      </span>
-    </label>
-  );
-}
+const SLASH_COMMANDS = [
+  { cmd: '/budgeting', name: 'Budgeting', desc: 'Budget & spending trade-offs' },
+  { cmd: '/career', name: 'Career', desc: 'Career goals & compensation' },
+  { cmd: '/education', name: 'Education', desc: 'Learning & study planning' },
+  { cmd: '/purchasing', name: 'Purchasing', desc: 'Purchase comparison & alternatives' },
+  { cmd: '/travel', name: 'Travel', desc: 'Travel dates & budget trade-offs' },
+  { cmd: '/time-management', name: 'Time Management', desc: 'Schedule & commitment planning' },
+];
 
 function MessageBubble({
   message,
@@ -125,7 +71,7 @@ function MessageBubble({
     <div className="animate-fade-in space-y-4 mb-6">
       {/* User message */}
       <div className="flex justify-end">
-        <div className="max-w-[85%] sm:max-w-[70%] lg:max-w-[60%]">
+        <div className="max-w-[85%] sm:max-w-[78%] lg:max-w-[75%] xl:max-w-[72%]">
           <div className="bg-accent text-accent-fg px-4 py-3 rounded-2xl rounded-br-md text-sm leading-relaxed shadow-xs">
             {message.userMessage}
           </div>
@@ -139,8 +85,8 @@ function MessageBubble({
 
       {/* Assistant message */}
       <div className="flex justify-start">
-        <div className="max-w-[85%] sm:max-w-[70%] lg:max-w-[65%]">
-          <div className="bg-surface border border-border px-4 py-3 rounded-2xl rounded-bl-md text-sm leading-relaxed text-fg shadow-xs">
+        <div className="max-w-[88%] sm:max-w-[82%] lg:max-w-[80%] xl:max-w-[78%]">
+          <div className="bg-surface border border-border px-4 py-3.5 rounded-2xl rounded-bl-md text-sm leading-relaxed text-fg shadow-xs">
             {isLoading ? (
               <div className="flex items-center gap-2.5 text-fg-muted py-1.5">
                 <Loader2 size={15} className="animate-spin text-accent" />
@@ -205,19 +151,25 @@ export default function Chat({
   onRenameConversation,
   onOpenAdminPanel,
   isPending,
-  mem0Enabled,
-  browserUseEnabled,
 }: ChatProps) {
   const [input, setInput] = useState('');
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(conversation.title);
-  const [rememberWithMem0, setRememberWithMem0] = useState(false);
-  const [allowBrowserUse, setAllowBrowserUse] = useState(false);
-  const [memoryStatus, setMemoryStatus] = useState('');
+
+  // Slash command popup state
+  const [showSlashPopup, setShowSlashPopup] = useState(false);
+  const [slashFilter, setSlashFilter] = useState('');
+  const [slashSelectedIndex, setSlashSelectedIndex] = useState(0);
+
+  // Attachment menu and files state
+  const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
+  const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const attachmentMenuRef = useRef<HTMLDivElement>(null);
 
   const startEditing = () => {
     setTitleDraft(conversation.title);
@@ -248,25 +200,94 @@ export default function Chat({
     }
   }, [input]);
 
+  // Close attachment menu on outside click
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (
+        attachmentMenuRef.current &&
+        !attachmentMenuRef.current.contains(event.target as Node)
+      ) {
+        setShowAttachmentMenu(false);
+      }
+    }
+    if (showAttachmentMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showAttachmentMenu]);
+
+  // Filter slash commands
+  const filteredCommands = SLASH_COMMANDS.filter(
+    (c) =>
+      c.cmd.toLowerCase().includes(slashFilter.toLowerCase()) ||
+      c.name.toLowerCase().includes(slashFilter.toLowerCase()) ||
+      c.desc.toLowerCase().includes(slashFilter.toLowerCase())
+  );
+
+  // Update slash popup status on input change
+  const handleInputChange = (val: string) => {
+    setInput(val);
+    if (val.startsWith('/')) {
+      const match = val.match(/^\/(\S*)/);
+      if (match && !val.includes(' ')) {
+        setShowSlashPopup(true);
+        setSlashFilter(match[1] || '');
+        setSlashSelectedIndex(0);
+        return;
+      }
+    }
+    setShowSlashPopup(false);
+  };
+
+  const handleSelectSlashCommand = (cmd: string) => {
+    setInput(`${cmd} `);
+    setShowSlashPopup(false);
+    textareaRef.current?.focus();
+  };
+
   const handleSend = async () => {
     const msg = input.trim();
     if (!msg || isPending) return;
     setInput('');
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
-    setMemoryStatus('');
-    const saved = await onSendMessage(
-      msg,
-      rememberWithMem0,
-      allowBrowserUse,
-    );
-    if (rememberWithMem0 && !saved) {
-      setMemoryStatus('Mem0 did not confirm saving this exchange.');
-    }
-    setRememberWithMem0(false);
-    setAllowBrowserUse(false);
+    setShowSlashPopup(false);
+    setSelectedFiles([]);
+    await onSendMessage(msg, false, false);
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (showSlashPopup && filteredCommands.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSlashSelectedIndex((prev) =>
+          prev < filteredCommands.length - 1 ? prev + 1 : 0
+        );
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSlashSelectedIndex((prev) =>
+          prev > 0 ? prev - 1 : filteredCommands.length - 1
+        );
+        return;
+      }
+      if (e.key === 'Enter' || e.key === 'Tab') {
+        e.preventDefault();
+        const selected = filteredCommands[slashSelectedIndex];
+        if (selected) {
+          handleSelectSlashCommand(selected.cmd);
+        }
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setShowSlashPopup(false);
+        return;
+      }
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -285,6 +306,25 @@ export default function Chat({
 
   const handleCopyResponse = (text: string) => {
     navigator.clipboard.writeText(text).catch(() => {});
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    const newFiles: SelectedFile[] = Array.from(files).map((f) => ({
+      name: f.name,
+      size: f.size,
+      type: f.type || 'unknown',
+    }));
+    setSelectedFiles((prev) => [...prev, ...newFiles]);
+    setShowAttachmentMenu(false);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const handleRemoveFile = (index: number) => {
+    setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
   return (
@@ -338,7 +378,7 @@ export default function Chat({
           {onOpenAdminPanel && (
             <button
               onClick={() => onOpenAdminPanel()}
-              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-border bg-surface hover:bg-surface-hover text-fg-secondary hover:text-fg text-xs font-medium transition-colors"
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-border bg-surface hover:bg-surface-hover text-fg-secondary hover:text-fg text-xs font-medium transition-all shadow-2xs hover:shadow-xs active:scale-95"
               title="Open Admin Panel to view tools accessed"
             >
               <Activity size={13} className="text-accent" />
@@ -349,39 +389,90 @@ export default function Chat({
       </header>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-5 py-6">
+      <div className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-6">
         {messages.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-center px-6">
-            <div className="w-12 h-12 rounded-2xl bg-accent-muted flex items-center justify-center mb-4">
-              <MessageSquare size={22} className="text-accent" />
+          <div className="h-full flex flex-col items-center justify-center text-center px-4 max-w-4xl mx-auto animate-fade-in">
+            <div className="w-14 h-14 rounded-2xl bg-accent-muted flex items-center justify-center mb-4 shadow-sm border border-accent/20 animate-scale-in">
+              <MessageSquare size={26} className="text-accent" />
             </div>
-            <h2 className="text-lg font-bold text-fg mb-2">
-              Start a conversation
+            <h2 className="text-xl font-bold text-fg mb-2 tracking-tight">
+              What decision would you like to explore?
             </h2>
-            <p className="text-sm text-fg-secondary max-w-sm leading-relaxed mb-6">
-              Ask questions, compare decision options, or seek live research. All tool calls and timestamps are recorded for developer inspection in the Admin Panel.
+            <p className="text-xs sm:text-sm text-fg-secondary max-w-lg leading-relaxed mb-8">
+              Life Sandbox models scenarios, evaluates trade-offs, and inspects verified evidence. Select a suggestion below or type your scenario.
             </p>
-            <div className="flex flex-wrap gap-2 justify-center max-w-md">
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 w-full text-left">
               {[
-                'Compare plan A (20 mins code) vs plan B (30 mins study) for 60 mins',
-                'Should I switch careers to software engineering?',
-                'Moving to a new city vs staying close to family',
-              ].map((suggestion) => (
+                {
+                  title: 'Career Switch',
+                  desc: 'Weigh job growth, compensation, and learning curve',
+                  prompt: 'Should I transition into software engineering or stay in my current path?',
+                  badge: '/career',
+                },
+                {
+                  title: 'Budget Allocation',
+                  desc: 'Model trade-offs between saving vs investing',
+                  prompt: 'Help me evaluate saving $500/month vs paying down a loan faster',
+                  badge: '/budgeting',
+                },
+                {
+                  title: 'Relocation vs Family',
+                  desc: 'Compare moving to a high-cost city vs staying close',
+                  prompt: 'Moving to a new city for a higher salary vs staying close to family',
+                  badge: '/travel',
+                },
+                {
+                  title: 'Time & Study Schedule',
+                  desc: 'Balance side projects with full-time commitments',
+                  prompt: 'Compare plan A (20 mins code) vs plan B (30 mins study) for 60 mins',
+                  badge: '/time-management',
+                },
+                {
+                  title: 'High-Ticket Purchase',
+                  desc: 'Compare requirements, total cost & alternatives',
+                  prompt: 'Evaluate buying a premium laptop vs a budget alternative for productivity',
+                  badge: '/purchasing',
+                },
+                {
+                  title: 'Learning Milestones',
+                  desc: 'Break ambitious goals into weekly checkpoints',
+                  prompt: 'Create a structured 8-week plan to learn systems architecture',
+                  badge: '/education',
+                },
+              ].map((item, idx) => (
                 <button
-                  key={suggestion}
+                  key={item.title}
+                  type="button"
                   onClick={() => {
-                    setInput(suggestion);
+                    setInput(item.prompt);
                     textareaRef.current?.focus();
                   }}
-                  className="text-xs text-fg-secondary bg-surface border border-border px-3.5 py-2 rounded-full hover:border-accent hover:text-accent transition-colors"
+                  style={{ animationDelay: `${idx * 40}ms` }}
+                  className="group flex flex-col justify-between p-3.5 rounded-xl bg-surface border border-border hover:border-accent/50 hover:bg-surface-hover/80 transition-all duration-150 hover:-translate-y-0.5 shadow-2xs hover:shadow-xs text-left"
                 >
-                  "{suggestion}"
+                  <div>
+                    <div className="flex items-center justify-between gap-1 mb-1.5">
+                      <span className="font-semibold text-xs text-fg group-hover:text-accent transition-colors">
+                        {item.title}
+                      </span>
+                      <span className="text-[10px] font-mono font-medium px-1.5 py-0.5 rounded bg-accent-muted text-accent border border-accent/20">
+                        {item.badge}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-fg-muted leading-relaxed line-clamp-2">
+                      {item.desc}
+                    </p>
+                  </div>
+                  <span className="mt-3 text-[10px] text-accent font-medium group-hover:underline flex items-center gap-1">
+                    Try prompt →
+                  </span>
                 </button>
               ))}
             </div>
           </div>
         ) : (
-          <div className="max-w-3xl mx-auto w-full">
+          <div className="max-w-4xl lg:max-w-5xl mx-auto w-full">
             {messages.map((message) => (
               <MessageBubble
                 key={message.id}
@@ -396,50 +487,140 @@ export default function Chat({
       </div>
 
       {/* Composer */}
-      <div className="border-t border-border bg-bg px-4 py-3 shrink-0">
-        <div className="max-w-3xl mx-auto">
-          {/* Quick Skill Slash Commands */}
-          <div className="flex items-center gap-1.5 mb-2 overflow-x-auto pb-1 text-xs">
-            <span className="text-[11px] font-medium text-fg-muted flex items-center gap-1 shrink-0">
-              <Command size={11} className="text-accent" />
-              <span>Skills:</span>
-            </span>
-            {[
-              { name: 'budgeting', cmd: '/budgeting' },
-              { name: 'career', cmd: '/career' },
-              { name: 'education', cmd: '/education' },
-              { name: 'purchasing', cmd: '/purchasing' },
-              { name: 'travel', cmd: '/travel' },
-              { name: 'time-management', cmd: '/time-management' },
-            ].map((s) => (
-              <button
-                key={s.cmd}
-                type="button"
-                onClick={() => {
-                  const prefix = `${s.cmd} `;
-                  setInput((prev) => (prev.startsWith('/') ? `${prefix}${prev.replace(/^\/\S+\s*/, '')}` : `${prefix}${prev}`));
-                  textareaRef.current?.focus();
-                }}
-                className="px-2 py-0.5 rounded-md bg-surface border border-border hover:border-accent hover:text-accent text-[11px] font-mono text-fg-secondary transition-colors shrink-0 shadow-2xs"
-                title={`Trigger ${s.name} skill`}
-              >
-                {s.cmd}
-              </button>
-            ))}
-          </div>
+      <div className="border-t border-border bg-bg px-4 sm:px-6 lg:px-8 py-3.5 shrink-0">
+        <div className="max-w-4xl lg:max-w-5xl mx-auto relative">
+          {/* Hidden native file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            onChange={handleFileChange}
+            className="hidden"
+            aria-label="Upload files"
+          />
 
-          <div className="flex items-end gap-2 bg-surface border border-border rounded-xl px-3 py-2 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent/30 transition-all shadow-xs">
+          {/* Slash command suggestion popup - Positioned ABOVE composer */}
+          {showSlashPopup && filteredCommands.length > 0 && (
+            <div
+              className="absolute bottom-full mb-2 left-0 w-full max-w-md bg-surface border border-border rounded-xl shadow-lg overflow-hidden z-30 animate-fade-in"
+              role="listbox"
+              aria-label="Slash commands"
+            >
+              <div className="px-3 py-1.5 bg-bg-secondary border-b border-border text-[11px] font-semibold text-fg-muted flex items-center justify-between">
+                <span>SKILL COMMANDS</span>
+                <span className="text-[10px]">↑↓ to navigate · Enter to select · Esc to close</span>
+              </div>
+              <div className="max-h-56 overflow-y-auto p-1.5 space-y-0.5">
+                {filteredCommands.map((command, idx) => (
+                  <button
+                    key={command.cmd}
+                    type="button"
+                    onClick={() => handleSelectSlashCommand(command.cmd)}
+                    onMouseEnter={() => setSlashSelectedIndex(idx)}
+                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left text-xs transition-colors ${
+                      idx === slashSelectedIndex
+                        ? 'bg-accent text-accent-fg'
+                        : 'hover:bg-surface-hover text-fg'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="font-mono font-semibold shrink-0">
+                        {command.cmd}
+                      </span>
+                      <span className={`text-[11px] truncate ${idx === slashSelectedIndex ? 'text-accent-fg/80' : 'text-fg-muted'}`}>
+                        {command.desc}
+                      </span>
+                    </div>
+                    <span className={`text-[10px] shrink-0 font-medium px-1.5 py-0.5 rounded ${
+                      idx === slashSelectedIndex
+                        ? 'bg-white/20 text-white'
+                        : 'bg-bg-secondary text-fg-muted'
+                    }`}>
+                      {command.name}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Selected files preview tray */}
+          {selectedFiles.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-2 animate-fade-in">
+              {selectedFiles.map((file, idx) => (
+                <div
+                  key={`${file.name}-${idx}`}
+                  className="flex items-center gap-1.5 bg-surface border border-border rounded-lg px-2.5 py-1 text-xs text-fg shadow-2xs"
+                >
+                  <FileText size={13} className="text-accent shrink-0" />
+                  <span className="truncate max-w-[150px] font-medium text-[11px]">
+                    {file.name}
+                  </span>
+                  <span className="text-[10px] text-fg-muted">
+                    ({Math.round(file.size / 1024)} KB)
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveFile(idx)}
+                    className="p-0.5 hover:bg-surface-hover rounded text-fg-muted hover:text-error transition-colors"
+                    aria-label={`Remove ${file.name}`}
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              ))}
+              <span className="text-[10px] text-fg-muted self-center italic">
+                (Local selection preview)
+              </span>
+            </div>
+          )}
+
+          {/* Composer Input Box */}
+          <div className="relative flex items-end gap-2 bg-surface border border-border rounded-xl px-2 py-1.5 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent/30 transition-all shadow-xs">
+            {/* Attachment Menu Button on Left */}
+            <div className="relative shrink-0" ref={attachmentMenuRef}>
+              <button
+                type="button"
+                onClick={() => setShowAttachmentMenu((prev) => !prev)}
+                disabled={isPending}
+                className="p-1.5 rounded-lg text-fg-muted hover:text-fg hover:bg-surface-hover transition-colors disabled:opacity-40"
+                aria-label="Attachment options"
+                title="Add files"
+              >
+                <Menu size={18} />
+              </button>
+
+              {/* Attachment Dropdown */}
+              {showAttachmentMenu && (
+                <div className="absolute bottom-full mb-2 left-0 w-48 bg-surface border border-border rounded-xl shadow-lg p-1 z-30 animate-fade-in text-xs">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      fileInputRef.current?.click();
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left text-fg hover:bg-surface-hover hover:text-accent transition-colors"
+                  >
+                    <Upload size={14} className="text-accent" />
+                    <span>Upload files from device</span>
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Main Textarea */}
             <textarea
               ref={textareaRef}
               value={input}
-              onChange={(e) => setInput(e.target.value)}
+              onChange={(e) => handleInputChange(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="Ask a question, comparison, or use /<skill> (e.g. /budgeting, /career)…"
+              placeholder="Ask a question, comparison, or type / for skills…"
               rows={1}
               disabled={isPending}
-              className="flex-1 resize-none bg-transparent text-sm text-fg placeholder:text-fg-muted focus:outline-none py-1 max-h-[150px]"
+              className="flex-1 resize-none bg-transparent text-sm text-fg placeholder:text-fg-muted focus:outline-none py-1.5 max-h-[150px]"
               aria-label="Message input"
             />
+
+            {/* Send Button */}
             <button
               onClick={handleSend}
               disabled={!input.trim() || isPending}
@@ -453,53 +634,10 @@ export default function Chat({
               )}
             </button>
           </div>
-          <p className="text-[10px] text-fg-muted mt-1.5 text-center">
-            Press Enter to send · Shift+Enter for new line
-          </p>
 
-          <section
-            className="mt-3 rounded-2xl border border-border bg-bg-secondary/70 p-3"
-            aria-label="Optional integrations for this reply"
-          >
-            <div className="mb-2.5 flex items-center justify-between gap-3">
-              <div>
-                <h2 className="text-[11px] font-semibold text-fg">Tools for this reply</h2>
-                <p className="mt-0.5 text-[10px] text-fg-muted">Optional tool integrations · Resets after send</p>
-              </div>
-              {(rememberWithMem0 || allowBrowserUse) && (
-                <span className="rounded-full bg-accent-muted px-2 py-1 text-[9px] font-medium text-accent">
-                  {Number(rememberWithMem0) + Number(allowBrowserUse)} enabled
-                </span>
-              )}
-            </div>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <IntegrationOption
-                id="remember-with-mem0"
-                icon={Sparkles}
-                title="Mem0 hosted memory"
-                description="Your message is sent to Mem0 for search; the exchange is sent after the reply to save."
-                setupHint="Add MEM0_API_KEY to backend environment to enable hosted memory."
-                configured={mem0Enabled}
-                checked={rememberWithMem0}
-                disabled={isPending}
-                onChange={setRememberWithMem0}
-              />
-              <IntegrationOption
-                id="allow-browser-use"
-                icon={Globe}
-                title="Browser Use research"
-                description="A fresh local browser visits public GitHub pages only; it uses no login profile and downloads no files."
-                setupHint="Install Browser Use and Chromium in the backend, enable BROWSER_USE_ENABLED, and configure a model."
-                configured={browserUseEnabled}
-                checked={allowBrowserUse}
-                disabled={isPending}
-                onChange={setAllowBrowserUse}
-              />
-            </div>
-          </section>
-          {memoryStatus && (
-            <p className="text-[10px] text-error mt-1 text-center">{memoryStatus}</p>
-          )}
+          <p className="text-[10px] text-fg-muted mt-1.5 text-center">
+            Press Enter to send · Shift+Enter for new line · Type / for skills
+          </p>
         </div>
       </div>
     </div>
