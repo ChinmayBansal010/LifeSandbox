@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     mem0_host: str = "https://api.mem0.ai"
     browser_use_enabled: bool = False
     llm_timeout_seconds: float = 30
+    mem0_search_timeout_seconds: float = 10.0
+    mem0_add_timeout_seconds: float = 10.0
+    # Keep each model completion short enough that multi-step tool turns finish
+    # before the browser's 105-second safety timeout.
+    openrouter_timeout_seconds: float = 75.0
+    chat_request_timeout_seconds: float = 95.0
     llm_max_tokens: int = 1000
     research_provider: Literal["disabled", "tavily"] = "disabled"
     tavily_api_key: str | None = None
@@ -42,6 +48,20 @@ class Settings(BaseSettings):
     embedding_provider: Literal["local_hash"] = "local_hash"
     embedding_dimensions: int = 128
     upload_max_bytes: int = 10_000_000
+    file_storage_dir: str = "./data/uploads"
+    extracted_text_max_chars: int = 200_000
+    stt_provider: Literal["disabled", "faster_whisper"] = "disabled"
+    stt_model: str = "tiny"
+    stt_device: str = "cpu"
+    stt_compute_type: str = "int8"
+    stt_max_bytes: int = 20_000_000
+    stt_max_duration_seconds: int = 300
+    stt_timeout_seconds: float = 120
+    tts_provider: Literal["disabled", "kokoro"] = "disabled"
+    tts_max_chars: int = 5000
+    tts_voice: str = "af_heart"
+    vision_enabled: bool = False
+    image_max_bytes: int = 5_000_000
     rate_limit_per_minute: int = 60
     langsmith_tracing: bool = False
     langfuse_public_key: str | None = None

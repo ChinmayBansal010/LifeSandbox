@@ -14,6 +14,12 @@
 - Composer showed **Ready** with the key configured. The per-message switch was turned on for a synthetic, non-sensitive prompt.
 - The UI request reached Mem0 search successfully (`POST /v3/memories/search/`, HTTP 200), but its OpenRouter response did not finish. The frontend timed out at 105 seconds; logs later showed `Model provider failure provider=openrouter status_code=None`. The UI displayed “Mem0 did not confirm saving this exchange” and reset the one-message switch.
 - A retry through the same chat service with `LLM_PROVIDER=mock` and the real Mem0 adapter completed: Mem0 search and add both returned HTTP 200, and the API returned `memory_saved: true`.
+
+### Timeout and Mem0 save status contract
+
+The OpenRouter request previously could outlive the browser's 105-second abort. The browser then reported an unconfirmed Mem0 save even when the LLM had failed before the save stage. OpenRouter now has a 75-second budget, Mem0 search and add each have 10-second budgets, and the overall chat server budget is 95 seconds (frontend safety timeout remains 105 seconds). Configure these with `OPENROUTER_TIMEOUT_SECONDS`, `MEM0_SEARCH_TIMEOUT_SECONDS`, `MEM0_ADD_TIMEOUT_SECONDS`, and `CHAT_REQUEST_TIMEOUT_SECONDS`.
+
+Chat results report `mem0_opt_in`, `mem0_search_status`, `mem0_save_status`, and `failure_detail`. A model failure reports `not_attempted`; only a confirmed Mem0 add reports `saved`. Verify by opting in with a slow/unavailable OpenRouter model (no add should run), then with `LLM_PROVIDER=mock` and a working Mem0 service (save reports `saved`).
 - The local synthetic conversation was deleted and hosted-memory policy was restored to disabled. The synthetic exchange remains in the external Mem0 account because this adapter has no memory-delete operation.
 - With `MEM0_API_KEY` blank in the process environment, `is_configured()` returned false. A temporary browser capabilities override produced two **Setup required** cards with both switches disabled; the override was removed and the real page reloaded.
 

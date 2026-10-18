@@ -1,7 +1,7 @@
 /* ─── Application store hook: Sequential Chats & State Orchestration ─── */
 
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
-import type { AppState, ChatMessage, Conversation, ThemePreference } from './types';
+import type { AppState, ChatMessage, Conversation, FileAttachment, ThemePreference } from './types';
 import { createId } from './graph-utils';
 import { loadState, saveState } from './persistence';
 
@@ -106,8 +106,9 @@ export function useStore() {
       userMessage: string,
       remember = false,
       browse = false,
+      attachments: FileAttachment[] = [],
     ) => {
-      if (isPending) return false;
+      if (isPending) return '{}';
       setIsPending(true);
 
       const messageId = createId();
@@ -115,7 +116,7 @@ export function useStore() {
       const currentConv = getState().conversations[conversationId];
       if (!currentConv) {
         setIsPending(false);
-        return false;
+        return '{}';
       }
 
       const pendingMessage: ChatMessage = {
@@ -123,6 +124,7 @@ export function useStore() {
         userMessage,
         assistantMessage: '',
         createdAt: now,
+        attachments,
       };
 
       const updatedTitle =
@@ -168,6 +170,7 @@ export function useStore() {
             history,
             remember,
             browse,
+            attachment_ids: attachments.map((file) => file.id),
           }),
         });
 
@@ -182,6 +185,10 @@ export function useStore() {
         }
 
         if (!response.ok) {
+          if (payload?.error?.failure_detail) {
+            const detail = payload.error.failure_detail;
+            throw Object.assign(new Error(payload.error.message || 'The assistant request failed.'), { failureDetail: detail });
+          }
           const serverError =
             payload?.error?.message ??
             payload?.detail?.message ??
@@ -211,6 +218,9 @@ export function useStore() {
                   skill: payload.skill as string | undefined,
                   skillTrigger: payload.skill_trigger as string | undefined,
                   intent: payload.intent as string | undefined,
+                  mem0OptIn: payload.mem0_opt_in as boolean | undefined,
+                  mem0SearchStatus: payload.mem0_search_status,
+                  mem0SaveStatus: payload.mem0_save_status,
                 }
               : m
           );
@@ -227,17 +237,23 @@ export function useStore() {
             },
           });
         }
-        return payload.memory_saved === true;
+        return JSON.stringify({ saved: payload.mem0_save_status === 'saved', search: payload.mem0_search_status, save: payload.mem0_save_status });
       } catch (error) {
         const currentState = getState();
         const convToUpdate = currentState.conversations[conversationId];
+        const errorCode = error instanceof Error && error.name === 'AbortError'
+          ? 'CHAT_CLIENT_TIMEOUT'
+          : (error as Error & { failureDetail?: { provider?: string; stage?: string; code?: string } }).failureDetail?.stage === 'llm_generate'
+            ? ((error as Error & { failureDetail?: { code?: string } }).failureDetail?.code === 'timeout' ? 'OPENROUTER_TIMEOUT' : 'OPENROUTER_FAILURE')
+            : undefined;
         if (convToUpdate) {
-          const message =
-            error instanceof Error && error.name === 'AbortError'
-              ? 'The request timed out after 105 seconds. Check the backend log and try again.'
-              : error instanceof Error
-                ? error.message
-                : 'Please try again.';
+          const message = errorCode === 'CHAT_CLIENT_TIMEOUT'
+            ? 'Chat request timed out after 105s waiting for a response. Mem0 save was not completed.'
+            : errorCode === 'OPENROUTER_TIMEOUT'
+              ? 'Model response timed out (OpenRouter). Mem0 save was not attempted.'
+              : errorCode === 'OPENROUTER_FAILURE'
+                ? 'The model provider failed to generate a reply. Mem0 save was not attempted.'
+                : error instanceof Error ? error.message : 'Please try again.';
           const updatedMessages = convToUpdate.messages.map((m) =>
             m.id === messageId
               ? {
@@ -258,7 +274,7 @@ export function useStore() {
             },
           });
         }
-        return false;
+        return JSON.stringify({ saved: false, save: 'failed', error: errorCode });
       } finally {
         window.clearTimeout(requestTimeout);
         setIsPending(false);

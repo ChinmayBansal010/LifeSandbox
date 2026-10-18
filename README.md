@@ -76,15 +76,16 @@ Install the Python dependencies and start FastAPI:
 
 ```bash
 uv sync --locked
+uv run alembic upgrade head
 uv run uvicorn app.main:app --reload
 ```
 
-In development, FastAPI creates the local SQLite schema on startup. Keep the frontend running in a separate terminal using the steps above. If you want the native backend to use the Compose PostgreSQL database instead, start it with `docker compose up -d db` and set `DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/lifesandbox` in `.env`; run `uv run alembic upgrade head` before starting the backend. The Docker API service always uses the internal Compose database URL, regardless of the `DATABASE_URL` value in `.env`.
+In development, FastAPI creates the local SQLite schema on startup. Keep the frontend running in a separate terminal using the steps above. If you want the native backend to use the Compose PostgreSQL database instead, start it with `docker compose up -d db` and set `DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5433/lifesandbox` in `.env`; run `uv run alembic upgrade head` before starting the backend. The Docker API service always uses the internal Compose database URL, regardless of the `DATABASE_URL` value in `.env`. Compose applies Alembic migrations before starting the API and worker.
 
 ### Applying changes
 
 - Frontend source changes under `frontend/src` are applied by Vite HMR while `npm run dev` is running. Changes to frontend dependencies require `npm ci` and a Vite restart.
-- With the Docker backend, Python source changes are **not** applied automatically: the image contains a copy of the source and Compose does not mount the source directory. Rebuild and restart the API with `docker compose up --build -d api`.
+- With the Docker backend, Python source changes are **not** applied automatically: the image contains a copy of the source and Compose does not mount the source directory. Rebuild and restart with `docker compose up --build -d` so the migration job and API use the new image.
 - Changes to `.env` are **not** applied to an already-running API container. Recreate it with `docker compose up -d --force-recreate api`. If you changed Python dependencies in `pyproject.toml` or `uv.lock`, use `docker compose up --build -d api` instead.
 - After editing `docker-compose.yml`, apply the updated service configuration with `docker compose up -d`; add `--build` if the change affects the image.
 - The Compose API service explicitly sets `DATABASE_URL` to the internal `db` service address. Changing `DATABASE_URL` in `.env` therefore affects a native backend, but not the Docker API's database connection.
@@ -107,6 +108,12 @@ In development, authentication maps to `local-user`. Before deployment, set `APP
 ## API
 
 See [docs/api.md](docs/api.md). Main capabilities include chat and SSE, conversation/memory/project/task/reminder CRUD, durable reminder jobs, approval records, simulations, research, file upload metadata, feedback, health and readiness.
+
+### Voice and document input
+
+Document uploads work locally without cloud credentials. The chat paperclip uploads PDF, DOCX, TXT, Markdown, CSV, JSON, PNG, and JPEG files to `FILE_STORAGE_DIR` (default `./data/uploads`). Text documents get bounded text extraction; images are stored and can be interpreted when a vision-capable Nebius/OpenRouter model is configured with `VISION_ENABLED=true`. Images are sent to that model only when explicitly attached to a chat. Files are private by authenticated API ownership. Apply Alembic migrations before production use. The existing S3 presigned upload URL remains available for deployments, but that legacy upload route does not yet run document extraction or image processing; use the multipart `/api/v1/files` workflow for processed files.
+
+Speech providers are opt-in and are installed outside the locked base environment: run `uv pip install --python .venv/bin/python 'faster-whisper>=1.1,<2' 'kokoro>=0.9,<1' 'soundfile>=0.13,<1'` (or use your virtualenv's `pip`). Set `STT_PROVIDER=faster_whisper` or `TTS_PROVIDER=kokoro` to enable an endpoint and restart the API. The first use downloads configured model weights (Whisper `tiny`, Kokoro 82M by default), requiring network access and additional disk/RAM. No model weights are bundled. faster-whisper code is MIT licensed and Kokoro code/model are Apache-2.0; transitive runtime and voice assets have separate terms and need review before redistribution. Leave providers disabled to keep the normal installation light. Browser recording requires MediaRecorder and microphone permission; transcript review is required before sending. See `.env.example` for limits and `docs/api.md` for routes.
 
 ## Architecture and operations
 

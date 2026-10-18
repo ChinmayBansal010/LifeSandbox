@@ -1,5 +1,7 @@
 """Optional Mem0 Platform client for consent-based long-term agent memory."""
 
+import asyncio
+
 from typing import Any
 
 import httpx
@@ -18,7 +20,7 @@ def _client() -> httpx.AsyncClient | None:
     return httpx.AsyncClient(
         base_url=settings.mem0_host.rstrip("/"),
         headers={"Authorization": f"Token {settings.mem0_api_key}"},
-        timeout=30.0,
+        timeout=httpx.Timeout(max(settings.mem0_search_timeout_seconds, settings.mem0_add_timeout_seconds)),
     )
 
 
@@ -27,10 +29,7 @@ async def search_memories(query: str, user_id: str, limit: int = 5) -> list[str]
     if client is None:
         return []
     async with client:
-        response = await client.post(
-            "/v3/memories/search/",
-            json={"query": query, "filters": {"user_id": user_id}, "top_k": limit},
-        )
+        response = await asyncio.wait_for(client.post("/v3/memories/search/", json={"query": query, "filters": {"user_id": user_id}, "top_k": limit}), timeout=get_settings().mem0_search_timeout_seconds)
         response.raise_for_status()
         payload = response.json()
     results: Any = payload.get("results", []) if isinstance(payload, dict) else payload
@@ -50,7 +49,7 @@ async def remember_exchange(user_id: str, user_message: str, assistant_message: 
     if client is None:
         raise RuntimeError("Mem0 is not configured")
     async with client:
-        response = await client.post(
+        response = await asyncio.wait_for(client.post(
             "/v3/memories/add/",
             json={
                 "messages": [
@@ -59,5 +58,5 @@ async def remember_exchange(user_id: str, user_message: str, assistant_message: 
                 ],
                 "user_id": user_id,
             },
-        )
+        ), timeout=get_settings().mem0_add_timeout_seconds)
         response.raise_for_status()

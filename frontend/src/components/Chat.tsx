@@ -11,11 +11,15 @@ import {
   MessageSquare,
   Activity,
   Menu,
-  FileText,
-  X,
   Upload,
+  Mic,
+  Paperclip,
+  Square,
+  Volume2,
+  FileText,
+  Image as ImageIcon,
 } from 'lucide-react';
-import type { Conversation, ChatMessage } from '../types';
+import type { Conversation, ChatMessage, FileAttachment } from '../types';
 import { formatTimestamp } from '../graph-utils';
 import { FormattedMessage } from './FormattedMessage';
 
@@ -25,19 +29,19 @@ type ChatProps = {
     userMessage: string,
     remember: boolean,
     browse: boolean,
-  ) => Promise<boolean>;
+    attachments: FileAttachment[],
+  ) => Promise<string>;
   mem0Enabled: boolean;
   browserUseEnabled: boolean;
+  sttEnabled: boolean;
+  ttsEnabled: boolean;
+  imageUnderstandingEnabled: boolean;
   onRenameConversation?: (conversationId: string, title: string) => void;
   onOpenAdminPanel?: (traceId?: string) => void;
   isPending: boolean;
 };
 
-type SelectedFile = {
-  name: string;
-  size: number;
-  type: string;
-};
+let activeSpeech: HTMLAudioElement | null = null;
 
 const SLASH_COMMANDS = [
   { cmd: '/budgeting', name: 'Budgeting', desc: 'Budget & spending trade-offs' },
@@ -52,14 +56,68 @@ function MessageBubble({
   message,
   onCopyResponse,
   onOpenAdminPanel,
+  ttsEnabled,
+  autoRead,
 }: {
   message: ChatMessage;
   onCopyResponse: (text: string) => void;
   onOpenAdminPanel?: (traceId?: string) => void;
+  ttsEnabled: boolean;
+  autoRead: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   const isLoading = message.assistantMessage === '';
   const toolsCount = message.toolsAccessed?.length ?? 0;
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [speechBusy, setSpeechBusy] = useState(false);
+  const [speechPlaying, setSpeechPlaying] = useState(false);
+  const [hasAudio, setHasAudio] = useState(false);
+  const [speechError, setSpeechError] = useState('');
+
+  const playSpeech = async () => {
+    setSpeechError('');
+    setSpeechBusy(true);
+    try {
+      const response = await fetch('/api/v1/audio/speech', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: message.assistantMessage }),
+      });
+      if (!response.ok) {
+        const body = await response.json();
+        throw new Error(body.detail?.message || 'Speech generation failed');
+      }
+      const url = URL.createObjectURL(await response.blob());
+      if (activeSpeech) {
+        activeSpeech.pause();
+        URL.revokeObjectURL(activeSpeech.src);
+      }
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      activeSpeech = audio;
+      setHasAudio(true);
+      audio.onplay = () => setSpeechPlaying(true);
+      audio.onpause = () => setSpeechPlaying(false);
+      audio.onended = () => {
+        URL.revokeObjectURL(url);
+        audioRef.current = null;
+        activeSpeech = null;
+        setHasAudio(false);
+        setSpeechPlaying(false);
+      };
+      await audio.play();
+    } catch (error) {
+      setSpeechError(error instanceof Error ? error.message : 'Speech generation failed');
+    } finally {
+      setSpeechBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (autoRead && ttsEnabled && !isLoading) {
+      void playSpeech();
+    }
+  }, [autoRead, ttsEnabled, isLoading, message.id]);
 
   const handleCopy = () => {
     onCopyResponse(message.assistantMessage);
@@ -74,6 +132,24 @@ function MessageBubble({
         <div className="max-w-[85%] sm:max-w-[78%] lg:max-w-[75%] xl:max-w-[72%]">
           <div className="bg-accent text-accent-fg px-4 py-3 rounded-2xl rounded-br-md text-sm leading-relaxed shadow-xs">
             {message.userMessage}
+            {message.attachments && message.attachments.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5 border-t border-white/20 pt-2">
+                {message.attachments.map((file) => (
+                  <span
+                    key={file.id}
+                    className="inline-flex max-w-full items-center gap-1.5 rounded-md bg-white/15 px-2 py-1 text-[11px]"
+                    title={file.filename}
+                  >
+                    {file.mime_type?.startsWith('image/') ? (
+                      <ImageIcon size={12} />
+                    ) : (
+                      <FileText size={12} />
+                    )}
+                    <span className="truncate">{file.filename}</span>
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
           <div className="flex justify-end mt-1 px-1">
             <span className="text-[10px] text-fg-muted">
@@ -115,29 +191,72 @@ function MessageBubble({
 
           {/* Actions & Tool trace row */}
           {!isLoading && (
-            <div className="flex items-center justify-between gap-2 mt-2 px-1 flex-wrap">
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleCopy}
-                  className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] text-fg-muted hover:text-fg hover:bg-surface-hover transition-colors"
-                  aria-label="Copy response"
-                >
-                  {copied ? <Check size={12} className="text-success" /> : <Copy size={12} />}
-                  <span>{copied ? 'Copied' : 'Copy'}</span>
-                </button>
-              </div>
+            <>
+              <div className="flex items-center justify-between gap-2 mt-2 px-1 flex-wrap">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleCopy}
+                    className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] text-fg-muted hover:text-fg hover:bg-surface-hover transition-colors"
+                    aria-label="Copy response"
+                  >
+                    {copied ? <Check size={12} className="text-success" /> : <Copy size={12} />}
+                    <span>{copied ? 'Copied' : 'Copy'}</span>
+                  </button>
+                  {ttsEnabled && (
+                    <>
+                      <button
+                        onClick={() => {
+                          const audio = audioRef.current;
+                          if (audio && !audio.paused) audio.pause();
+                          else if (audio) void audio.play();
+                          else void playSpeech();
+                        }}
+                        className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] text-fg-muted hover:text-fg hover:bg-surface-hover transition-colors"
+                        aria-label="Play or pause response"
+                      >
+                        {speechBusy ? (
+                          <Loader2 size={12} className="animate-spin" />
+                        ) : (
+                          <Volume2 size={12} />
+                        )}
+                        <span>{speechPlaying ? 'Pause' : hasAudio ? 'Resume' : 'Listen'}</span>
+                      </button>
+                      {hasAudio && (
+                        <button
+                          onClick={() => {
+                            const audio = audioRef.current;
+                            if (audio) {
+                              audio.pause();
+                              audio.currentTime = 0;
+                              URL.revokeObjectURL(audio.src);
+                              audioRef.current = null;
+                              if (activeSpeech === audio) activeSpeech = null;
+                              setHasAudio(false);
+                              setSpeechPlaying(false);
+                            }
+                          }}
+                          className="text-[11px] text-fg-muted hover:text-fg transition-colors"
+                        >
+                          Stop
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
 
-              {toolsCount > 0 && onOpenAdminPanel && (
-                <button
-                  onClick={() => onOpenAdminPanel(message.traceId)}
-                  className="flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-medium bg-accent-muted text-accent hover:bg-accent/20 transition-colors border border-accent/20"
-                  title="View tool calls and execution timestamps in Admin Panel"
-                >
-                  <Activity size={11} />
-                  <span>{toolsCount} tool{toolsCount !== 1 ? 's' : ''} accessed · View trace</span>
-                </button>
-              )}
-            </div>
+                {toolsCount > 0 && onOpenAdminPanel && (
+                  <button
+                    onClick={() => onOpenAdminPanel(message.traceId)}
+                    className="flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-medium bg-accent-muted text-accent hover:bg-accent/20 transition-colors border border-accent/20"
+                    title="View tool calls and execution timestamps in Admin Panel"
+                  >
+                    <Activity size={11} />
+                    <span>{toolsCount} tool{toolsCount !== 1 ? 's' : ''} accessed · View trace</span>
+                  </button>
+                )}
+              </div>
+              {speechError && <p className="text-[10px] text-error mt-1">{speechError}</p>}
+            </>
           )}
         </div>
       </div>
@@ -151,6 +270,9 @@ export default function Chat({
   onRenameConversation,
   onOpenAdminPanel,
   isPending,
+  sttEnabled,
+  ttsEnabled,
+  imageUnderstandingEnabled,
 }: ChatProps) {
   const [input, setInput] = useState('');
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -163,13 +285,19 @@ export default function Chat({
 
   // Attachment menu and files state
   const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
-  const [selectedFiles, setSelectedFiles] = useState<SelectedFile[]>([]);
+  const [attachments, setAttachments] = useState<FileAttachment[]>([]);
+  const [fileStatus, setFileStatus] = useState('');
+  const [recording, setRecording] = useState(false);
+  const [autoRead, setAutoRead] = useState(() => localStorage.getItem('life-sandbox-auto-read') === 'true');
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const attachmentMenuRef = useRef<HTMLDivElement>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const recordedRef = useRef<Blob[]>([]);
 
   const startEditing = () => {
     setTitleDraft(conversation.title);
@@ -247,14 +375,95 @@ export default function Chat({
     textareaRef.current?.focus();
   };
 
+  const uploadAttachment = async (file: File) => {
+    setFileStatus(`Uploading ${file.name}…`);
+    const form = new FormData();
+    form.append('file', file);
+    try {
+      const response = await fetch('/api/v1/files', { method: 'POST', body: form });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.detail?.message || 'Upload failed');
+      const isImage = result.mime_type?.startsWith('image/');
+      if (!isImage || imageUnderstandingEnabled) {
+        setAttachments((items) => [
+          ...items,
+          {
+            id: result.id,
+            filename: result.filename,
+            status: result.status,
+            mime_type: result.mime_type,
+            size_bytes: result.size_bytes,
+          },
+        ]);
+      }
+      setFileStatus(
+        isImage && !imageUnderstandingEnabled
+          ? `${file.name} stored. Configure a vision-capable model and VISION_ENABLED to ask questions about it.`
+          : `${file.name} ready`
+      );
+    } catch (error) {
+      setFileStatus(error instanceof Error ? error.message : 'Upload failed');
+    }
+  };
+
+  const startRecording = async () => {
+    if (!sttEnabled || !navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) return;
+    try {
+      setFileStatus('Requesting microphone permission…');
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+      const recorder = new MediaRecorder(stream);
+      recorderRef.current = recorder;
+      recordedRef.current = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data.size) recordedRef.current.push(event.data);
+      };
+      recorder.onstop = async () => {
+        stream.getTracks().forEach((track) => track.stop());
+        streamRef.current = null;
+        const blob = new Blob(recordedRef.current, { type: recorder.mimeType || 'audio/webm' });
+        const form = new FormData();
+        form.append('file', blob, 'recording.webm');
+        setFileStatus('Transcribing audio…');
+        try {
+          const response = await fetch('/api/v1/audio/transcriptions', { method: 'POST', body: form });
+          const body = await response.json();
+          if (!response.ok) throw new Error(body.detail?.message || 'Transcription failed');
+          setInput(body.text);
+          setFileStatus('Transcript ready. Review and edit before sending.');
+          textareaRef.current?.focus();
+        } catch (error) {
+          setFileStatus(error instanceof Error ? error.message : 'Transcription failed');
+        }
+      };
+      recorder.start();
+      setRecording(true);
+      setFileStatus('Recording…');
+    } catch {
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+      setFileStatus('Microphone permission was denied or unavailable.');
+    }
+  };
+
+  const stopRecording = () => {
+    recorderRef.current?.stop();
+    setRecording(false);
+  };
+
+  useEffect(() => () => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+  }, []);
+
   const handleSend = async () => {
     const msg = input.trim();
     if (!msg || isPending) return;
     setInput('');
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
     setShowSlashPopup(false);
-    setSelectedFiles([]);
-    await onSendMessage(msg, false, false);
+    const messageAttachments = attachments;
+    setAttachments([]);
+    await onSendMessage(msg, false, false, messageAttachments);
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -306,25 +515,6 @@ export default function Chat({
 
   const handleCopyResponse = (text: string) => {
     navigator.clipboard.writeText(text).catch(() => {});
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    const newFiles: SelectedFile[] = Array.from(files).map((f) => ({
-      name: f.name,
-      size: f.size,
-      type: f.type || 'unknown',
-    }));
-    setSelectedFiles((prev) => [...prev, ...newFiles]);
-    setShowAttachmentMenu(false);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
-
-  const handleRemoveFile = (index: number) => {
-    setSelectedFiles((prev) => prev.filter((_, i) => i !== index));
   };
 
   return (
@@ -479,6 +669,8 @@ export default function Chat({
                 message={message}
                 onCopyResponse={handleCopyResponse}
                 onOpenAdminPanel={onOpenAdminPanel}
+                ttsEnabled={ttsEnabled}
+                autoRead={autoRead && message.id === [...messages].reverse().find((item) => item.assistantMessage.trim())?.id}
               />
             ))}
           </div>
@@ -494,7 +686,15 @@ export default function Chat({
             ref={fileInputRef}
             type="file"
             multiple
-            onChange={handleFileChange}
+            accept=".pdf,.docx,.txt,.md,.markdown,.csv,.json,.png,.jpg,.jpeg"
+            onChange={(event) => {
+              const files = event.target.files;
+              if (files) {
+                Array.from(files).forEach((f) => void uploadAttachment(f));
+              }
+              event.target.value = '';
+              setShowAttachmentMenu(false);
+            }}
             className="hidden"
             aria-label="Upload files"
           />
@@ -544,37 +744,6 @@ export default function Chat({
             </div>
           )}
 
-          {/* Selected files preview tray */}
-          {selectedFiles.length > 0 && (
-            <div className="mb-2 flex flex-wrap gap-2 animate-fade-in">
-              {selectedFiles.map((file, idx) => (
-                <div
-                  key={`${file.name}-${idx}`}
-                  className="flex items-center gap-1.5 bg-surface border border-border rounded-lg px-2.5 py-1 text-xs text-fg shadow-2xs"
-                >
-                  <FileText size={13} className="text-accent shrink-0" />
-                  <span className="truncate max-w-[150px] font-medium text-[11px]">
-                    {file.name}
-                  </span>
-                  <span className="text-[10px] text-fg-muted">
-                    ({Math.round(file.size / 1024)} KB)
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveFile(idx)}
-                    className="p-0.5 hover:bg-surface-hover rounded text-fg-muted hover:text-error transition-colors"
-                    aria-label={`Remove ${file.name}`}
-                  >
-                    <X size={12} />
-                  </button>
-                </div>
-              ))}
-              <span className="text-[10px] text-fg-muted self-center italic">
-                (Local selection preview)
-              </span>
-            </div>
-          )}
-
           {/* Composer Input Box */}
           <div className="relative flex items-end gap-2 bg-surface border border-border rounded-xl px-2 py-1.5 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent/30 transition-all shadow-xs">
             {/* Attachment Menu Button on Left */}
@@ -592,7 +761,7 @@ export default function Chat({
 
               {/* Attachment Dropdown */}
               {showAttachmentMenu && (
-                <div className="absolute bottom-full mb-2 left-0 w-48 bg-surface border border-border rounded-xl shadow-lg p-1 z-30 animate-fade-in text-xs">
+                <div className="absolute bottom-full mb-2 left-0 w-52 bg-surface border border-border rounded-xl shadow-lg p-1 z-30 animate-fade-in text-xs">
                   <button
                     type="button"
                     onClick={() => {
@@ -606,6 +775,39 @@ export default function Chat({
                 </div>
               )}
             </div>
+
+            {/* Direct Paperclip Button */}
+            <label
+              className={`p-1.5 rounded-lg text-fg-muted hover:text-accent transition-colors ${
+                isPending ? 'cursor-not-allowed opacity-40' : 'cursor-pointer'
+              }`}
+              title="Attach a file"
+            >
+              <Paperclip size={16} />
+              <input
+                type="file"
+                className="hidden"
+                disabled={isPending}
+                accept=".pdf,.docx,.txt,.md,.markdown,.csv,.json,.png,.jpg,.jpeg"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) void uploadAttachment(file);
+                  event.target.value = '';
+                }}
+              />
+            </label>
+
+            {/* Voice Input Button */}
+            <button
+              type="button"
+              disabled={!sttEnabled || isPending}
+              onClick={recording ? stopRecording : () => void startRecording()}
+              className="p-1.5 rounded-lg text-fg-muted hover:text-accent disabled:opacity-40 transition-colors"
+              aria-label={recording ? 'Stop recording' : sttEnabled ? 'Record voice message' : 'Speech transcription unavailable'}
+              title={fileStatus || (sttEnabled ? 'Record voice message' : 'Enable STT_PROVIDER on the backend')}
+            >
+              {recording ? <Square size={16} /> : <Mic size={16} />}
+            </button>
 
             {/* Main Textarea */}
             <textarea
@@ -624,7 +826,7 @@ export default function Chat({
             <button
               onClick={handleSend}
               disabled={!input.trim() || isPending}
-              className="p-2 rounded-lg bg-accent text-accent-fg hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0 shadow-xs"
+              className="p-2 rounded-lg bg-accent text-accent-fg hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0 shadow-xs active:scale-95"
               aria-label="Send message"
             >
               {isPending ? (
@@ -635,9 +837,74 @@ export default function Chat({
             </button>
           </div>
 
-          <p className="text-[10px] text-fg-muted mt-1.5 text-center">
-            Press Enter to send · Shift+Enter for new line · Type / for skills
-          </p>
+          {/* Attached files preview tray */}
+          {attachments.length > 0 && (
+            <section
+              className="mt-2 rounded-xl border border-accent/25 bg-accent-muted/30 p-2.5 animate-fade-in"
+              aria-label="Files for this message"
+            >
+              <div className="mb-1.5 flex items-center justify-between gap-2">
+                <h2 className="text-[11px] font-semibold text-fg">Attached for this message</h2>
+                <span className="text-[10px] text-fg-muted">Clears after sending</span>
+              </div>
+              <div className="space-y-1.5">
+                {attachments.map((file) => (
+                  <div
+                    key={file.id}
+                    className="flex min-w-0 items-center gap-2 rounded-lg border border-border bg-surface px-2.5 py-1.5 text-xs shadow-2xs"
+                  >
+                    {file.mime_type?.startsWith('image/') ? (
+                      <ImageIcon size={14} className="shrink-0 text-accent" />
+                    ) : (
+                      <FileText size={14} className="shrink-0 text-accent" />
+                    )}
+                    <span
+                      className="min-w-0 flex-1 truncate text-xs text-fg font-medium"
+                      title={file.filename}
+                    >
+                      {file.filename}
+                    </span>
+                    <span className="text-[10px] text-fg-muted">{file.status}</span>
+                    <button
+                      type="button"
+                      className="ml-1 text-fg-muted hover:text-error transition-colors p-0.5"
+                      onClick={() =>
+                        setAttachments((items) => items.filter((item) => item.id !== file.id))
+                      }
+                      aria-label={`Remove ${file.filename} from this message`}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          <div className="flex items-center justify-between mt-1.5 px-1">
+            <p className="text-[10px] text-fg-muted">
+              Press Enter to send · Shift+Enter for new line · Type / for skills
+            </p>
+            <label className="text-[10px] text-fg-muted flex items-center gap-1 cursor-pointer hover:text-fg transition-colors">
+              <input
+                type="checkbox"
+                checked={autoRead}
+                onChange={(event) => {
+                  setAutoRead(event.target.checked);
+                  localStorage.setItem('life-sandbox-auto-read', String(event.target.checked));
+                }}
+                disabled={!ttsEnabled}
+                className="rounded border-border text-accent focus:ring-accent"
+              />
+              Read replies aloud
+            </label>
+          </div>
+
+          {fileStatus && (
+            <p className="text-[10px] text-fg-muted mt-1 text-center animate-fade-in font-medium">
+              {fileStatus}
+            </p>
+          )}
         </div>
       </div>
     </div>

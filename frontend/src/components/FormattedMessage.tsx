@@ -96,7 +96,9 @@ function parseMarkdownBlocks(rawText: string): ContentBlock[] {
       i++; // skip closing ```
       const fullCode = codeLines.join('\n');
 
-      if (language === 'mermaid') {
+      if (language === 'markdown' || language === 'md') {
+        blocks.push(...parseMarkdownBlocks(fullCode));
+      } else if (language === 'mermaid') {
         const { nodes, edges } = parseMermaid(fullCode);
         blocks.push({ type: 'mermaid', raw: fullCode, nodes, edges });
       } else if (language === 'diagram' || isAsciiDiagram(fullCode)) {

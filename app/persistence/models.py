@@ -36,6 +36,20 @@ class MessageRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
 
+class ConversationFileRow(Base):
+    __tablename__ = "conversation_files"
+    __table_args__ = (UniqueConstraint("conversation_id", "file_id"),)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    conversation_id: Mapped[str] = mapped_column(
+        ForeignKey("conversations.id", ondelete="CASCADE"), index=True
+    )
+    file_id: Mapped[str] = mapped_column(
+        ForeignKey("files.id", ondelete="CASCADE"), index=True
+    )
+    user_id: Mapped[str] = mapped_column(String(200), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
 class MemoryRow(Base):
     __tablename__ = "memories"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
@@ -227,7 +241,22 @@ class FileRow(Base):
     mime_type: Mapped[str] = mapped_column(String(150))
     size_bytes: Mapped[int] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String(30), default="pending_upload")
+    storage_key: Mapped[str] = mapped_column(String(500), default="")
+    error_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    extracted_chunks: Mapped[list["FileChunkRow"]] = relationship(
+        cascade="all, delete-orphan", passive_deletes=True
+    )
+
+
+class FileChunkRow(Base):
+    __tablename__ = "file_chunks"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    file_id: Mapped[str] = mapped_column(ForeignKey("files.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[str] = mapped_column(String(200), index=True)
+    chunk_index: Mapped[int] = mapped_column(Integer)
+    page_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    content: Mapped[str] = mapped_column(Text)
 
 
 class PromptTraceRow(Base):
