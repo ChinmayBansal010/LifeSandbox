@@ -20,3 +20,39 @@ def test_optional_fields_can_be_omitted(definition):
 def test_unknown_fields_are_rejected(definition):
     with pytest.raises(ValueError, match="Unknown argument"):
         definition.validate({"count":3,"surprise":True})
+
+def test_string_length_constraints_are_enforced():
+    definition = ToolDefinition(
+        "sample.text",
+        "Sample",
+        {"type":"object","properties":{"query":{"type":"string","minLength":2,"maxLength":5}},"required":["query"]},
+        "tests",
+    )
+    assert definition.validate({"query":"okay"})["query"] == "okay"
+    for query in ("x", "toolong"):
+        with pytest.raises(ValueError):
+            definition.validate({"query":query})
+
+def test_numeric_bounds_are_enforced():
+    definition = ToolDefinition(
+        "sample.limit",
+        "Sample",
+        {"type":"object","properties":{"limit":{"type":"integer","minimum":1,"maximum":10}},"required":["limit"]},
+        "tests",
+    )
+    assert definition.validate({"limit":5})["limit"] == 5
+    for limit in (0, 11):
+        with pytest.raises(ValueError):
+            definition.validate({"limit":limit})
+
+def test_array_item_count_constraints_are_enforced():
+    definition = ToolDefinition(
+        "sample.list",
+        "Sample",
+        {"type":"object","properties":{"items":{"type":"array","minItems":1,"maxItems":2}},"required":["items"]},
+        "tests",
+    )
+    assert definition.validate({"items":["a"]})["items"] == ["a"]
+    for items in ([], ["a","b","c"]):
+        with pytest.raises(ValueError):
+            definition.validate({"items":items})
