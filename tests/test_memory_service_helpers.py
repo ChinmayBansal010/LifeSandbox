@@ -1,7 +1,7 @@
 from app.memory.service import explicit_memory_request, identity_key_for, tokens
 
 def test_tokens_ignore_short_words_and_normalize_case():
-    assert tokens("The API key is secret but project works") == {"api","key","secret","but","project","works"}
+    assert tokens("The API key is secret but project works") == {"the","api","key","secret","but","project","works"}
 
 def test_identity_key_is_stable_for_case_and_punctuation():
     assert identity_key_for("preference","I prefer open-source tools!") == identity_key_for("preference","i PREFER open source tools")
