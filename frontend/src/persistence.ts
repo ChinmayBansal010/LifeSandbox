@@ -33,6 +33,27 @@ type StoredPayload = {
   };
 };
 
+function isThemePreference(value: unknown): value is ThemePreference {
+  return value === 'light' || value === 'dark' || value === 'system';
+}
+
+function isConversation(value: unknown): value is Conversation {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as Partial<Conversation>;
+  return typeof item.id === 'string'
+    && typeof item.title === 'string'
+    && typeof item.createdAt === 'number'
+    && typeof item.updatedAt === 'number'
+    && Array.isArray(item.messages)
+    && item.messages.every((message) => (
+      !!message
+      && typeof message.id === 'string'
+      && typeof message.userMessage === 'string'
+      && typeof message.assistantMessage === 'string'
+      && typeof message.createdAt === 'number'
+    ));
+}
+
 const DEFAULT_STATE: AppState = {
   conversations: {},
   activeConversationId: null,
@@ -53,15 +74,18 @@ export function loadState(): AppState {
     }
 
     const { data } = parsed;
-    const theme: ThemePreference = data.theme ?? 'system';
+    const theme: ThemePreference = isThemePreference(data.theme) ? data.theme : 'system';
 
     // If already in new conversation format
-    if (data.conversations && typeof data.conversations === 'object') {
-      return {
-        conversations: data.conversations,
-        activeConversationId: data.activeConversationId ?? Object.keys(data.conversations)[0] ?? null,
-        theme,
-      };
+    if (data.conversations && typeof data.conversations === 'object' && !Array.isArray(data.conversations)) {
+      const conversations = Object.fromEntries(
+        Object.entries(data.conversations).filter(([, value]) => isConversation(value))
+      );
+      const requestedActiveId = data.activeConversationId;
+      const activeConversationId = typeof requestedActiveId === 'string' && conversations[requestedActiveId]
+        ? requestedActiveId
+        : Object.keys(conversations)[0] ?? null;
+      return { conversations, activeConversationId, theme };
     }
 
     // Auto-migrate from legacy branching scenario tree format
