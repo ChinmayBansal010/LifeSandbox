@@ -8,7 +8,7 @@ import sentry_sdk
 from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -167,6 +167,14 @@ class ChatRequest(BaseModel):
     remember: bool = False
     browse: bool = False
     attachment_ids: list[str] = Field(default_factory=list, max_length=5)
+
+    @field_validator("message")
+    @classmethod
+    def message_not_blank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Message cannot be blank")
+        return value
 
 
 @app.get("/api/v1/capabilities")
