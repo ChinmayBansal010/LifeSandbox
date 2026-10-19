@@ -472,7 +472,7 @@ def test_chat_graph_executes_scoped_task_tool(monkeypatch):
                         {
                             "id": "task-call-1",
                             "function": {
-                                "name": "create_task",
+                                "name": "followthrough.create_task",
                                 "arguments": '{"title":"Prepare sprint review"}',
                             },
                         }

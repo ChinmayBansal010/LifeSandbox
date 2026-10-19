@@ -134,4 +134,7 @@ FOLLOWTHROUGH_TOOLS = [
     },
 ]
 
+for _tool in FOLLOWTHROUGH_TOOLS:
+    _tool["function"]["name"] = f"followthrough.{_tool['function']['name']}"
+
 FOLLOWTHROUGH_TOOL_NAMES = {tool["function"]["name"] for tool in FOLLOWTHROUGH_TOOLS}

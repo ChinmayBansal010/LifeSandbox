@@ -1,9 +1,10 @@
+import asyncio
 import json
 from datetime import UTC, datetime
 
 import pytest
 
-from app.conversation.graph import execute_tools
+from app.conversation.graph import _bounded, execute_tools, select_relevant_tools
 from app.providers.research import ResearchSource
 from app.tools.registry import ToolDefinition, ToolRegistry
 
@@ -23,6 +24,21 @@ def test_registry_rejects_duplicates_and_discovers_only_allowlisted_tools():
     assert registry.discover({"example.lookup"})[0]["function"]["name"] == "example.lookup"
 
 
+def test_registry_rejects_unqualified_ids_and_invalid_schemas():
+    registry = ToolRegistry()
+    with pytest.raises(ValueError, match="namespaced"):
+        registry.register(ToolDefinition("lookup", "Lookup", {"type": "object"}, "test"))
+    with pytest.raises(ValueError, match="declared properties"):
+        registry.register(
+            ToolDefinition(
+                "example.lookup",
+                "Lookup",
+                {"type": "object", "properties": {}, "required": ["missing"]},
+                "test",
+            )
+        )
+
+
 def test_registry_validates_unknown_missing_and_malformed_arguments():
     definition = ToolDefinition(
         "example.lookup",
@@ -38,6 +54,61 @@ def test_registry_validates_unknown_missing_and_malformed_arguments():
     for arguments in ({"key": 3}, {"extra": True}, {}):
         with pytest.raises(ValueError):
             definition.validate(arguments)
+
+
+def test_registry_recursively_validates_bounds_and_nested_shapes():
+    definition = ToolDefinition(
+        "example.lookup",
+        "Look up a value",
+        {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "minLength": 2, "maxLength": 5},
+                "options": {
+                    "type": "array",
+                    "maxItems": 2,
+                    "items": {"type": "integer", "minimum": 1, "maximum": 4},
+                },
+            },
+            "required": ["query"],
+            "additionalProperties": False,
+        },
+        "test",
+    )
+    assert definition.validate({"query": "abc", "options": [1, 4]})["query"] == "abc"
+    for arguments in (
+        {"query": "x"},
+        {"query": "abc", "options": [0]},
+        {"query": "abc", "options": [1, 2, 3]},
+        {"query": "abc", "unexpected": True},
+    ):
+        with pytest.raises(ValueError):
+            definition.validate(arguments)
+
+
+def test_request_language_can_select_multiple_relevant_capability_families():
+    selected = select_relevant_tools("Search my inbox for the professor's latest reply")
+    assert {"gmail.search_messages", "gmail.get_thread", "research.search"}.issubset(selected)
+    assert "calendar.list_events" not in selected
+
+
+@pytest.mark.asyncio
+async def test_tool_timeout_cancels_the_pending_operation():
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def operation():
+        started.set()
+        try:
+            await asyncio.sleep(1)
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    with pytest.raises(TimeoutError):
+        await _bounded(operation(), 0.01)
+    assert started.is_set()
+    assert cancelled.is_set()
 
 
 @pytest.mark.asyncio

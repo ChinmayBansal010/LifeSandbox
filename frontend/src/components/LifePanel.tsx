@@ -1,5 +1,6 @@
 import { startTransition, useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent as ReactPointerEvent } from 'react';
 import { Archive, Bell, BrainCircuit, CalendarDays, Check, ChevronDown, FolderKanban, ListTodo, Pencil, Play, Plus, RefreshCw, Trash2, X } from 'lucide-react';
+import type { PluginCapability, PluginExecution } from '../types';
 
 type Item = Record<string, any>;
 type Section = 'memories' | 'projects' | 'tasks' | 'reminders' | 'approvals' | 'connections';
@@ -305,6 +306,8 @@ export default function LifePanel({ onClose }: { onClose: () => void }) {
   const [connections, setConnections] = useState<Item[]>([]);
   const [connectionConfigured, setConnectionConfigured] = useState(false);
   const [connectionCapabilities, setConnectionCapabilities] = useState<string[]>(['calendar.read', 'gmail.read']);
+  const [pluginCapabilities, setPluginCapabilities] = useState<PluginCapability[]>([]);
+  const [pluginExecutions, setPluginExecutions] = useState<PluginExecution[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -320,10 +323,12 @@ export default function LifePanel({ onClose }: { onClose: () => void }) {
 
   const refresh = useCallback(async () => {
     try {
-      const [m, c, t, r, a, p, n, mp, j, ic] = await Promise.all([
+      const [m, c, t, r, a, p, n, mp, j, ic, pc, pe] = await Promise.all([
         request('memories'), request('memory-candidates'), request('tasks'),
         request('reminder-schedules'), request('approvals'), request('projects'),
         request('notifications'), request('memory-policy'), request('jobs'), request('integrations'),
+        request<{ tools: PluginCapability[] }>('plugins'),
+        request<{ executions: PluginExecution[] }>('plugins/executions?limit=12'),
       ]);
       startTransition(() => {
         setMemories(m.items);
@@ -337,6 +342,8 @@ export default function LifePanel({ onClose }: { onClose: () => void }) {
         setJobs(j.items);
         setConnections(ic.connections ?? []);
         setConnectionConfigured(ic.configured === true);
+        setPluginCapabilities(pc.tools ?? []);
+        setPluginExecutions(pe.executions ?? []);
         setError('');
         setLoading(false);
       });
@@ -748,6 +755,38 @@ export default function LifePanel({ onClose }: { onClose: () => void }) {
           </section>}
 
           {section === 'connections' && <section className="life-card">
+            <SectionHeading icon={CalendarDays} title="Integrations and plugins" count={pluginCapabilities.length} />
+            <p className="mb-4 text-sm text-fg-muted">This catalogue comes from the backend tool registry. A connected status confirms saved account permissions; provider health is checked when an operation runs.</p>
+            <ul className="mb-6 grid gap-3 sm:grid-cols-2">
+              {pluginCapabilities.map((capability) => {
+                const statusLabel: Record<PluginCapability['status'], string> = {
+                  available: 'Available', connected: 'Connected', requires_setup: 'Needs server setup',
+                  requires_connection: 'Connect account', permission_required: 'Permission needed',
+                  disabled: 'Disabled', unavailable: 'Unavailable', degraded: 'Degraded',
+                };
+                return <li key={capability.id} className="min-w-0 rounded-lg border border-border bg-bg p-3">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <h3 className="font-medium">{capability.display_name}</h3>
+                    <span className="rounded-full border border-border px-2 py-0.5 text-xs" role="status">{statusLabel[capability.status]}</span>
+                  </div>
+                  <p className="mt-1 text-sm text-fg-secondary">{capability.description}</p>
+                  <p className="mt-2 text-xs capitalize text-fg-muted">{capability.category} · {capability.provider} · {capability.read_only ? 'read only' : 'write'}{capability.approval_required ? ' · approval required' : ''}</p>
+                  <p className="mt-2 text-xs text-fg-muted">Operations: {capability.operations.join(', ')}</p>
+                  {capability.permission_labels.length > 0 && <p className="mt-1 text-xs text-fg-muted">Required permissions: {capability.permission_labels.join(', ')}</p>}
+                  <p className="mt-2 text-xs text-fg-muted">{capability.configuration_guidance}</p>
+                </li>;
+              })}
+            </ul>
+            <section className="mb-6 rounded-lg border border-border bg-bg p-3">
+              <h3 className="font-medium">Recent tool activity</h3>
+              <p className="mt-1 text-xs text-fg-muted">Private inputs and provider responses are excluded from this activity list.</p>
+              {pluginExecutions.length ? <ul className="mt-2 divide-y divide-border">
+                {pluginExecutions.map((execution, index) => <li key={execution.id ?? `${execution.tool_id}-${index}`} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
+                  <span>{execution.display_name} <span className="text-xs text-fg-muted">· {execution.provider}</span></span>
+                  <span className="text-xs capitalize text-fg-muted">{execution.status} · {execution.duration_ms ?? '—'} ms · {timestamp(execution.started_at)}</span>
+                </li>)}
+              </ul> : <p className="mt-2 text-sm text-fg-muted">No recorded tool activity yet.</p>}
+            </section>
             <SectionHeading icon={CalendarDays} title="Google account connections" count={connections.length} />
             <p className="mb-4 text-sm text-fg-muted">Choose only the capabilities you want Life Sandbox to use. Credentials stay on the backend and are encrypted at rest.</p>
             {!connectionConfigured && <p className="mb-3 text-sm text-fg-muted">Google OAuth is not configured on this server.</p>}

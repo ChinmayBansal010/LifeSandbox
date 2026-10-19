@@ -38,6 +38,22 @@ def test_simulation_endpoint_returns_deterministic_result():
         assert response.json()["scenarios"][0]["ending_balance"] == "1200"
 
 
+def test_plugin_catalogue_is_registry_backed_and_reports_setup_truthfully():
+    with TestClient(app) as client:
+        response = client.get("/api/v1/plugins")
+    assert response.status_code == 200
+    tools = {item["id"]: item for item in response.json()["tools"]}
+    assert "gmail.search_messages" in tools
+    assert tools["gmail.search_messages"]["status"] == "requires_setup"
+    assert tools["gmail.search_messages"]["provider"] == "google"
+    assert "gmail.readonly" in tools["gmail.search_messages"]["permission_requirements"][0]
+    assert {item["status"] for item in tools.values()} <= {
+        "available", "connected", "requires_setup", "requires_connection",
+        "permission_required", "disabled", "unavailable", "degraded",
+    }
+    assert all("token" not in key.lower() for item in tools.values() for key in item)
+
+
 def test_chat_reports_provider_errors_as_gateway_errors(monkeypatch):
     async def fail_with_rate_limit(_state):
         raise LLMError("openrouter returned HTTP 429", provider="openrouter", status_code=429)

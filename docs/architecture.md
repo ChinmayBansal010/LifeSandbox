@@ -36,3 +36,10 @@ The follow-through layer persists memory policies, approved local memories, revi
 Tool definitions live in `app/tools`; the catalog provides model-visible schemas and the conversation executor validates registered names and arguments before dispatch. Research and Google tools share this execution path. Google OAuth state is random, stored as a hash, expires after ten minutes, and is consumed before code exchange. Tokens are encrypted before persistence.
 
 Gmail draft sending is now available only as an approval proposal when the user granted the separate `gmail.send` scope. The action executor verifies the draft snapshot again after approval, records the provider message ID on success, and marks ambiguous network outcomes `uncertain` without retrying. Calendar writes remain unavailable.
+# Capability catalogue and execution
+
+Model-callable operations are registered in `app/tools/registry.py`, with built-ins declared in `app/tools/catalog.py`. The same definitions provide model function schemas and sanitized UI metadata from `GET /api/v1/plugins`. The catalogue is owner-aware for Google connection scopes but deliberately does not represent configuration or connection state as proof of provider health.
+
+The conversation graph selects relevant tools using the current request, filters out Google tools without the owner's granted scopes, validates model arguments, and dispatches through `execute_tools`. The tool-call loop is limited to two rounds. Google API helpers revalidate the owner-scoped connected account and scopes during execution. Gmail sends use the existing approval record and exact draft snapshot. Tool execution summaries are exposed only to the authenticated owner through `/api/v1/plugins/executions`.
+
+Provider-specific execution branches remain in the graph today; the registry does not by itself make a tool executable. Async provider and follow-through operations run under their registered timeout and are cancelled on expiry; synchronous local arithmetic is bounded by its input validation. Generic adapter lifecycle and live provider health checks remain future work. See [plugin-audit.md](plugin-audit.md).

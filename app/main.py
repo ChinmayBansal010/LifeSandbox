@@ -1,7 +1,9 @@
 import importlib.util
+import json
 import logging
 import uuid
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from functools import lru_cache
 
 import sentry_sdk
@@ -12,6 +14,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.auth import router as auth_router
 from app.api.life import router as life_router
 from app.api.memory import router as memory_router
 from app.api.workflow import router as workflow_router
@@ -25,7 +28,9 @@ from app.persistence.models import (
     FeedbackRow,
     FileChunkRow,
     FileRow,
+    IntegrationConnectionRow,
     MessageRow,
+    PromptTraceRow,
 )
 from app.persistence.session import engine, get_session
 from app.providers.browser_use import is_configured as browser_use_is_configured
@@ -33,6 +38,8 @@ from app.providers.llm import LLMError
 from app.providers.mem0 import is_configured as mem0_is_configured
 from app.services.chat import run_chat
 from app.services.tool_tracker import clear_traces, get_stats, get_trace_by_id, get_traces
+from app.tools import catalog as _tool_catalog  # noqa: F401 - registers built-in capabilities
+from app.tools.registry import CapabilityStatus, registry
 
 settings = get_settings()
 
@@ -75,6 +82,7 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="Life Sandbox API", version="0.1.0", lifespan=lifespan)
 app.include_router(life_router)
+app.include_router(auth_router)
 app.include_router(memory_router)
 app.include_router(workflow_router)
 app.include_router(integrations_router)
@@ -172,6 +180,110 @@ async def capabilities():
         "file_upload_enabled": True,
         "image_understanding_enabled": image_available,
     }
+
+
+def _google_oauth_configured() -> bool:
+    return bool(
+        settings.google_oauth_client_id
+        and settings.google_oauth_client_secret
+        and settings.google_oauth_callback_url
+        and settings.google_token_encryption_key
+    )
+
+
+@app.get("/api/v1/plugins")
+async def plugin_catalogue(
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(get_session),
+):
+    """Return registry-backed, sanitized tool metadata and owner-specific connection state."""
+    rows = (
+        await db.scalars(
+            select(IntegrationConnectionRow).where(
+                IntegrationConnectionRow.user_id == principal.user_id,
+                IntegrationConnectionRow.provider == "google",
+                IntegrationConnectionRow.status == "connected",
+            )
+        )
+    ).all()
+    connection_scopes = [set(json.loads(row.scopes)) for row in rows]
+    google_configured = _google_oauth_configured()
+    tools = []
+    for definition in registry.definitions():
+        status: CapabilityStatus = "available"
+        setup = "Ready to use in chat."
+        if definition.provider_id == "google":
+            if not google_configured:
+                status = "requires_setup"
+                setup = "A server administrator must configure Google OAuth and token encryption."
+            elif not rows:
+                status = "requires_connection"
+                setup = "Connect a Google account and select the permissions shown here."
+            elif not any(
+                set(definition.required_permissions).issubset(scopes)
+                for scopes in connection_scopes
+            ):
+                status = "permission_required"
+                setup = "Reconnect Google and grant the required permission for this operation."
+            else:
+                status = "connected"
+                setup = "A connected Google account has the required permission."
+        elif definition.provider_id == "research":
+            if settings.research_provider == "disabled":
+                status = "disabled"
+                setup = (
+                    "Set RESEARCH_PROVIDER=tavily and configure TAVILY_API_KEY "
+                    "to enable live search."
+                )
+            else:
+                status = "available"
+                setup = (
+                    "Live research is configured; provider health is checked when a search runs."
+                )
+        tools.append(definition.public_description(status, setup))
+    return {"tools": tools, "refreshed_at": datetime.now(UTC)}
+
+
+@app.get("/api/v1/plugins/executions")
+async def plugin_executions(
+    limit: int = 30,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(get_session),
+):
+    """Return safe tool execution summaries from this owner's persisted chat traces."""
+    limit = max(1, min(limit, 100))
+    rows = (
+        await db.scalars(
+            select(PromptTraceRow)
+            .where(PromptTraceRow.user_id == principal.user_id)
+            .order_by(PromptTraceRow.started_at.desc())
+            .limit(limit)
+        )
+    ).all()
+    executions = []
+    for row in rows:
+        try:
+            events = json.loads(row.tools_accessed or "[]")
+        except (TypeError, json.JSONDecodeError):
+            events = []
+        for event in events:
+            name = event.get("tool_name")
+            if not isinstance(name, str) or name in {"llm_completion", "intent_classifier"}:
+                continue
+            definition = registry.get(name)
+            executions.append(
+                {
+                    "id": event.get("id"),
+                    "tool_id": name,
+                    "display_name": definition.display_name if definition else name,
+                    "provider": definition.provider_id if definition else "unknown",
+                    "status": event.get("status", "unknown"),
+                    "started_at": event.get("started_at"),
+                    "completed_at": event.get("completed_at"),
+                    "duration_ms": event.get("duration_ms"),
+                }
+            )
+    return {"executions": executions[:limit]}
 
 
 @app.get("/api/v1/skills")

@@ -7,7 +7,7 @@ DECISION_TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "compare_allocations",
+            "name": "analysis.compare_allocations",
             "description": (
                 "Add up numeric allocations for each option and report whether each meets "
                 "the available-time limit. Use when a decision compares plans with numeric "
@@ -65,7 +65,7 @@ class CompareAllocations(BaseModel):
 
 
 def execute_decision_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-    if name != "compare_allocations":
+    if name not in {"analysis.compare_allocations", "compare_allocations"}:
         raise ValueError(f"Unsupported tool: {name}")
     request = CompareAllocations.model_validate(arguments)
     results = []

@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     google_oauth_client_id: str | None = None
     google_oauth_client_secret: str | None = None
     google_oauth_callback_url: str | None = None
+    google_auth_callback_url: str | None = None
+    google_auth_frontend_url: str = "http://localhost:5173"
     google_token_encryption_key: str | None = None
     google_oauth_redirect_uri: str | None = None
     aws_access_key_id: str | None = None

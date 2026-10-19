@@ -26,8 +26,32 @@ export default function ProfileMenu({
   compact = false,
 }: ProfileMenuProps) {
   const [isOpen, setIsOpen] = useState(false);
-  const [authNotice, setAuthNotice] = useState('');
+  const [authNotice, setAuthNotice] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    const result = new URLSearchParams(window.location.search).get('auth');
+    return result === 'success' ? 'Google sign-in complete.' : result === 'denied' ? 'Google sign-in was cancelled.' : '';
+  });
+  const [account, setAccount] = useState<{ name: string | null; email: string | null; authenticated: boolean } | null>(null);
+  const [googleConfigured, setGoogleConfigured] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const authResult = params.get('auth');
+    if (authResult) {
+      params.delete('auth');
+      const query = params.toString();
+      window.history.replaceState({}, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
+    }
+    void fetch('/api/v1/auth/me', { credentials: 'include' })
+      .then(async (response) => response.ok ? response.json() : null)
+      .then((value) => setAccount(value))
+      .catch(() => setAccount(null));
+    void fetch('/api/v1/auth/google/status')
+      .then(async (response) => response.ok ? response.json() : null)
+      .then((value) => setGoogleConfigured(value?.configured === true))
+      .catch(() => setGoogleConfigured(false));
+  }, []);
 
   // Close when clicking outside or pressing Escape
   useEffect(() => {
@@ -51,10 +75,19 @@ export default function ProfileMenu({
     };
   }, [isOpen]);
 
-  const handleGoogleSignInPlaceholder = () => {
-    setAuthNotice('Google OAuth placeholder — backend uses dev session');
-    setTimeout(() => setAuthNotice(''), 3500);
+  const handleGoogleSignIn = () => window.location.assign('/api/v1/auth/google/start');
+
+  const handleSignOut = async () => {
+    try {
+      await fetch('/api/v1/auth/logout', { method: 'POST', credentials: 'include' });
+      setAccount(null);
+      setAuthNotice('Signed out.');
+    } catch {
+      setAuthNotice('Could not complete sign-out. Try again.');
+    }
   };
+
+  const displayName = account?.name || (account?.authenticated ? 'Google user' : 'Guest User');
 
   return (
     <div className="relative" ref={menuRef}>
@@ -75,8 +108,8 @@ export default function ProfileMenu({
           </div>
           {!compact && (
             <div className="text-left min-w-0 flex-1 truncate">
-              <span className="block text-xs font-semibold text-fg truncate leading-tight">
-                Guest User
+                <span className="block text-xs font-semibold text-fg truncate leading-tight">
+                {displayName}
               </span>
               <span className="block text-[10px] text-fg-muted truncate leading-tight">
                 Free plan · Local dev
@@ -101,16 +134,16 @@ export default function ProfileMenu({
                 <User size={18} />
               </div>
               <div className="min-w-0 flex-1">
-                <div className="font-semibold text-sm text-fg truncate">Guest User</div>
-                <div className="text-[11px] text-fg-muted truncate">guest@lifesandbox.local</div>
+                <div className="font-semibold text-sm text-fg truncate">{displayName}</div>
+                <div className="text-[11px] text-fg-muted truncate">{account?.email ?? 'Local development session'}</div>
               </div>
             </div>
 
-            {/* Google Sign-in placeholder */}
             <button
               type="button"
-              onClick={handleGoogleSignInPlaceholder}
-              className="w-full flex items-center justify-center gap-2 py-1.5 px-3 rounded-lg border border-border bg-bg-secondary hover:bg-surface-hover text-fg font-medium transition-colors text-[11px] mt-1 shadow-2xs"
+              disabled={!googleConfigured}
+              onClick={handleGoogleSignIn}
+              className="w-full flex items-center justify-center gap-2 py-1.5 px-3 rounded-lg border border-border bg-bg-secondary hover:bg-surface-hover text-fg font-medium transition-colors text-[11px] mt-1 shadow-2xs disabled:cursor-not-allowed disabled:opacity-50"
             >
               <svg className="w-3.5 h-3.5 shrink-0" viewBox="0 0 24 24">
                 <path
@@ -130,10 +163,12 @@ export default function ProfileMenu({
                   d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
                 />
               </svg>
-              <span>Sign in with Google (Placeholder)</span>
+              <span>{account?.authenticated ? 'Switch Google account' : 'Sign in with Google'}</span>
             </button>
+            {!googleConfigured && <p className="mt-1 text-center text-[10px] text-fg-muted">Google sign-in needs server OAuth setup.</p>}
+            {account?.authenticated && <button type="button" role="menuitem" onClick={() => void handleSignOut()} className="mt-1 w-full rounded-lg px-3 py-1.5 text-left text-[11px] text-fg-secondary hover:bg-surface-hover">Sign out</button>}
             {authNotice && (
-              <p className="text-[10px] text-accent mt-1 text-center font-medium animate-fade-in">
+              <p role="status" className="text-[10px] text-accent mt-1 text-center font-medium animate-fade-in">
                 {authNotice}
               </p>
             )}

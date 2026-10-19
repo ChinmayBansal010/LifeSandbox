@@ -26,3 +26,4 @@ erDiagram
 ```
 
 Apply migrations using `uv run alembic upgrade head`. Fresh SQLite migrations were exercised; PostgreSQL worker concurrency was exercised against an isolated test database. Development startup creates missing tables as a convenience, but it does not alter existing schemas. Run the persistent reminder worker with `docker compose up -d worker` or `uv run python -m app.jobs.worker` for a native backend. Due jobs create one persistent in-app notification each; there is no email, push, or mobile delivery. SQLite is suitable for local single-process use; PostgreSQL is recommended for multiple workers. No embedding vectors are stored in the database.
+Migration `0008_google_login` adds a short-lived, one-time state table for Google OpenID Connect sign-in. It stores hashed state keys, nonce and PKCE verifier until consumption/expiry; it does not store Google identity tokens or session cookies. Existing application data is unchanged.

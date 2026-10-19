@@ -14,7 +14,7 @@ for tool in FOLLOWTHROUGH_TOOLS:
         fn["description"],
         fn["parameters"],
         "followthrough",
-        read_only=name.startswith("list_"),
+        read_only=name.startswith("followthrough.list_"),
     )
 
 register_tool(

@@ -154,6 +154,7 @@ async def execute_followthrough_tool(
     name: str,
     arguments: dict,
 ):
+    name = name.removeprefix("followthrough.")
     if name == "list_tasks":
         query = select(TaskRow).where(TaskRow.user_id == user_id)
         if arguments.get("status"):

@@ -94,3 +94,43 @@ export type AdminStats = {
   avg_duration_ms: number;
   tool_breakdown: Record<string, number>;
 };
+
+export type CapabilityStatus =
+  | 'available'
+  | 'connected'
+  | 'requires_setup'
+  | 'requires_connection'
+  | 'permission_required'
+  | 'disabled'
+  | 'unavailable'
+  | 'degraded';
+
+export type PluginCapability = {
+  id: string;
+  display_name: string;
+  description: string;
+  category: string;
+  provider: string;
+  version: string;
+  status: CapabilityStatus;
+  operations: string[];
+  permission_requirements: string[];
+  permission_labels: string[];
+  connection_required: string | null;
+  configuration_guidance: string;
+  read_only: boolean;
+  risk: 'low' | 'medium' | 'high';
+  approval_required: boolean;
+  returns_external_urls: boolean;
+};
+
+export type PluginExecution = {
+  id: string | null;
+  tool_id: string;
+  display_name: string;
+  provider: string;
+  status: string;
+  started_at: string | null;
+  completed_at: string | null;
+  duration_ms: number | null;
+};
