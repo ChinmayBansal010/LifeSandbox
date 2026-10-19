@@ -40,4 +40,3 @@ venv = ".venv"
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
-

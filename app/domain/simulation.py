@@ -8,7 +8,7 @@ class Change(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     amount: Decimal
     frequency: Literal["one_time", "monthly"] = "one_time"
-    month: int = Field(default=1, ge=1)
+    month: int = Field(default=1, ge=1, le=120)
 
     @field_validator("name")
     @classmethod
@@ -33,12 +33,12 @@ class Scenario(BaseModel):
 
 
 class SimulationRequest(BaseModel):
-    starting_savings: Decimal = Field(ge=0)
-    monthly_income: Decimal = Field(ge=0)
-    monthly_expenses: Decimal = Field(ge=0)
+    starting_savings: Decimal = Field(ge=0, le=Decimal("1000000000000"))
+    monthly_income: Decimal = Field(ge=0, le=Decimal("1000000000"))
+    monthly_expenses: Decimal = Field(ge=0, le=Decimal("1000000000"))
     months: int = Field(default=12, ge=1, le=120)
     scenarios: list[Scenario] = Field(min_length=1, max_length=20)
-    minimum_balance: Decimal = Decimal("0")
+    minimum_balance: Decimal = Field(default=Decimal("0"), le=Decimal("1000000000000"))
 
     @model_validator(mode="after")
     def names_unique(self):

@@ -1,35 +1,89 @@
 name: CI
-on: [push, pull_request]
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  checks:
+  backend:
+    name: Backend quality gates
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-      - uses: actions/setup-python@v5
+          cache-dependency-glob: uv.lock
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - run: uv sync --locked
-      - run: uv run ruff check .
-      - run: uv run pyright
-      - run: uv run pytest
-      - run: docker build -t life-sandbox-backend .
+      - name: Install locked dependencies
+        run: uv sync --locked
+      - name: Lint application and new validation checks
+        run: uv run ruff check app scripts/check_repo_hygiene.py scripts/validate_compose.py tests/test_config_validation.py tests/test_config_bounds.py tests/test_api_validation.py tests/test_simulation_validation.py tests/test_simulation_properties.py tests/test_compose_validation.py
+      - name: Run full backend test suite
+        run: uv run pytest -ra
+      - name: Check tracked-file hygiene
+        run: python scripts/check_repo_hygiene.py
+      - name: Validate Docker Compose topology
+        run: uv run python scripts/validate_compose.py
 
   frontend:
-    name: Frontend build and lint
+    name: Frontend quality gates
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: "22.12"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
-      - run: npm ci
-        working-directory: frontend
-      - run: npm run build
-        working-directory: frontend
-      - run: npm run lint
-        working-directory: frontend
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Lint frontend
+        run: npm run lint
+      - name: Build frontend
+        run: npm run build
+      - name: Check dependency vulnerabilities
+        run: npm audit --omit=dev --audit-level=high
+
+  container:
+    name: Container build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Build backend image
+        run: docker build --pull --tag life-sandbox-backend:ci .
+
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Review dependency changes
+        uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: high
