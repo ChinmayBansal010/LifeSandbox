@@ -17,3 +17,26 @@ def test_change_month_must_be_positive():
 def test_negative_starting_savings_is_rejected():
     with pytest.raises(ValidationError):
         SimulationRequest(starting_savings=-1, monthly_income=0, monthly_expenses=0, scenarios=[{"name":"base"}])
+
+def test_one_time_change_outside_projection_is_rejected():
+    with pytest.raises(ValidationError, match="outside"):
+        SimulationRequest(
+            starting_savings=0,
+            monthly_income=0,
+            monthly_expenses=0,
+            months=2,
+            scenarios=[{"name":"base","changes":[{"name":"future cost","amount":-10,"month":3}]}],
+        )
+
+def test_whitespace_only_change_name_is_rejected():
+    with pytest.raises(ValidationError, match="blank"):
+        Change(name="   ", amount=-10)
+
+def test_scenario_name_is_trimmed():
+    request = SimulationRequest(
+        starting_savings=0,
+        monthly_income=0,
+        monthly_expenses=0,
+        scenarios=[{"name":"  baseline  "}],
+    )
+    assert request.scenarios[0].name == "baseline"
