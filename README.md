@@ -121,6 +121,6 @@ Speech providers are opt-in and are installed outside the locked base environmen
 
 ## Architecture and operations
 
-See [architecture](docs/architecture.md), [database](docs/database.md), [agents](docs/agents.md), [RAG and memory](docs/rag-and-memory.md), [providers](docs/providers.md), [evaluation](docs/evaluation.md), [security](docs/security.md), and [deployment](docs/deployment.md). Configuration inventory is in `.env.example`.
+See [architecture](docs/architecture.md), [database](docs/database.md), [agents](docs/agents.md), [RAG and memory](docs/rag-and-memory.md), [providers](docs/providers.md), [evaluation](docs/evaluation.md), [security](docs/security.md), [deployment](docs/deployment.md), [workflow reliability](docs/WORKFLOW_RELIABILITY.md), [tool security](docs/TOOL_SECURITY_MODEL.md), [rate limiting](docs/RATE_LIMITING.md), [frontend persistence](docs/FRONTEND_PERSISTENCE.md), and [local testing](docs/LOCAL_TESTING.md). Configuration inventory is in `.env.example`.
 
 If a user explicitly asks to send a draft and grants the separate Gmail send scope, chat creates a pending approval that shows the exact recipients, subject, and body. The user must approve and execute it in the Approvals tab. Uncertain provider outcomes are not retried automatically. Calendar event writes remain unavailable.

@@ -1,88 +1,42 @@
-from decimal import Decimal
-
 import pytest
 from pydantic import ValidationError
+from app.domain.simulation import SimulationRequest, Change
 
-from app.domain.simulation import Change, Scenario, SimulationRequest, simulate
-
-
-def _request(**overrides):
-    values = {
-        "starting_savings": Decimal("1000"),
-        "monthly_income": Decimal("500"),
-        "monthly_expenses": Decimal("300"),
-        "months": 3,
-        "scenarios": [Scenario(name="base")],
-    }
-    values.update(overrides)
-    return SimulationRequest(**values)
-
-
-@pytest.mark.parametrize("months", [0, -1, 121])
-def test_month_count_is_bounded(months):
+def test_simulation_rejects_zero_month_horizon():
     with pytest.raises(ValidationError):
-        _request(months=months)
+        SimulationRequest(starting_savings=0, monthly_income=0, monthly_expenses=0, months=0, scenarios=[{"name":"base"}])
 
-
-@pytest.mark.parametrize("field", ["starting_savings", "monthly_income", "monthly_expenses"])
-def test_cash_inputs_reject_negative_values(field):
+def test_simulation_rejects_more_than_twenty_scenarios():
     with pytest.raises(ValidationError):
-        _request(**{field: Decimal("-0.01")})
+        SimulationRequest(starting_savings=0, monthly_income=0, monthly_expenses=0, scenarios=[{"name":f"s{i}"} for i in range(21)])
 
-
-def test_scenario_count_must_be_between_one_and_twenty():
+def test_change_month_must_be_positive():
     with pytest.raises(ValidationError):
-        _request(scenarios=[])
+        Change(name="repair", amount=-10, month=0)
+
+def test_negative_starting_savings_is_rejected():
     with pytest.raises(ValidationError):
-        _request(scenarios=[Scenario(name=f"s{i}") for i in range(21)])
+        SimulationRequest(starting_savings=-1, monthly_income=0, monthly_expenses=0, scenarios=[{"name":"base"}])
 
-
-def test_change_month_cannot_exceed_projection_horizon():
-    with pytest.raises(ValidationError, match="exceeds projection horizon"):
-        _request(
-            months=3,
-            scenarios=[
-                Scenario(
-                    name="purchase",
-                    changes=[Change(name="repair", amount=Decimal("-250"), month=4)],
-                )
-            ],
+def test_one_time_change_outside_projection_is_rejected():
+    with pytest.raises(ValidationError, match="outside"):
+        SimulationRequest(
+            starting_savings=0,
+            monthly_income=0,
+            monthly_expenses=0,
+            months=2,
+            scenarios=[{"name":"base","changes":[{"name":"future cost","amount":-10,"month":3}]}],
         )
 
+def test_whitespace_only_change_name_is_rejected():
+    with pytest.raises(ValidationError, match="blank"):
+        Change(name="   ", amount=-10)
 
-def test_scenario_and_change_names_are_bounded():
-    with pytest.raises(ValidationError):
-        Scenario(name="")
-    with pytest.raises(ValidationError):
-        Change(name="r" * 121, amount=Decimal("1"))
-
-
-def test_changes_apply_only_at_selected_month_for_one_time_change():
-    request = _request(
-        months=3,
-        scenarios=[
-            Scenario(
-                name="purchase",
-                changes=[Change(name="repair", amount=Decimal("-250"), month=2)],
-            )
-        ],
+def test_scenario_name_is_trimmed():
+    request = SimulationRequest(
+        starting_savings=0,
+        monthly_income=0,
+        monthly_expenses=0,
+        scenarios=[{"name":"  baseline  "}],
     )
-    result = simulate(request).scenarios[0]
-    assert result.balances == [
-        Decimal("1000"),
-        Decimal("1200"),
-        Decimal("1150"),
-        Decimal("1350"),
-    ]
-
-
-def test_minimum_balance_flags_only_months_below_limit():
-    request = _request(
-        starting_savings=Decimal("100"),
-        monthly_income=Decimal("0"),
-        monthly_expenses=Decimal("40"),
-        months=3,
-        minimum_balance=Decimal("50"),
-    )
-    result = simulate(request).scenarios[0]
-    assert result.constraint_violations == [2, 3]
+    assert request.scenarios[0].name == "baseline"

@@ -63,6 +63,22 @@ class ToolDefinition:
                 raise ValueError(f"Argument '{key}' has an invalid type")
             if "enum" in spec and item not in spec["enum"]:
                 raise ValueError(f"Argument '{key}' has an invalid value")
+            if isinstance(item, str):
+                if "minLength" in spec and len(item) < spec["minLength"]:
+                    raise ValueError(f"Argument '{key}' is too short")
+                if "maxLength" in spec and len(item) > spec["maxLength"]:
+                    raise ValueError(f"Argument '{key}' is too long")
+            if isinstance(item, (int, float)) and not isinstance(item, bool):
+                if "minimum" in spec and item < spec["minimum"]:
+                    raise ValueError(f"Argument '{key}' is below its minimum")
+                if "maximum" in spec and item > spec["maximum"]:
+                    raise ValueError(f"Argument '{key}' exceeds its maximum")
+            if isinstance(item, list):
+                if "minItems" in spec and len(item) < spec["minItems"]:
+                    raise ValueError(f"Argument '{key}' has too few items")
+                if "maxItems" in spec and len(item) > spec["maxItems"]:
+                    raise ValueError(f"Argument '{key}' has too many items")
+
         return value
 
 

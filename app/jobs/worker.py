@@ -21,6 +21,8 @@ def next_occurrence(scheduled_at: datetime, timezone: str, recurrence: str) -> d
 
 async def run_due_once(now: datetime | None = None, limit: int = 25) -> int:
     """Claim due reminders, recover expired worker leases, and persist delivery once."""
+    if not 1 <= limit <= 100:
+        raise ValueError("limit must be between 1 and 100")
     now = now or datetime.now(UTC)
     stale_before = now - timedelta(seconds=LEASE_SECONDS)
     processed = 0
