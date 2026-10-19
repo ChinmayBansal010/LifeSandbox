@@ -56,7 +56,11 @@ def main() -> int:
             if pattern.search(content):
                 failures.append(f"{relative}: possible {label} detected")
     if failures:
-        print("\n".join(failures), file=sys.stderr)
+        print(
+            f"Repository hygiene failed: {len(failures)} issue(s) detected. "
+            "Detailed findings are intentionally redacted from logs.",
+            file=sys.stderr,
+        )
         return 1
     print(f"Repository hygiene passed for {sum(bool(item) for item in TRACKED)} tracked paths.")
     return 0
