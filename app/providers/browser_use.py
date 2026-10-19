@@ -75,7 +75,7 @@ async def research_with_browser(query: str) -> dict[str, str]:
     os.environ.setdefault("BROWSER_USE_CLOUD_SYNC", "false")
     os.environ.setdefault("BROWSER_USE_DISABLE_EXTENSIONS", "1")
 
-    from browser_use import Browser as Browser
+    from browser_use import Browser
 
     with tempfile.TemporaryDirectory(prefix="life-sandbox-browser-") as profile_dir:
         browser = Browser(
