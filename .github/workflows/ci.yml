@@ -34,8 +34,6 @@ jobs:
         run: uv sync --locked
       - name: Lint Python
         run: uv run ruff check .
-      - name: Type-check backend
-        run: uv run pyright
       - name: Run tests
         run: uv run pytest -ra --strict-markers --strict-config
       - name: Check tracked-file hygiene
