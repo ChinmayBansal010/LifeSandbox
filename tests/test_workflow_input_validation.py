@@ -17,3 +17,7 @@ def test_reminder_normalizes_timestamp_to_utc():
 def test_reminder_rejects_unknown_recurrence():
     with pytest.raises(ValidationError):
         ReminderSchedule(text="Review project",scheduled_at="2026-10-20T12:00:00Z",recurrence="hourly")
+
+def test_task_description_has_a_reasonable_payload_limit():
+    with pytest.raises(ValidationError):
+        TaskAction(title="Prepare report", description="x" * 5001)
