@@ -16,8 +16,8 @@ from app.api.life import router as life_router
 from app.api.memory import router as memory_router
 from app.api.workflow import router as workflow_router
 from app.core.config import get_settings
-from app.core.security import Principal, current_principal
 from app.core.rate_limit import SlidingWindowRateLimiter
+from app.core.security import Principal, current_principal
 from app.domain.simulation import SimulationRequest, simulate
 from app.integrations.google import router as integrations_router
 from app.persistence.models import (
@@ -36,6 +36,7 @@ from app.services.chat import run_chat
 from app.services.tool_tracker import clear_traces, get_stats, get_trace_by_id, get_traces
 
 settings = get_settings()
+_rate_limiter = SlidingWindowRateLimiter(settings.rate_limit_per_minute)
 
 
 @lru_cache(maxsize=1)
