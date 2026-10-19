@@ -19,8 +19,8 @@ from app.api.life import router as life_router
 from app.api.memory import router as memory_router
 from app.api.workflow import router as workflow_router
 from app.core.config import get_settings
-from app.core.security import Principal, current_principal
 from app.core.rate_limit import SlidingWindowRateLimiter
+from app.core.security import Principal, current_principal
 from app.domain.simulation import SimulationRequest, simulate
 from app.integrations.google import router as integrations_router
 from app.persistence.models import (
@@ -82,6 +82,7 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="Life Sandbox API", version="0.1.0", lifespan=lifespan)
+_rate_limiter = SlidingWindowRateLimiter(limit=settings.rate_limit_per_minute)
 app.include_router(life_router)
 app.include_router(auth_router)
 app.include_router(memory_router)

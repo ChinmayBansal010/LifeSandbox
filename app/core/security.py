@@ -41,18 +41,14 @@ async def current_principal(
         )
         if datetime.fromtimestamp(claims["exp"], UTC) <= datetime.now(UTC):
             raise ValueError("expired")
-<<<<<<< HEAD
-        return Principal(
-            user_id=str(claims["sub"]),
-            email=claims.get("email"),
-            name=claims.get("name"),
-        )
-=======
         subject = claims.get("sub")
         if not isinstance(subject, str) or not subject.strip():
             raise ValueError("subject must be a non-empty string")
-        return Principal(user_id=subject.strip())
->>>>>>> origin/main
+        return Principal(
+            user_id=subject.strip(),
+            email=claims.get("email"),
+            name=claims.get("name"),
+        )
     except Exception as exc:
         raise HTTPException(
             status_code=401, detail={"code": "unauthorized", "message": "Invalid bearer token"}

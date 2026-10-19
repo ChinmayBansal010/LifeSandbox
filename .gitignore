@@ -8,4 +8,8 @@ dist/
 *.py[cod]
 *.db
 /data/uploads/
+node_modules/
+.promptfoo/
+promptfoo-output.*
+evals/reports/
 

@@ -1,0 +1,15 @@
+{
+  "name": "lifesandbox",
+  "version": "0.1.0",
+  "private": true,
+  "description": "LifeSandbox LLM Evaluation and Regression Harness",
+  "scripts": {
+    "eval": "promptfoo eval",
+    "eval:view": "promptfoo view",
+    "eval:ci": "promptfoo eval --no-progress-bar",
+    "eval:compare": "promptfoo eval -c promptfooconfig.yaml"
+  },
+  "devDependencies": {
+    "promptfoo": "^0.124.0"
+  }
+}

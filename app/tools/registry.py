@@ -127,10 +127,9 @@ def _validate_schema(schema: dict[str, Any], value: Any, path: str) -> None:
         if missing:
             raise ValueError(f"Missing argument: {sorted(missing)[0]}")
         extra = set(value) - set(properties)
-        if extra and schema.get("additionalProperties", True) is False:
+        if extra and schema.get("additionalProperties", False) is False:
             raise ValueError(f"Unknown argument: {sorted(extra)[0]}")
         for key, item in value.items():
-<<<<<<< HEAD
             if key in properties:
                 _validate_schema(properties[key], item, f"{path}.{key}")
             elif isinstance(schema.get("additionalProperties"), dict):
@@ -166,50 +165,6 @@ def _check_schema_definition(schema: Any, path: str = "schema") -> None:
         _check_schema_definition(child, f"{path}.properties.{name}")
     if isinstance(schema.get("items"), dict):
         _check_schema_definition(schema["items"], f"{path}.items")
-=======
-            spec = props[key]
-            kind = spec.get("type")
-            kinds = kind if isinstance(kind, list) else [kind]
-            valid = (
-                item is None
-                and "null" in kinds
-                or isinstance(item, str)
-                and "string" in kinds
-                or isinstance(item, bool)
-                and "boolean" in kinds
-                or isinstance(item, (int, float))
-                and not isinstance(item, bool)
-                and "number" in kinds
-                or isinstance(item, int)
-                and not isinstance(item, bool)
-                and "integer" in kinds
-                or isinstance(item, dict)
-                and "object" in kinds
-                or isinstance(item, list)
-                and "array" in kinds
-            )
-            if kinds != [None] and not valid:
-                raise ValueError(f"Argument '{key}' has an invalid type")
-            if "enum" in spec and item not in spec["enum"]:
-                raise ValueError(f"Argument '{key}' has an invalid value")
-            if isinstance(item, str):
-                if "minLength" in spec and len(item) < spec["minLength"]:
-                    raise ValueError(f"Argument '{key}' is too short")
-                if "maxLength" in spec and len(item) > spec["maxLength"]:
-                    raise ValueError(f"Argument '{key}' is too long")
-            if isinstance(item, (int, float)) and not isinstance(item, bool):
-                if "minimum" in spec and item < spec["minimum"]:
-                    raise ValueError(f"Argument '{key}' is below its minimum")
-                if "maximum" in spec and item > spec["maximum"]:
-                    raise ValueError(f"Argument '{key}' exceeds its maximum")
-            if isinstance(item, list):
-                if "minItems" in spec and len(item) < spec["minItems"]:
-                    raise ValueError(f"Argument '{key}' has too few items")
-                if "maxItems" in spec and len(item) > spec["maxItems"]:
-                    raise ValueError(f"Argument '{key}' has too many items")
-
-        return value
->>>>>>> origin/main
 
 
 class ToolRegistry:
