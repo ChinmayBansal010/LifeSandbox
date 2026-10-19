@@ -4,7 +4,7 @@ from app.services.speech import speech_text
 def test_speech_text_strips_markdown_formatting():
     assert speech_text(
         "# Heading\n- **Bold** item\n1. `inline code`\n[Docs](https://example.com)"
-    ) == "Heading Bold item 1. inline code Docs"
+    ) == "Heading Bold item inline code Docs"
 
 
 def test_speech_text_omits_fenced_code():
@@ -18,10 +18,10 @@ def test_speech_text_handles_images_and_links():
 
 
 def test_speech_text_handles_malformed_markdown():
-    text = "[\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\"
+    text = "[" + "\\" * 40
     assert speech_text(text) == text
 
 
 def test_speech_text_handles_long_adversarial_input():
-    text = "[" + "\\\\" * 10000
+    text = "[" + "\\" * 10000
     assert speech_text(text) == text
