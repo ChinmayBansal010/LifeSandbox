@@ -31,6 +31,8 @@ jobs:
         with:
           python-version: "3.13"
           cache: uv
+      - name: Validate dependency lockfile
+        run: uv lock --check
       - name: Install locked dependencies
         run: uv sync --locked
       - name: Lint Python
