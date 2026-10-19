@@ -1,13 +1,20 @@
-import importlib.util
+import runpy
 from pathlib import Path
 
 
-def test_compose_validation_script_imports_and_defines_required_services():
-    script = Path(__file__).parents[1] / "scripts" / "validate_compose.py"
-    spec = importlib.util.spec_from_file_location("validate_compose", script)
-    assert spec is not None and spec.loader is not None
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
+def test_compose_validation_script_runs_successfully():
+    root = Path(__file__).parents[1]
+    script = root / "scripts" / "validate_compose.py"
+    namespace = runpy.run_path(str(script), run_name="compose_validation_test")
+    assert {"db", "migrate", "uploads-init", "api", "worker"} == namespace["REQUIRED_SERVICES"]
 
-    assert {"db", "migrate", "uploads-init", "api", "worker"} == module.REQUIRED_SERVICES
-    assert module.COMPOSE_FILE.exists()
+
+def test_compose_validation_script_passes_for_repository_compose(monkeypatch):
+    import runpy
+    import sys
+
+    root = Path(__file__).parents[1]
+    script = root / "scripts" / "validate_compose.py"
+    monkeypatch.setattr(sys, "argv", [str(script)])
+    namespace = runpy.run_path(str(script), run_name="__main__")
+    assert namespace["COMPOSE_FILE"].is_file()
