@@ -19,19 +19,14 @@ def test_production_requires_jwt_authentication():
 def test_jwt_requires_secret_issuer_and_audience():
     with pytest.raises(ValidationError, match="AUTH_SECRET is required"):
         Settings(_env_file=None, auth_mode="jwt")
-
     with pytest.raises(ValidationError, match="AUTH_ISSUER and AUTH_AUDIENCE are required"):
         Settings(_env_file=None, auth_mode="jwt", auth_secret="test-secret")
 
 
-def test_selected_nebius_provider_requires_key_and_model():
-    with pytest.raises(ValidationError, match="nebius requires its API key and model"):
-        Settings(_env_file=None, llm_provider="nebius")
-
-
-def test_selected_openrouter_provider_requires_key_and_model():
-    with pytest.raises(ValidationError, match="openrouter requires its API key and model"):
-        Settings(_env_file=None, llm_provider="openrouter")
+@pytest.mark.parametrize("provider", ["nebius", "openrouter"])
+def test_selected_model_provider_requires_key_and_model(provider):
+    with pytest.raises(ValidationError, match=f"{provider} requires its API key and model"):
+        Settings(_env_file=None, llm_provider=provider)
 
 
 def test_tavily_research_requires_api_key():
