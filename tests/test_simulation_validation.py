@@ -37,6 +37,26 @@ def test_scenario_count_must_be_between_one_and_twenty():
         _request(scenarios=[Scenario(name=f"s{i}") for i in range(21)])
 
 
+def test_change_month_cannot_exceed_projection_horizon():
+    with pytest.raises(ValidationError, match="exceeds projection horizon"):
+        _request(
+            months=3,
+            scenarios=[
+                Scenario(
+                    name="purchase",
+                    changes=[Change(name="repair", amount=Decimal("-250"), month=4)],
+                )
+            ],
+        )
+
+
+def test_scenario_and_change_names_are_bounded():
+    with pytest.raises(ValidationError):
+        Scenario(name="")
+    with pytest.raises(ValidationError):
+        Change(name="r" * 121, amount=Decimal("1"))
+
+
 def test_changes_apply_only_at_selected_month_for_one_time_change():
     request = _request(
         months=3,
@@ -47,7 +67,6 @@ def test_changes_apply_only_at_selected_month_for_one_time_change():
             )
         ],
     )
-
     result = simulate(request).scenarios[0]
     assert result.balances == [
         Decimal("1000"),
@@ -65,6 +84,5 @@ def test_minimum_balance_flags_only_months_below_limit():
         months=3,
         minimum_balance=Decimal("50"),
     )
-
     result = simulate(request).scenarios[0]
     assert result.constraint_violations == [2, 3]
