@@ -1,19 +1,35 @@
 from decimal import Decimal
 from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class Change(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=120)
     amount: Decimal
     frequency: Literal["one_time", "monthly"] = "one_time"
     month: int = Field(default=1, ge=1)
 
+    @field_validator("name")
+    @classmethod
+    def clean_name(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Change name cannot be blank")
+        return value
+
 
 class Scenario(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=120)
     changes: list[Change] = Field(default_factory=list)
+
+    @field_validator("name")
+    @classmethod
+    def clean_name(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Scenario name cannot be blank")
+        return value
 
 
 class SimulationRequest(BaseModel):
@@ -29,6 +45,12 @@ class SimulationRequest(BaseModel):
         names = [s.name for s in self.scenarios]
         if len(names) != len(set(names)):
             raise ValueError("Scenario names must be unique")
+        for scenario in self.scenarios:
+            for change in scenario.changes:
+                if change.frequency == "one_time" and change.month > self.months:
+                    raise ValueError(
+                        f"One-time change '{change.name}' falls outside the {self.months}-month projection"
+                    )
         return self
 
 
