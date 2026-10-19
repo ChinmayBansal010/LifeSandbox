@@ -42,11 +42,18 @@ def run_pytest_evals() -> int:
     return result.returncode
 
 
+def run_speech_harness() -> int:
+    print("Running Speech (STT/TTS) evaluation harness (scripts/run_speech_harness.py)...")
+    cmd = ["uv", "run", "python", "scripts/run_speech_harness.py", "--suite", "all"]
+    result = subprocess.run(cmd, cwd=ROOT)
+    return result.returncode
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run LLM evaluation and regression harness.")
     parser.add_argument(
         "--suite",
-        choices=["promptfoo", "pytest", "all"],
+        choices=["promptfoo", "pytest", "speech", "all"],
         default="all",
         help="Evaluation suite to execute (default: all)",
     )
@@ -89,8 +96,14 @@ def main() -> int:
             print(f"Pytest evaluation failed with code {pt_code}", file=sys.stderr)
             exit_code = pt_code
 
+    if args.suite in ("speech", "all"):
+        sp_code = run_speech_harness()
+        if sp_code != 0:
+            print(f"Speech harness evaluation failed with code {sp_code}", file=sys.stderr)
+            exit_code = sp_code
+
     if exit_code == 0:
-        print("All LLM evaluation suites passed cleanly without regression.")
+        print("All evaluation suites passed cleanly without regression.")
     return exit_code
 
 

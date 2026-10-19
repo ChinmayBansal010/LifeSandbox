@@ -69,3 +69,28 @@ python scripts/run_evals.py --suite promptfoo --mode nebius
 # With OPENROUTER_API_KEY configured in .env:
 python scripts/run_evals.py --suite promptfoo --mode openrouter
 ```
+
+## Speech-to-Text (STT) & Text-to-Speech (TTS) Harness
+
+LifeSandbox includes an automated audio evaluation and benchmark harness in `evals/speech_harness.py`:
+
+- **Audio Container Verification**: Validates synthetic WAV, WebM, MP3, and Ogg format containers against magic byte signatures.
+- **WAV Audio Inspector**: Validates 24kHz/16kHz sample rates, PCM bit depth, channel configuration, and duration.
+- **WER & CER Benchmark Metrics**: Dynamically scores Word Error Rate (WER) and Character Error Rate (CER) using Levenshtein distance on transcription outputs.
+- **Markdown Text Sanitization**: Tests fenced code block omission, link unwrapping, and header/emphasis stripping before speech synthesis.
+- **Voice Matrix Coverage**: Asserts support for Kokoro voices (`af_heart`, `af_bella`, `am_adam`, `am_michael`).
+- **Boundary & Error Checks**: Evaluates empty audio, oversized payloads (>20MB), duration limits, and invalid language codes.
+
+### Running the Speech Harness
+
+```bash
+# Run standalone STT and TTS benchmarks and export JSON report:
+python scripts/run_speech_harness.py --suite all --output evals/reports/speech_eval.json
+
+# Run via Pytest:
+uv run pytest tests/test_speech_harness.py -v
+
+# Run as part of unified evaluation:
+python scripts/run_evals.py --suite speech
+```
+
