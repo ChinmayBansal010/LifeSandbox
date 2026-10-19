@@ -759,10 +759,15 @@ async def propose_action(
 
 
 def approval_view(row):
+    try:
+        arguments = json.loads(row.arguments)
+    except (TypeError, json.JSONDecodeError):
+        arguments = {}
     return {
         "id": row.id,
         "action": row.action,
         "description": row.description,
+        "arguments": arguments,
         "status": row.status,
         "created_at": row.created_at,
         "decided_at": row.decided_at,

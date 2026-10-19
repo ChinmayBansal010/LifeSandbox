@@ -18,6 +18,7 @@ from app.api.workflow import router as workflow_router
 from app.core.config import get_settings
 from app.core.security import Principal, current_principal
 from app.domain.simulation import SimulationRequest, simulate
+from app.integrations.google import router as integrations_router
 from app.persistence.models import (
     Base,
     ConversationRow,
@@ -76,6 +77,7 @@ app = FastAPI(title="Life Sandbox API", version="0.1.0", lifespan=lifespan)
 app.include_router(life_router)
 app.include_router(memory_router)
 app.include_router(workflow_router)
+app.include_router(integrations_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,

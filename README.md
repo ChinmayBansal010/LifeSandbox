@@ -101,6 +101,10 @@ The Memory & tasks panel manages approved local memories, explicit memory reques
 
 Optional Browser Use research requires the browser extra and Chromium. Follow [providers](docs/providers.md); the documented `uv sync --locked --extra browser` and `uv run browser-use install` commands apply to the native Python setup. Set `BROWSER_USE_ENABLED=true` and restart the backend after changing `.env`.
 
+### Research and Google connections
+
+When Tavily is configured, research requests can use `research.search` directly in chat and return cited sources. Configure Google OAuth with the variables in `.env.example`, enable the Calendar and Gmail APIs in Google Cloud, and register the exact callback URL. Generate `GOOGLE_TOKEN_ENCRYPTION_KEY` with `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`; protect and back it up separately from the database. The Memory & follow-through panel's Connections tab lets each user select and authorize provider scopes. Chat supports Calendar reads/free/busy, Gmail search/thread reads and unsent drafts. If the user grants the separate Gmail send scope, sending is an approval-only action that displays exact contents and checks the draft again before execution. Calendar event writes are not available. Live Google OAuth has not been verified in this environment.
+
 Run backend checks with `uv run ruff check .`, `uv run pyright`, and `uv run pytest`. Run the frontend production build from `frontend` with `npm run build`.
 
 In development, authentication maps to `local-user`. Before deployment, set `APP_ENV=production` and `AUTH_MODE=jwt` with an appropriate secret, issuer, and audience. The current JWT implementation supports HS256 only; configure a trusted identity integration before production.
@@ -118,3 +122,5 @@ Speech providers are opt-in and are installed outside the locked base environmen
 ## Architecture and operations
 
 See [architecture](docs/architecture.md), [database](docs/database.md), [agents](docs/agents.md), [RAG and memory](docs/rag-and-memory.md), [providers](docs/providers.md), [evaluation](docs/evaluation.md), [security](docs/security.md), and [deployment](docs/deployment.md). Configuration inventory is in `.env.example`.
+
+If a user explicitly asks to send a draft and grants the separate Gmail send scope, chat creates a pending approval that shows the exact recipients, subject, and body. The user must approve and execute it in the Approvals tab. Uncertain provider outcomes are not retried automatically. Calendar event writes remain unavailable.

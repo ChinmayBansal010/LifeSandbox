@@ -40,6 +40,11 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 1000
     research_provider: Literal["disabled", "tavily"] = "disabled"
     tavily_api_key: str | None = None
+    google_oauth_client_id: str | None = None
+    google_oauth_client_secret: str | None = None
+    google_oauth_callback_url: str | None = None
+    google_token_encryption_key: str | None = None
+    google_oauth_redirect_uri: str | None = None
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
     aws_region: str = "us-east-2"

@@ -43,3 +43,11 @@ Chat results report `mem0_opt_in`, `mem0_search_status`, `mem0_save_status`, and
 - The Docker image still excludes the optional Browser Use dependency and Chromium; it therefore continues to show Browser Use as unavailable. The host package installation does not alter Docker or tracked dependency files.
 - GitHub search returned zero repositories from this network/browser session, so a successful repository-page citation flow remains unverified.
 - The OpenRouter UI request timed out before Mem0 save confirmation. Mem0 search/save itself passed on the mock-model retry.
+
+## Milestone 2 implementation checks (2026-10-19)
+
+- Added mocked OAuth authorize/callback coverage, one-time state replay rejection, and verification that access/refresh credentials are encrypted before database persistence.
+- Added mocked approval execution coverage for Gmail draft sends, including changed-draft rejection and repeated execution without a second send.
+- Added mocked Calendar free/busy analysis and normal-chat research tool executor coverage.
+- No live Google account or OAuth client was configured, so Calendar and Gmail were not verified against Google's services. The callback, token refresh, and provider request behavior still require manual verification with a configured Google Cloud project.
+- Calendar writes (create/update/cancel) remain unavailable. Gmail send is implemented with an approval snapshot; ambiguous outcomes are marked uncertain and are not retried.

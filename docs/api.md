@@ -24,3 +24,9 @@ All endpoints use JSON except `POST /api/v1/chat/stream`, which emits SSE. Error
 - `POST /api/v1/feedback`; `GET /health`; `GET /ready`.
 
 Simulation money inputs accept JSON numbers/decimal strings and produce Decimal-serialized values. SSE payloads always contain a `run_id`; no hidden prompts or chain-of-thought are exposed.
+
+## Google integrations
+
+`GET /api/v1/integrations` returns the authenticated user's connected Google accounts and granted capabilities. `POST /api/v1/integrations/google/authorize` accepts selected `calendar.read`, `gmail.read`, `gmail.draft`, and/or `gmail.send` capabilities and returns a Google authorization URL. Google redirects to the configured callback; state is one-time and owner-bound. `DELETE /api/v1/integrations/{connection_id}` revokes where possible and removes encrypted credentials. Chat offers Calendar event/freeBusy lookup, bounded Gmail search/thread read, unsent draft creation, and approval-bound draft sending only when the user's persisted connection has the needed scope. Calendar event writes remain unavailable.
+
+When `gmail.send` is selected in the Connections panel, `gmail.send_draft` can only create a pending approval. The approval record contains the exact draft snapshot; `POST /api/v1/approved-actions/{id}/execute` re-reads and hashes the provider draft and requires the same owner connection and scopes before sending. A timeout/ambiguous provider result is marked `uncertain` and is never blindly retried. The approval panel displays recipients, subject, and body before the user approves.

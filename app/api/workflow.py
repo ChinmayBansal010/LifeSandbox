@@ -323,7 +323,7 @@ async def execute_approved_action(
         raise HTTPException(
             409, detail={"code": "payload_changed", "message": "Approved action payload changed"}
         )
-    if approval.status == "executed" and approval.result_resource_id:
+    if approval.status in {"executed", "succeeded"} and approval.result_resource_id:
         return {
             "status": approval.status,
             "resource_type": approval.result_resource_type,
@@ -356,6 +356,118 @@ async def execute_approved_action(
         raise HTTPException(
             409, detail={"code": "approval_expired", "message": "Approval has expired"}
         )
+    if approval.action == "gmail.send_draft":
+        try:
+            arguments = json.loads(serialized)
+            connection_id = arguments["connection_id"]
+            draft_id = arguments["draft_id"]
+            expected_hash = arguments["content_hash"]
+        except (json.JSONDecodeError, KeyError, TypeError) as exc:
+            raise HTTPException(
+                422,
+                detail={"code": "invalid_action", "message": "Approved draft details are invalid"},
+            ) from exc
+        from app.integrations.google_api import (
+            GoogleActionUncertain,
+            read_draft,
+            send_draft,
+        )
+        from app.persistence.models import IntegrationConnectionRow
+
+        connection = await db.scalar(
+            select(IntegrationConnectionRow).where(
+                IntegrationConnectionRow.id == connection_id,
+                IntegrationConnectionRow.user_id == principal.user_id,
+                IntegrationConnectionRow.provider == "google",
+                IntegrationConnectionRow.status == "connected",
+            )
+        )
+        if connection is None:
+            approval.status = "failed"
+            await db.commit()
+            raise HTTPException(
+                409,
+                detail={
+                    "code": "google_reconnect_required",
+                    "message": "Reconnect Gmail before sending this draft.",
+                },
+            )
+        current_draft = await read_draft(db, principal.user_id, connection_id, draft_id)
+        if current_draft.get("content_hash") != expected_hash:
+            approval.status = "failed"
+            await db.commit()
+            raise HTTPException(
+                409,
+                detail={
+                    "code": "approved_payload_changed",
+                    "message": (
+                        "The Gmail draft changed after approval. Review and approve a new proposal."
+                    ),
+                },
+            )
+        claim = await db.execute(
+            update(ApprovalRow)
+            .where(
+                ApprovalRow.id == approval.id,
+                ApprovalRow.user_id == principal.user_id,
+                ApprovalRow.status == "approved",
+            )
+            .values(status="running")
+            .returning(ApprovalRow.id)
+        )
+        if claim.scalar_one_or_none() is None:
+            raise HTTPException(
+                409,
+                detail={
+                    "code": "approval_in_progress",
+                    "message": "Action is already being processed.",
+                },
+            )
+        await db.commit()
+        try:
+            sent = await send_draft(db, principal.user_id, connection_id, draft_id)
+        except GoogleActionUncertain as exc:
+            approval.status = "uncertain"
+            db.add(
+                AuditRow(
+                    user_id=principal.user_id,
+                    action="approval.execute.gmail.send_draft",
+                    resource_id=approval.id,
+                    outcome="uncertain",
+                    correlation_id=request.state.request_id,
+                )
+            )
+            await db.commit()
+            raise HTTPException(
+                504,
+                detail={
+                    "code": "external_action_uncertain",
+                    "message": (
+                        "Google may have accepted this send request. It was not retried. "
+                        "Check the Sent folder before creating another send proposal."
+                    ),
+                },
+            ) from exc
+        except HTTPException:
+            approval.status = "failed"
+            await db.commit()
+            raise
+        approval.status = "succeeded"
+        approval.result_resource_type = "google_message"
+        approval.result_resource_id = sent["message_id"][:36]
+        approval.correlation_id = request.state.request_id
+        approval.decided_at = datetime.now(UTC)
+        db.add(
+            AuditRow(
+                user_id=principal.user_id,
+                action="approval.execute.gmail.send_draft",
+                resource_id=approval.id,
+                outcome="succeeded",
+                correlation_id=request.state.request_id,
+            )
+        )
+        await db.commit()
+        return {**sent, "status": "succeeded", "resource_type": "google_message"}
     if approval.action not in {"task.create", "reminder.create"}:
         raise HTTPException(
             422,

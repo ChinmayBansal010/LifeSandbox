@@ -77,9 +77,13 @@ def detect_skill(text: str) -> tuple[Skill | None, str | None]:
             slash_names.extend(["/time", "/schedule"])
 
         for slash_name in slash_names:
-            if first_token == slash_name or first_token.startswith(slash_name + ":") or first_token.startswith(slash_name + "/"):
+            if (
+                first_token == slash_name
+                or first_token.startswith(slash_name + ":")
+                or first_token.startswith(slash_name + "/")
+            ):
                 return s, "slash_command"
-            if re.search(r'(?:^|\s)' + re.escape(slash_name) + r'(?:\s|$|:)', lowered):
+            if re.search(r"(?:^|\s)" + re.escape(slash_name) + r"(?:\s|$|:)", lowered):
                 return s, "slash_command"
 
     # Context-based keyword detection
@@ -108,4 +112,3 @@ def get_all_skills_data() -> list[dict]:
         }
         for s in SKILLS
     ]
-

@@ -2,7 +2,7 @@ import { startTransition, useCallback, useEffect, useRef, useState, type CSSProp
 import { Archive, Bell, BrainCircuit, CalendarDays, Check, ChevronDown, FolderKanban, ListTodo, Pencil, Play, Plus, RefreshCw, Trash2, X } from 'lucide-react';
 
 type Item = Record<string, any>;
-type Section = 'memories' | 'projects' | 'tasks' | 'reminders' | 'approvals';
+type Section = 'memories' | 'projects' | 'tasks' | 'reminders' | 'approvals' | 'connections';
 
 async function request<T = any>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api/v1/${path}`, {
@@ -302,6 +302,9 @@ export default function LifePanel({ onClose }: { onClose: () => void }) {
   const [projects, setProjects] = useState<Item[]>([]);
   const [notifications, setNotifications] = useState<Item[]>([]);
   const [policy, setPolicy] = useState<Item | null>(null);
+  const [connections, setConnections] = useState<Item[]>([]);
+  const [connectionConfigured, setConnectionConfigured] = useState(false);
+  const [connectionCapabilities, setConnectionCapabilities] = useState<string[]>(['calendar.read', 'gmail.read']);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -317,10 +320,10 @@ export default function LifePanel({ onClose }: { onClose: () => void }) {
 
   const refresh = useCallback(async () => {
     try {
-      const [m, c, t, r, a, p, n, mp, j] = await Promise.all([
+      const [m, c, t, r, a, p, n, mp, j, ic] = await Promise.all([
         request('memories'), request('memory-candidates'), request('tasks'),
         request('reminder-schedules'), request('approvals'), request('projects'),
-        request('notifications'), request('memory-policy'), request('jobs'),
+        request('notifications'), request('memory-policy'), request('jobs'), request('integrations'),
       ]);
       startTransition(() => {
         setMemories(m.items);
@@ -332,6 +335,8 @@ export default function LifePanel({ onClose }: { onClose: () => void }) {
         setNotifications(n.items);
         setPolicy(mp);
         setJobs(j.items);
+        setConnections(ic.connections ?? []);
+        setConnectionConfigured(ic.configured === true);
         setError('');
         setLoading(false);
       });
@@ -342,6 +347,21 @@ export default function LifePanel({ onClose }: { onClose: () => void }) {
       });
     }
   }, []);
+
+  const connectGoogle = async () => {
+    setBusy(true); setError('');
+    try {
+      const result = await request<{ authorization_url: string }>('integrations/google/authorize', { method: 'POST', body: JSON.stringify({ capabilities: connectionCapabilities }) });
+      window.location.assign(result.authorization_url);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not start Google authorization.'); setBusy(false); }
+  };
+
+  const disconnectGoogle = async (id: string) => {
+    setBusy(true); setError('');
+    try { await request(`integrations/${id}`, { method: 'DELETE' }); await refresh(); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not disconnect Google.'); }
+    finally { setBusy(false); }
+  };
 
   useEffect(() => {
     void refresh();
@@ -482,11 +502,15 @@ export default function LifePanel({ onClose }: { onClose: () => void }) {
 
   async function resolveApproval(approval: Item, decision: 'approve' | 'reject') {
     const executable = ['task.create', 'reminder.create'].includes(approval.action);
-    if (decision === 'approve' && !executable) {
-      setError('This action has no safe local executor and cannot be approved here.');
+    const gmailSend = approval.action === 'gmail.send_draft';
+    if (decision === 'approve' && !executable && !gmailSend) {
+      setError('This action has no configured executor and cannot be approved here.');
       return;
     }
-    if (decision === 'approve' && !window.confirm(`Approve and execute this action?\n\n${approval.description}`)) return;
+    const exactEmail = gmailSend && approval.arguments
+      ? `\n\nTo: ${approval.arguments.recipients?.to}\nCc: ${approval.arguments.recipients?.cc}\nBcc: ${approval.arguments.recipients?.bcc}\nSubject: ${approval.arguments.subject}\n\n${approval.arguments.body}`
+      : '';
+    if (decision === 'approve' && !window.confirm(`Approve ${gmailSend ? 'and send' : 'and execute'} this action?\n\n${approval.description}${exactEmail}`)) return;
     setBusy(true);
     setError('');
     try {
@@ -495,7 +519,7 @@ export default function LifePanel({ onClose }: { onClose: () => void }) {
         await request(`approved-actions/${approval.id}/execute`, { method: 'POST' });
       }
       await refresh();
-      showNotice(decision === 'approve' ? 'Approved action executed.' : 'Action rejected.');
+      showNotice(decision === 'approve' ? (gmailSend ? 'Email sent.' : 'Approved action executed.') : 'Action rejected.');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Approval could not be completed.');
       await refresh();
@@ -513,6 +537,7 @@ export default function LifePanel({ onClose }: { onClose: () => void }) {
     { id: 'memories', label: 'Memories' }, { id: 'projects', label: 'Projects' },
     { id: 'tasks', label: 'Tasks' }, { id: 'reminders', label: 'Reminders' },
     { id: 'approvals', label: 'Approvals' },
+    { id: 'connections', label: 'Connections' },
   ];
 
   return (
@@ -710,16 +735,31 @@ export default function LifePanel({ onClose }: { onClose: () => void }) {
 
           {section === 'approvals' && <section>
             <h2 className="mb-3 font-semibold">Action approvals</h2>
-            <p className="mb-3 text-sm text-fg-muted">Only validated local task and reminder actions can execute here. Email, purchases, and other external actions are not connected.</p>
+            <p className="mb-3 text-sm text-fg-muted">Local task and reminder actions can be approved here. Gmail sending is available only after the user grants its separate scope and reviews the exact draft. Calendar event writes are not yet available.</p>
             <ul className="divide-y divide-border">{approvals.map((approval) => {
               const executable = ['task.create', 'reminder.create'].includes(approval.action);
               return <li key={approval.id} className="flex flex-wrap items-start justify-between gap-3 py-3">
-                <div><h3 className="font-medium">{approval.description}</h3><p className="text-sm text-fg-muted">{approval.action} · {approval.status} · {executable ? 'reversible local write' : 'no local executor'}</p><p className="text-xs text-fg-muted">Proposed {timestamp(approval.created_at)}</p></div>
-                {approval.status === 'pending' && <span className="flex gap-2"><button className={primary} disabled={busy || !executable} title={executable ? 'Approve and execute' : 'No local executor'} onClick={() => void resolveApproval(approval, 'approve')}><Check size={15} />Approve</button><button className={danger} disabled={busy} onClick={() => void resolveApproval(approval, 'reject')}><X size={15} />Reject</button></span>}
-                {approval.status === 'approved' && executable && <button className={secondary} disabled={busy} onClick={() => { if (window.confirm(`Execute “${approval.description}”?`)) void act(`approved-actions/${approval.id}/execute`, { method: 'POST' }); }}>Execute approved action</button>}
+                <div className="min-w-0 flex-1"><h3 className="font-medium">{approval.description}</h3><p className="text-sm text-fg-muted">{approval.action} · {approval.status} · {executable ? 'reversible local write' : approval.action === 'gmail.send_draft' ? 'external email send' : 'no local executor'}</p><p className="text-xs text-fg-muted">Proposed {timestamp(approval.created_at)}</p>{approval.action === 'gmail.send_draft' && approval.arguments && <div className="mt-2 rounded border border-border bg-bg p-3 text-sm"><p><strong>To:</strong> {approval.arguments.recipients?.to}</p>{approval.arguments.recipients?.cc && <p><strong>Cc:</strong> {approval.arguments.recipients.cc}</p>}{approval.arguments.recipients?.bcc && <p><strong>Bcc:</strong> {approval.arguments.recipients.bcc}</p>}<p><strong>Subject:</strong> {approval.arguments.subject}</p><pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap font-sans">{approval.arguments.body}</pre></div>}</div>
+                {approval.status === 'pending' && <span className="flex gap-2"><button className={primary} disabled={busy || (!executable && approval.action !== 'gmail.send_draft')} title={executable || approval.action === 'gmail.send_draft' ? 'Approve exact action' : 'No executor'} onClick={() => void resolveApproval(approval, 'approve')}><Check size={15} />Approve</button><button className={danger} disabled={busy} onClick={() => void resolveApproval(approval, 'reject')}><X size={15} />Reject</button></span>}
+                {approval.status === 'approved' && (executable || approval.action === 'gmail.send_draft') && <button className={secondary} disabled={busy} onClick={() => { if (window.confirm(`Execute “${approval.description}”?`)) void act(`approved-actions/${approval.id}/execute`, { method: 'POST' }); }}>Execute approved action</button>}
               </li>;
             })}</ul>
             {!approvals.length && <p className="text-sm text-fg-muted">No action proposals.</p>}
+          </section>}
+
+          {section === 'connections' && <section className="life-card">
+            <SectionHeading icon={CalendarDays} title="Google account connections" count={connections.length} />
+            <p className="mb-4 text-sm text-fg-muted">Choose only the capabilities you want Life Sandbox to use. Credentials stay on the backend and are encrypted at rest.</p>
+            {!connectionConfigured && <p className="mb-3 text-sm text-fg-muted">Google OAuth is not configured on this server.</p>}
+            <div className="mb-4 grid gap-2 sm:grid-cols-2">
+              {[['calendar.read', 'Read Calendar events'], ['gmail.read', 'Search and read Gmail'], ['gmail.draft', 'Create Gmail drafts'], ['gmail.send', 'Allow sending only after explicit approval (also needs drafts)']].map(([value, label]) => <label key={value} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={connectionCapabilities.includes(value)} onChange={(event) => setConnectionCapabilities((current) => {
+                if (event.target.checked) return [...new Set([...current, value, ...(value === 'gmail.send' ? ['gmail.draft'] : [])])];
+                return current.filter((item) => item !== value && !(value === 'gmail.draft' && item === 'gmail.send'));
+              })} />{label}</label>)}
+            </div>
+            <button className={primary} disabled={!connectionConfigured || busy || !connectionCapabilities.length} onClick={() => void connectGoogle()}>Connect Google</button>
+            <ul className="mt-4 divide-y divide-border">{connections.map((connection) => <li key={connection.id} className="flex flex-wrap items-center justify-between gap-3 py-3"><div><h3 className="font-medium">Google · {connection.account_email ?? 'Connected account'}</h3><p className="text-sm text-fg-muted">{connection.capabilities.join(', ')} · {connection.status}</p></div><button className={danger} disabled={busy} onClick={() => void disconnectGoogle(connection.id)}>Disconnect</button></li>)}</ul>
+            {!connections.length && <p className="mt-3 text-sm text-fg-muted">No connected Google accounts.</p>}
           </section>}
         </div>
       )}

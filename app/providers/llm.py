@@ -17,7 +17,15 @@ class Completion:
 
 
 class LLMError(RuntimeError):
-    def __init__(self, message: str, *, provider: str, status_code: int | None = None, code: str = "upstream_error", duration_ms: float = 0):
+    def __init__(
+        self,
+        message: str,
+        *,
+        provider: str,
+        status_code: int | None = None,
+        code: str = "upstream_error",
+        duration_ms: float = 0,
+    ):
         super().__init__(message)
         self.provider = provider
         self.status_code = status_code
@@ -76,11 +84,7 @@ class OpenAICompatibleModel(ChatModel):
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
         try:
-            timeout = (
-                get_settings().openrouter_timeout_seconds
-                if self.provider == "openrouter"
-                else self.timeout
-            )
+            timeout = self.timeout
             async with asyncio.timeout(timeout):
                 async with httpx.AsyncClient(timeout=timeout) as client:
                     headers = {
@@ -137,8 +141,7 @@ class OpenAICompatibleModel(ChatModel):
                                 text = "".join(
                                     part.get("text", "")
                                     for part in text
-                                    if isinstance(part, dict)
-                                    and part.get("type") == "text"
+                                    if isinstance(part, dict) and part.get("type") == "text"
                                 )
                             tool_calls = message.get("tool_calls") or []
                             if (isinstance(text, str) and text.strip()) or tool_calls:
@@ -160,7 +163,12 @@ class OpenAICompatibleModel(ChatModel):
                 duration_ms=(time.monotonic() - started) * 1000,
             ) from exc
         except (httpx.TimeoutException, TimeoutError) as exc:
-            raise LLMError(f"{self.provider} request timed out", provider=self.provider, code="timeout", duration_ms=(time.monotonic() - started) * 1000) from exc
+            raise LLMError(
+                f"{self.provider} request timed out",
+                provider=self.provider,
+                code="timeout",
+                duration_ms=(time.monotonic() - started) * 1000,
+            ) from exc
         except (httpx.RequestError, KeyError, IndexError, TypeError, ValueError) as exc:
             raise LLMError(
                 f"{self.provider} returned an invalid response", provider=self.provider
@@ -187,7 +195,7 @@ def model_for(provider: str | None = None, model: str | None = None) -> ChatMode
             s.openrouter_base_url,
             s.openrouter_api_key or "",
             model or s.openrouter_model,
-            s.llm_timeout_seconds,
+            s.openrouter_timeout_seconds,
             s.llm_max_tokens,
             s.openrouter_fallback_model,
         )

@@ -26,7 +26,9 @@ def upgrade():
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.UniqueConstraint("conversation_id", "file_id"),
     )
-    op.create_index("ix_conversation_files_conversation_id", "conversation_files", ["conversation_id"])
+    op.create_index(
+        "ix_conversation_files_conversation_id", "conversation_files", ["conversation_id"]
+    )
     op.create_index("ix_conversation_files_file_id", "conversation_files", ["file_id"])
     op.create_index("ix_conversation_files_user_id", "conversation_files", ["user_id"])
 

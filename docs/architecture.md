@@ -19,7 +19,7 @@ flowchart LR
 
 Routes validate and authorize requests; service code owns conversation persistence; the LangGraph nodes classify task intent and invoke the configured model; simulation is deterministic Python and does not involve the model. SQLAlchemy models have `user_id` ownership and all user-scoped reads filter against the authenticated principal.
 
-The follow-through layer persists memory policies, approved local memories, reviewable memory candidates, projects, tasks, reminders, jobs, in-app notifications, approvals, audit events and idempotency keys. Explicit "remember" requests are saved automatically only when the user's policy permits that nonsensitive category; otherwise they wait for approval. Chat retrieves approved memories across conversations using lexical overlap. A database polling worker uses conditional claims, stale-lease recovery and bounded retries. It writes in-app notifications only. The approval executor is restricted to validated local task and reminder creation; external email, purchase and deletion actions have no executor.
+The follow-through layer persists memory policies, approved local memories, reviewable memory candidates, projects, tasks, reminders, jobs, in-app notifications, approvals, audit events and idempotency keys. Explicit "remember" requests are saved automatically only when the user's policy permits that nonsensitive category; otherwise they wait for approval. Chat retrieves approved memories across conversations using lexical overlap. A database polling worker uses conditional claims, stale-lease recovery and bounded retries. It writes in-app notifications only. The approval executor supports validated local task/reminder creation and exact-snapshot Gmail draft sending; purchase, deletion, and Calendar event writes have no executor.
 
 ## Decisions and limitations
 
@@ -30,3 +30,9 @@ The follow-through layer persists memory policies, approved local memories, revi
 - File upload presigning is implemented for Neon Object Storage; upload completion currently records metadata only. Extraction, chunk persistence, signed downloads and object deletion are not implemented.
 - Redis/QStash, LangSmith, Langfuse runtime tracing, Better Auth/Neon Managed Auth, and NeMo Agent Toolkit have configuration placeholders or are not implemented. They are not represented as production integrations.
 - Simulation currently covers recurring income/expenses and one-time/monthly changes. Monte Carlo, sensitivity, breakpoint search, goals/commitments, branches and saved runs remain unfinished.
+
+## Tool ecosystem and Google connections
+
+Tool definitions live in `app/tools`; the catalog provides model-visible schemas and the conversation executor validates registered names and arguments before dispatch. Research and Google tools share this execution path. Google OAuth state is random, stored as a hash, expires after ten minutes, and is consumed before code exchange. Tokens are encrypted before persistence.
+
+Gmail draft sending is now available only as an approval proposal when the user granted the separate `gmail.send` scope. The action executor verifies the draft snapshot again after approval, records the provider message ID on success, and marks ambiguous network outcomes `uncertain` without retrying. Calendar writes remain unavailable.

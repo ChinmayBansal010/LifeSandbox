@@ -43,9 +43,7 @@ class ConversationFileRow(Base):
     conversation_id: Mapped[str] = mapped_column(
         ForeignKey("conversations.id", ondelete="CASCADE"), index=True
     )
-    file_id: Mapped[str] = mapped_column(
-        ForeignKey("files.id", ondelete="CASCADE"), index=True
-    )
+    file_id: Mapped[str] = mapped_column(ForeignKey("files.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[str] = mapped_column(String(200), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
 
@@ -222,6 +220,29 @@ class IdempotencyRow(Base):
     resource_id: Mapped[str] = mapped_column(String(36))
     resource_type: Mapped[str] = mapped_column(String(50))
     request_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
+class OAuthStateRow(Base):
+    __tablename__ = "google_oauth_states"
+    state_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(200), index=True)
+    scopes: Mapped[str] = mapped_column(Text)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    consumed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class IntegrationConnectionRow(Base):
+    __tablename__ = "integration_connections"
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    user_id: Mapped[str] = mapped_column(String(200), index=True)
+    provider: Mapped[str] = mapped_column(String(40), index=True)
+    account_email: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    scopes: Mapped[str] = mapped_column(Text, default="[]")
+    encrypted_credentials: Mapped[str] = mapped_column(Text)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    status: Mapped[str] = mapped_column(String(30), default="connected", index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
 
 
 class FeedbackRow(Base):
