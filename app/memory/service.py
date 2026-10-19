@@ -82,7 +82,12 @@ async def search_memories(db: AsyncSession, user_id: str, query: str, limit: int
         terms = tokens(row.content)
         overlap = len(query_terms & terms)
         if overlap:
-            age_days = max(0, (now - row.created_at.replace(tzinfo=UTC)).days)
+            created_at = row.created_at
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=UTC)
+            else:
+                created_at = created_at.astimezone(UTC)
+            age_days = max(0, (now - created_at).days)
             score = (
                 overlap / max(len(query_terms), 1) + min(row.confidence, 1) * 0.1 - age_days / 3650
             )
