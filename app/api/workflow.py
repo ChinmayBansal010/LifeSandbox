@@ -27,7 +27,7 @@ router = APIRouter(prefix="/api/v1")
 
 class TaskAction(BaseModel):
     title: str = Field(min_length=1, max_length=300)
-    description: str = ""
+    description: str = Field(default="", max_length=5000)
     project_id: str | None = None
     priority: Literal["low", "normal", "high"] = "normal"
     due_at: datetime | None = None
