@@ -21,7 +21,10 @@ TRACKED = (
 )
 SECRET_PATTERNS = {
     "private key": re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
-    "common API token": re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{30,}|sk-[A-Za-z0-9]{30,}|sk-or-v1-[A-Fa-f0-9]{40,})\b"),
+    "common API token": re.compile(
+        r"\b(?:gh[pousr]_[A-Za-z0-9]{30,}|sk-[A-Za-z0-9]{30,}|"
+        r"sk-or-v1-[A-Fa-f0-9]{40,})\b"
+    ),
     "AWS access key": re.compile(r"\bAKIA[0-9A-Z]{16}\b"),
 }
 ALLOWED_SECRET_FIXTURES = {
@@ -36,7 +39,8 @@ def main() -> int:
             continue
         path = ROOT / relative
         lower = relative.lower()
-        if any(part in {".venv", "node_modules", "__pycache__", ".pytest_cache"} for part in path.parts):
+        generated_dirs = {".venv", "node_modules", "__pycache__", ".pytest_cache"}
+        if any(part in generated_dirs for part in path.parts):
             failures.append(f"{relative}: generated directory is tracked")
             continue
         if lower.endswith((".pem", ".key", ".p12", ".pfx", ".sqlite", ".db")):
