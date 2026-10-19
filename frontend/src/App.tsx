@@ -6,7 +6,8 @@ import Sidebar from './components/Sidebar';
 import Chat from './components/Chat';
 import AdminPanel from './components/AdminPanel';
 import LifePanel from './components/LifePanel';
-import { Menu, X, MessageSquare, Activity, Plus } from 'lucide-react';
+import PluginsPanel from './components/PluginsPanel';
+import { Menu, X, MessageSquare, Activity, Plus, Blocks } from 'lucide-react';
 import type { FileAttachment } from './types';
 
 export default function App() {
@@ -30,6 +31,8 @@ export default function App() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [adminOpen, setAdminOpen] = useState(false);
   const [lifeOpen, setLifeOpen] = useState(false);
+  const [pluginsOpen, setPluginsOpen] = useState(false);
+  const [initialPluginPrompt, setInitialPluginPrompt] = useState<string | null>(null);
   const [adminTraceId, setAdminTraceId] = useState<string | null>(null);
 
   const [mem0Enabled, setMem0Enabled] = useState(false);
@@ -74,6 +77,7 @@ export default function App() {
     createConversation();
     setAdminOpen(false);
     setLifeOpen(false);
+    setPluginsOpen(false);
     setMobileMenuOpen(false);
   }, [createConversation]);
 
@@ -82,6 +86,7 @@ export default function App() {
       setActiveConversation(id);
       setAdminOpen(false);
       setLifeOpen(false);
+      setPluginsOpen(false);
       setMobileMenuOpen(false);
     },
     [setActiveConversation]
@@ -106,6 +111,8 @@ export default function App() {
   const handleOpenAdmin = useCallback((traceId?: string) => {
     setAdminTraceId(traceId || null);
     setAdminOpen(true);
+    setLifeOpen(false);
+    setPluginsOpen(false);
     setMobileMenuOpen(false);
   }, []);
 
@@ -113,6 +120,31 @@ export default function App() {
     setAdminOpen(false);
     setAdminTraceId(null);
   }, []);
+
+  const handleOpenPlugins = useCallback(() => {
+    setPluginsOpen(true);
+    setAdminOpen(false);
+    setLifeOpen(false);
+    setMobileMenuOpen(false);
+  }, []);
+
+  const handleClosePlugins = useCallback(() => {
+    setPluginsOpen(false);
+  }, []);
+
+  const handleUsePluginInChat = useCallback(
+    (prompt: string) => {
+      setInitialPluginPrompt(prompt);
+      setPluginsOpen(false);
+      setAdminOpen(false);
+      setLifeOpen(false);
+      setMobileMenuOpen(false);
+      if (!activeConversation) {
+        createConversation();
+      }
+    },
+    [activeConversation, createConversation]
+  );
 
   return (
     <div className="h-dvh flex overflow-hidden bg-bg">
@@ -157,9 +189,11 @@ export default function App() {
               onSelectConversation={handleSelectConversation}
               onDeleteConversation={handleDeleteConversation}
               onOpenAdminPanel={() => handleOpenAdmin()}
-              onOpenLifePanel={() => { setLifeOpen(true); setAdminOpen(false); setMobileMenuOpen(false); }}
+              onOpenLifePanel={() => { setLifeOpen(true); setAdminOpen(false); setPluginsOpen(false); setMobileMenuOpen(false); }}
+              onOpenPlugins={handleOpenPlugins}
               isAdminActive={adminOpen}
               isLifeActive={lifeOpen}
+              isPluginsActive={pluginsOpen}
               onSetTheme={setTheme}
             />
           </div>
@@ -178,16 +212,25 @@ export default function App() {
           onSelectConversation={handleSelectConversation}
           onDeleteConversation={handleDeleteConversation}
           onOpenAdminPanel={() => handleOpenAdmin()}
-          onOpenLifePanel={() => { setLifeOpen(true); setAdminOpen(false); }}
+          onOpenLifePanel={() => { setLifeOpen(true); setAdminOpen(false); setPluginsOpen(false); }}
+          onOpenPlugins={handleOpenPlugins}
           isAdminActive={adminOpen}
           isLifeActive={lifeOpen}
+          isPluginsActive={pluginsOpen}
           onSetTheme={setTheme}
         />
       )}
 
       {/* ─── Main workspace ───────────────────────────────── */}
       <main className={`flex-1 flex overflow-hidden ${isMobile ? 'pt-11' : ''}`}>
-        {lifeOpen ? (
+        {pluginsOpen ? (
+          <div className="flex-1 flex flex-col min-w-0">
+            <PluginsPanel
+              onClose={handleClosePlugins}
+              onUseInChat={handleUsePluginInChat}
+            />
+          </div>
+        ) : lifeOpen ? (
           <LifePanel onClose={() => setLifeOpen(false)} />
         ) : adminOpen ? (
           <div className="flex-1 flex flex-col min-w-0">
@@ -204,6 +247,9 @@ export default function App() {
               onSendMessage={handleSendMessage}
               onRenameConversation={renameConversation}
               onOpenAdminPanel={handleOpenAdmin}
+              onOpenPlugins={handleOpenPlugins}
+              initialPrompt={initialPluginPrompt}
+              onClearInitialPrompt={() => setInitialPluginPrompt(null)}
               isPending={isPending}
               mem0Enabled={mem0Enabled}
               browserUseEnabled={browserUseEnabled}
@@ -225,13 +271,20 @@ export default function App() {
               A decision support and research assistant. Ask complex questions, weigh multi-criteria scenarios, and monitor all tool execution traces in real time.
             </p>
 
-            <div className="flex items-center gap-3 mb-10">
+            <div className="flex items-center gap-3 mb-10 flex-wrap justify-center">
               <button
                 onClick={handleCreateConversation}
                 className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-accent text-accent-fg text-sm font-semibold hover:bg-accent-hover transition-all duration-150 shadow-xs hover:shadow-sm active:scale-95"
               >
                 <Plus size={16} />
                 <span>Start a new chat</span>
+              </button>
+              <button
+                onClick={handleOpenPlugins}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-border bg-surface hover:bg-surface-hover text-fg text-sm font-semibold transition-all duration-150 shadow-2xs hover:shadow-xs active:scale-95"
+              >
+                <Blocks size={16} className="text-accent" />
+                <span>Explore Plugins</span>
               </button>
               <button
                 onClick={() => handleOpenAdmin()}

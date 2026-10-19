@@ -10,6 +10,7 @@ import {
   Trash2,
   Activity,
   NotebookTabs,
+  Blocks,
 } from 'lucide-react';
 import type { Conversation, ThemePreference } from '../types';
 import { truncate } from '../graph-utils';
@@ -26,8 +27,10 @@ type SidebarProps = {
   onDeleteConversation: (id: string) => void;
   onOpenAdminPanel: () => void;
   onOpenLifePanel: () => void;
+  onOpenPlugins: () => void;
   isAdminActive?: boolean;
   isLifeActive?: boolean;
+  isPluginsActive?: boolean;
   onSetTheme: (theme: ThemePreference) => void;
 };
 
@@ -42,8 +45,10 @@ export default function Sidebar({
   onDeleteConversation,
   onOpenAdminPanel,
   onOpenLifePanel,
+  onOpenPlugins,
   isAdminActive = false,
   isLifeActive = false,
+  isPluginsActive = false,
   onSetTheme,
 }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState('');
@@ -76,8 +81,20 @@ export default function Sidebar({
           <Plus size={18} />
         </button>
         <button
-          onClick={onOpenAdminPanel}
+          onClick={onOpenPlugins}
           className={`mt-3 p-1.5 rounded-md transition-colors ${
+            isPluginsActive
+              ? 'bg-accent text-accent-fg'
+              : 'text-fg-muted hover:bg-surface-hover hover:text-fg'
+          }`}
+          aria-label="Plugins and tools"
+          title="Plugins & Tools"
+        >
+          <Blocks size={18} />
+        </button>
+        <button
+          onClick={onOpenAdminPanel}
+          className={`mt-2 p-1.5 rounded-md transition-colors ${
             isAdminActive
               ? 'bg-accent text-accent-fg'
               : 'hover:bg-accent-muted text-accent'
@@ -194,9 +211,38 @@ export default function Sidebar({
         })}
       </nav>
 
-      {/* Admin Panel Button */}
-      <div className="px-3 py-2 border-t border-border">
-        <button onClick={onOpenLifePanel} className={`mb-2 w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold ${isLifeActive ? 'bg-accent text-accent-fg' : 'border border-border text-fg hover:bg-surface-hover'}`}>
+      {/* Navigation action buttons */}
+      <div className="px-3 py-2 border-t border-border space-y-1.5">
+        <button
+          onClick={onOpenPlugins}
+          className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold transition-all ${
+            isPluginsActive
+              ? 'bg-accent text-accent-fg shadow-xs'
+              : 'bg-surface hover:bg-surface-hover border border-border text-fg'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <Blocks size={14} className={isPluginsActive ? 'text-accent-fg' : 'text-accent'} />
+            <span>Plugins & Tools</span>
+          </div>
+          <span
+            className={`px-1.5 py-0.5 rounded text-[9px] font-mono ${
+              isPluginsActive
+                ? 'bg-white/20 text-white'
+                : 'bg-accent-muted text-accent'
+            }`}
+          >
+            CATALOGUE
+          </span>
+        </button>
+        <button
+          onClick={onOpenLifePanel}
+          className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold ${
+            isLifeActive
+              ? 'bg-accent text-accent-fg'
+              : 'border border-border text-fg hover:bg-surface-hover'
+          }`}
+        >
           <NotebookTabs size={14} />
           <span>Memory & tasks</span>
         </button>

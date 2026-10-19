@@ -18,6 +18,7 @@ import {
   Volume2,
   FileText,
   Image as ImageIcon,
+  Blocks,
 } from 'lucide-react';
 import type { Conversation, ChatMessage, FileAttachment } from '../types';
 import { formatTimestamp } from '../graph-utils';
@@ -38,12 +39,16 @@ type ChatProps = {
   imageUnderstandingEnabled: boolean;
   onRenameConversation?: (conversationId: string, title: string) => void;
   onOpenAdminPanel?: (traceId?: string) => void;
+  onOpenPlugins?: () => void;
+  initialPrompt?: string | null;
+  onClearInitialPrompt?: () => void;
   isPending: boolean;
 };
 
 let activeSpeech: HTMLAudioElement | null = null;
 
 const SLASH_COMMANDS = [
+  { cmd: '/plugins', name: 'Plugins & Tools', desc: 'Browse and inspect live backend plugins' },
   { cmd: '/budgeting', name: 'Budgeting', desc: 'Budget & spending trade-offs' },
   { cmd: '/career', name: 'Career', desc: 'Career goals & compensation' },
   { cmd: '/education', name: 'Education', desc: 'Learning & study planning' },
@@ -269,6 +274,9 @@ export default function Chat({
   onSendMessage,
   onRenameConversation,
   onOpenAdminPanel,
+  onOpenPlugins,
+  initialPrompt,
+  onClearInitialPrompt,
   isPending,
   sttEnabled,
   ttsEnabled,
@@ -298,6 +306,18 @@ export default function Chat({
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recordedRef = useRef<Blob[]>([]);
+
+  useEffect(() => {
+    if (initialPrompt) {
+      setInput(initialPrompt);
+      if (textareaRef.current) {
+        textareaRef.current.focus();
+        textareaRef.current.style.height = 'auto';
+        textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 150)}px`;
+      }
+      onClearInitialPrompt?.();
+    }
+  }, [initialPrompt, onClearInitialPrompt]);
 
   const startEditing = () => {
     setTitleDraft(conversation.title);
@@ -370,6 +390,12 @@ export default function Chat({
   };
 
   const handleSelectSlashCommand = (cmd: string) => {
+    if (cmd === '/plugins' && onOpenPlugins) {
+      setShowSlashPopup(false);
+      setInput('');
+      onOpenPlugins();
+      return;
+    }
     setInput(`${cmd} `);
     setShowSlashPopup(false);
     textareaRef.current?.focus();
@@ -564,6 +590,16 @@ export default function Chat({
             <span className="text-[11px] text-fg-muted font-medium">
               {messages.length} message{messages.length !== 1 ? 's' : ''}
             </span>
+          )}
+          {onOpenPlugins && (
+            <button
+              onClick={() => onOpenPlugins()}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-border bg-surface hover:bg-surface-hover text-fg-secondary hover:text-fg text-xs font-medium transition-all shadow-2xs hover:shadow-xs active:scale-95"
+              title="Browse backend plugins and dynamic tools"
+            >
+              <Blocks size={13} className="text-accent" />
+              <span>Plugins</span>
+            </button>
           )}
           {onOpenAdminPanel && (
             <button

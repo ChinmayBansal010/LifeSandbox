@@ -122,6 +122,8 @@ export type PluginCapability = {
   risk: 'low' | 'medium' | 'high';
   approval_required: boolean;
   returns_external_urls: boolean;
+  input_schema?: Record<string, unknown>;
+  output_schema?: Record<string, unknown>;
 };
 
 export type PluginExecution = {
