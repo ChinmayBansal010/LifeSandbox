@@ -157,7 +157,7 @@ export function loadThemePreference(): ThemePreference {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return 'system';
     const parsed = JSON.parse(raw);
-    return parsed?.data?.theme ?? 'system';
+    return isThemePreference(parsed?.data?.theme) ? parsed.data.theme : 'system';
   } catch {
     return 'system';
   }
