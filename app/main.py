@@ -17,6 +17,7 @@ from app.api.memory import router as memory_router
 from app.api.workflow import router as workflow_router
 from app.core.config import get_settings
 from app.core.security import Principal, current_principal
+from app.core.rate_limit import SlidingWindowRateLimiter
 from app.domain.simulation import SimulationRequest, simulate
 from app.integrations.google import router as integrations_router
 from app.persistence.models import (
@@ -110,6 +111,23 @@ async def llm_error(_: Request, exc: LLMError):
 async def request_id(request: Request, call_next):
     rid = request.headers.get("X-Request-ID") or str(uuid.uuid4())
     request.state.request_id = rid
+    if (
+        settings.app_env == "production"
+        and request.url.path.startswith("/api/")
+        and request.method != "OPTIONS"
+    ):
+        client_key = request.client.host if request.client else "unknown"
+        if not _rate_limiter.allow(client_key):
+            return JSONResponse(
+                status_code=429,
+                headers={"X-Request-ID": rid, "Retry-After": "60"},
+                content={
+                    "error": {
+                        "code": "rate_limit_exceeded",
+                        "message": "Too many requests. Wait before trying again.",
+                    }
+                },
+            )
     response = await call_next(request)
     response.headers["X-Request-ID"] = rid
     return response
