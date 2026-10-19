@@ -23,6 +23,4 @@ def upgrade():
 
 
 def downgrade():
-    columns = {column["name"] for column in sa.inspect(op.get_bind()).get_columns("memories")}
-    if "updated_at" in columns:
-        op.drop_column("memories", "updated_at")
+    pass
