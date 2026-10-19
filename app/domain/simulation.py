@@ -5,30 +5,36 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class Change(BaseModel):
-    name: str
+    name: str = Field(min_length=1, max_length=120)
     amount: Decimal
     frequency: Literal["one_time", "monthly"] = "one_time"
-    month: int = Field(default=1, ge=1)
+    month: int = Field(default=1, ge=1, le=120)
 
 
 class Scenario(BaseModel):
-    name: str
-    changes: list[Change] = Field(default_factory=list)
+    name: str = Field(min_length=1, max_length=120)
+    changes: list[Change] = Field(default_factory=list, max_length=100)
 
 
 class SimulationRequest(BaseModel):
-    starting_savings: Decimal = Field(ge=0)
-    monthly_income: Decimal = Field(ge=0)
-    monthly_expenses: Decimal = Field(ge=0)
+    starting_savings: Decimal = Field(ge=0, le=Decimal("1000000000000"))
+    monthly_income: Decimal = Field(ge=0, le=Decimal("1000000000"))
+    monthly_expenses: Decimal = Field(ge=0, le=Decimal("1000000000"))
     months: int = Field(default=12, ge=1, le=120)
     scenarios: list[Scenario] = Field(min_length=1, max_length=20)
-    minimum_balance: Decimal = Decimal("0")
+    minimum_balance: Decimal = Field(default=Decimal("0"), le=Decimal("1000000000000"))
 
     @model_validator(mode="after")
     def names_unique(self):
         names = [s.name for s in self.scenarios]
         if len(names) != len(set(names)):
             raise ValueError("Scenario names must be unique")
+        for scenario in self.scenarios:
+            for change in scenario.changes:
+                if change.frequency == "one_time" and change.month > self.months:
+                    raise ValueError(
+                        f"One-time change month {change.month} exceeds projection horizon"
+                    )
         return self
 
 
