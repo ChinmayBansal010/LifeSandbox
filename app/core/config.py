@@ -47,6 +47,8 @@ class Settings(BaseSettings):
     google_auth_frontend_url: str = "http://localhost:5173"
     google_token_encryption_key: str | None = None
     google_oauth_redirect_uri: str | None = None
+    telegram_bot_token: str | None = None
+    telegram_chat_id: str | None = None
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
     aws_region: str = "us-east-2"

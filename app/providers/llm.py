@@ -80,8 +80,20 @@ class OpenAICompatibleModel(ChatModel):
             "messages": messages,
             "max_tokens": self.max_tokens,
         }
+        tool_name_map: dict[str, str] = {}
         if tools:
-            payload["tools"] = tools
+            sanitized_tools = []
+            for t in tools:
+                if isinstance(t, dict) and t.get("type") == "function" and "function" in t:
+                    fn = dict(t["function"])
+                    orig_name = fn.get("name", "")
+                    sanitized_name = orig_name.replace(".", "__")
+                    tool_name_map[sanitized_name] = orig_name
+                    fn["name"] = sanitized_name
+                    sanitized_tools.append({"type": "function", "function": fn})
+                else:
+                    sanitized_tools.append(t)
+            payload["tools"] = sanitized_tools
             payload["tool_choice"] = "auto"
         try:
             timeout = self.timeout
@@ -143,7 +155,20 @@ class OpenAICompatibleModel(ChatModel):
                                     for part in text
                                     if isinstance(part, dict) and part.get("type") == "text"
                                 )
-                            tool_calls = message.get("tool_calls") or []
+                            raw_tool_calls = message.get("tool_calls") or []
+                            tool_calls = []
+                            for call in raw_tool_calls:
+                                if isinstance(call, dict) and "function" in call:
+                                    call_copy = dict(call)
+                                    fn_copy = dict(call["function"])
+                                    called_name = fn_copy.get("name", "")
+                                    fn_copy["name"] = tool_name_map.get(
+                                        called_name, called_name.replace("__", ".")
+                                    )
+                                    call_copy["function"] = fn_copy
+                                    tool_calls.append(call_copy)
+                                else:
+                                    tool_calls.append(call)
                             if (isinstance(text, str) and text.strip()) or tool_calls:
                                 return Completion(
                                     text or "",

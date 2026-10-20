@@ -95,6 +95,18 @@ def select_relevant_tools(message: str, intent: str = "conversation") -> set[str
         selected.update({"drive.search_files", "drive.get_file_content"})
     if any(
         term in text
+        for term in (
+            "telegram",
+            "tg",
+            "message my phone",
+            "text my phone",
+            "notify me on telegram",
+            "send to telegram",
+        )
+    ):
+        selected.add("telegram.send_message")
+    if any(
+        term in text
         for term in ("latest", "current", "research", "open-source", "web", "online", "sources")
     ):
         selected.add("research.search")
@@ -248,6 +260,7 @@ async def agent(state: ConversationState):
             "gmail.send_draft",
             "drive.search_files",
             "drive.get_file_content",
+            "telegram.send_message",
             *FOLLOWTHROUGH_TOOL_NAMES,
         }
         if (
@@ -487,7 +500,7 @@ async def execute_tools(state: ConversationState):
         async with trace_tool(
             name or "unknown_tool",
             "followthrough" if name in FOLLOWTHROUGH_TOOL_NAMES else "decision_tool",
-            {"redacted": True} if name.startswith(("gmail.", "calendar.", "drive.")) else arguments,
+            {"redacted": True} if name.startswith(("gmail.", "calendar.", "drive.", "telegram.")) else arguments,
         ) as event:
             tool_db = state.get("db")
             audit = AuditRow(
@@ -697,6 +710,19 @@ async def execute_tools(state: ConversationState):
                             ),
                             definition.timeout_seconds,
                         )
+                elif name.startswith("telegram."):
+                    from app.integrations.telegram import send_telegram_message
+
+                    if name == "telegram.send_message":
+                        result = await _bounded(
+                            send_telegram_message(
+                                message=arguments["message"],
+                                chat_id=arguments.get("chat_id"),
+                            ),
+                            definition.timeout_seconds,
+                        )
+                    else:
+                        raise ValueError(f"Unknown Telegram tool: {name}")
                 elif name in FOLLOWTHROUGH_TOOL_NAMES:
                     tool_db = state.get("db")
                     user_id = state.get("user_id")
@@ -715,7 +741,7 @@ async def execute_tools(state: ConversationState):
                     ), definition.timeout_seconds)
                 else:
                     result = execute_decision_tool(name, arguments)
-                if name.startswith("gmail.") or name.startswith("calendar.") or name.startswith("drive."):
+                if name.startswith("gmail.") or name.startswith("calendar.") or name.startswith("drive.") or name.startswith("telegram."):
                     event["output_data"] = {
                         "status": result.get("status", "succeeded")
                         if isinstance(result, dict)
@@ -725,7 +751,7 @@ async def execute_tools(state: ConversationState):
                             for key in ("items", "messages", "slots", "files")
                             if isinstance(result, dict)
                         ),
-                        "connection": "google",
+                        "connection": "telegram" if name.startswith("telegram.") else "google",
                     }
                 else:
                     event["output_data"] = result

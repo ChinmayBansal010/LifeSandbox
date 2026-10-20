@@ -226,6 +226,10 @@ def _google_oauth_configured() -> bool:
     )
 
 
+def _telegram_configured() -> bool:
+    return bool(settings.telegram_bot_token)
+
+
 @app.get("/api/v1/plugins")
 async def plugin_catalogue(
     principal: Principal = Depends(current_principal),
@@ -263,6 +267,13 @@ async def plugin_catalogue(
             else:
                 status = "connected"
                 setup = "A connected Google account has the required permission."
+        elif definition.provider_id == "telegram":
+            if not _telegram_configured():
+                status = "requires_setup"
+                setup = "Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env."
+            else:
+                status = "available"
+                setup = "Ready to send notifications and messages to your Telegram."
         elif definition.provider_id == "research":
             if settings.research_provider == "disabled":
                 status = "disabled"

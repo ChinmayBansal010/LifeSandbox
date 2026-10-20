@@ -22,6 +22,7 @@ import {
   AlertCircle,
   Plug,
   HardDrive,
+  Send,
 } from 'lucide-react';
 import type { PluginCapability, PluginExecution, CapabilityStatus } from '../types';
 
@@ -39,6 +40,7 @@ const CATEGORY_ICONS: Record<string, typeof Blocks> = {
   email: Mail,
   research: ExternalLink,
   drive: HardDrive,
+  messaging: Send,
 };
 
 const STATUS_LABELS: Record<CapabilityStatus, { label: string; color: string; bg: string }> = {
@@ -111,6 +113,8 @@ const SUGGESTED_PROMPTS: Record<string, string> = {
     'Search my Google Drive for documents and spreadsheets related to project plans.',
   'drive.get_file_content':
     'Read the text contents of my Google Doc notes from Google Drive.',
+  'telegram.send_message':
+    'Send a concise summary of my pending tasks and upcoming calendar events to my Telegram.',
   'research.search':
     'Search the web for the latest benchmarks and architecture patterns in agentic workflows.',
 };

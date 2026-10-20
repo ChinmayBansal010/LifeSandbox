@@ -223,6 +223,7 @@ def register_tool(
 ) -> None:
     inferred_provider = (
         "google" if name.startswith(("gmail.", "calendar.", "drive."))
+        else "telegram" if name.startswith("telegram.")
         else "research" if name == "research.search"
         else "followthrough" if owner == "followthrough"
         else "local"
@@ -231,6 +232,7 @@ def register_tool(
         "calendar" if name.startswith("calendar.")
         else "email" if name.startswith("gmail.")
         else "drive" if name.startswith("drive.")
+        else "messaging" if name.startswith("telegram.")
         else "research" if name.startswith("research.")
         else "planning" if owner == "followthrough"
         else "analysis"

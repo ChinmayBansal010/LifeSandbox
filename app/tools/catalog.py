@@ -178,3 +178,26 @@ register_tool(
     connection_requirement="Google Drive",
     required_permissions=("https://www.googleapis.com/auth/drive.readonly",),
 )
+
+register_tool(
+    "telegram.send_message",
+    "Send an instant message, briefing, alert, or reminder directly to the user's Telegram.",
+    {
+        "type": "object",
+        "properties": {
+            "message": {
+                "type": "string",
+                "description": "The message text to send to Telegram. Supports HTML formatting like <b>bold</b> and <i>italic</i>.",
+            },
+            "chat_id": {
+                "type": "string",
+                "description": "Optional Telegram chat ID (defaults to the user's configured TELEGRAM_CHAT_ID).",
+            },
+        },
+        "required": ["message"],
+    },
+    "telegram",
+    read_only=False,
+    risk="low",
+    connection_requirement="Telegram Bot",
+)

@@ -84,3 +84,70 @@ async def test_all_openrouter_fallback_attempts_share_one_timeout(monkeypatch):
         await model.complete([{"role": "user", "content": "hi"}])
 
     ClientStub.delay = 0
+
+
+@pytest.mark.asyncio
+async def test_tool_name_dots_sanitized_and_restored(monkeypatch):
+    captured_payloads = []
+
+    class MockClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, **kwargs):
+            captured_payloads.append(kwargs.get("json"))
+            return ResponseStub(
+                200,
+                {
+                    "choices": [
+                        {
+                            "message": {
+                                "content": "I sent the message",
+                                "tool_calls": [
+                                    {
+                                        "id": "call_1",
+                                        "type": "function",
+                                        "function": {
+                                            "name": "telegram__send_message",
+                                            "arguments": '{"message": "hello"}',
+                                        },
+                                    }
+                                ],
+                            }
+                        }
+                    ]
+                },
+            )
+
+    monkeypatch.setattr(httpx, "AsyncClient", MockClient)
+    model = OpenAICompatibleModel(
+        "openrouter", "https://provider.test/v1", "secret", "model", 5.0, 10
+    )
+
+    tools = [
+        {
+            "type": "function",
+            "function": {
+                "name": "telegram.send_message",
+                "description": "Send a telegram message",
+                "parameters": {"type": "object"},
+            },
+        }
+    ]
+
+    result = await model.complete([{"role": "user", "content": "send hello"}], tools=tools)
+
+    # Outgoing tool payload must not have dots (strict OpenAI / Nvidia / OpenRouter spec)
+    assert len(captured_payloads) == 1
+    sent_tools = captured_payloads[0]["tools"]
+    assert sent_tools[0]["function"]["name"] == "telegram__send_message"
+
+    # Returned tool call name must have its dots restored
+    assert len(result.tool_calls) == 1
+    assert result.tool_calls[0]["function"]["name"] == "telegram.send_message"
