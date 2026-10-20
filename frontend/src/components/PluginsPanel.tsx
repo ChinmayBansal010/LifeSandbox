@@ -178,6 +178,25 @@ export default function PluginsPanel({ onClose, onUseInChat }: PluginsPanelProps
 
   useEffect(() => {
     fetchPluginsData();
+
+    const handleMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'GOOGLE_CONNECTED') {
+        fetchPluginsData();
+      }
+    };
+    window.addEventListener('message', handleMessage);
+
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('integration') === 'google_connected') {
+      params.delete('integration');
+      const query = params.toString();
+      window.history.replaceState({}, '', `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`);
+      setActiveTab('connections');
+    }
+
+    return () => {
+      window.removeEventListener('message', handleMessage);
+    };
   }, [fetchPluginsData]);
 
   const handleRefresh = () => {
@@ -243,20 +262,53 @@ export default function PluginsPanel({ onClose, onUseInChat }: PluginsPanelProps
 
   const handleConnectGoogle = async () => {
     setConnectionBusy(true);
+    setError(null);
     try {
-      const res = await fetch('/api/v1/integrations/google/start', {
+      const res = await fetch('/api/v1/integrations/google/authorize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ capabilities: connectionCapabilities }),
       });
       const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.detail?.message || data?.detail || 'Could not initialize Google OAuth');
+      }
       if (data.authorization_url) {
-        window.location.href = data.authorization_url;
+        const popup = window.open(
+          data.authorization_url,
+          'google_oauth',
+          'width=600,height=700,status=no,toolbar=no,menubar=no'
+        );
+        if (!popup) {
+          window.location.href = data.authorization_url;
+          return;
+        }
+        const pollInterval = setInterval(async () => {
+          if (popup.closed) {
+            clearInterval(pollInterval);
+            setConnectionBusy(false);
+            await fetchPluginsData();
+          } else {
+            try {
+              const checkRes = await fetch('/api/v1/integrations', { credentials: 'include' });
+              if (checkRes.ok) {
+                const checkData = await checkRes.json();
+                if ((checkData.connections || []).length > connections.length) {
+                  clearInterval(pollInterval);
+                  popup.close();
+                  setConnectionBusy(false);
+                  await fetchPluginsData();
+                }
+              }
+            } catch {
+              // Ignore polling errors
+            }
+          }
+        }, 1500);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not initialize Google OAuth');
-    } finally {
       setConnectionBusy(false);
     }
   };
@@ -264,11 +316,16 @@ export default function PluginsPanel({ onClose, onUseInChat }: PluginsPanelProps
   const handleDisconnectGoogle = async (connectionId: string) => {
     if (!window.confirm('Disconnect this Google account? Saved scopes will be removed.')) return;
     setConnectionBusy(true);
+    setError(null);
     try {
-      await fetch(`/api/v1/integrations/google/${connectionId}`, {
+      const res = await fetch(`/api/v1/integrations/${connectionId}`, {
         method: 'DELETE',
         credentials: 'include',
       });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data?.detail?.message || data?.detail || 'Could not disconnect account');
+      }
       await fetchPluginsData();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not disconnect account');

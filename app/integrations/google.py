@@ -6,7 +6,8 @@ from urllib.parse import urlencode
 
 import httpx
 from cryptography.fernet import Fernet, InvalidToken
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -168,6 +169,7 @@ async def authorize_google(
 
 @router.get("/google/callback")
 async def google_callback(
+    request: Request,
     code: str = Query(min_length=1),
     state: str = Query(min_length=20),
     db: AsyncSession = Depends(get_session),
@@ -259,6 +261,37 @@ async def google_callback(
         )
         db.add(row)
     await db.commit()
+    if "text/html" in request.headers.get("accept", ""):
+        frontend_url = config.google_auth_frontend_url.rstrip("/")
+        html = f"""<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Google Account Connected</title>
+    <style>
+        body {{ font-family: system-ui, -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #09090b; color: #fafafa; }}
+        .card {{ text-align: center; padding: 2rem; border-radius: 1rem; border: 1px solid #27272a; background: #18181b; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); max-width: 400px; }}
+        h1 {{ font-size: 1.25rem; margin-bottom: 0.5rem; color: #10b981; }}
+        p {{ font-size: 0.875rem; color: #a1a1aa; line-height: 1.5; }}
+    </style>
+</head>
+<body>
+    <div class="card">
+        <h1>✓ Google Account Connected</h1>
+        <p>Your Google integration is active. This window will close automatically.</p>
+    </div>
+    <script>
+        if (window.opener) {{
+            window.opener.postMessage({{ type: 'GOOGLE_CONNECTED' }}, '*');
+            setTimeout(() => window.close(), 500);
+        }} else {{
+            window.location.href = "{frontend_url}/?integration=google_connected";
+        }}
+    </script>
+</body>
+</html>"""
+        return HTMLResponse(content=html)
+
     return {
         "connected": True,
         "connection": public_connection(row),
