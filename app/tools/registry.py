@@ -66,6 +66,7 @@ class ToolDefinition:
             "https://www.googleapis.com/auth/gmail.readonly": "Search and read email",
             "https://www.googleapis.com/auth/gmail.compose": "Create and manage unsent drafts",
             "https://www.googleapis.com/auth/gmail.send": "Send email after explicit approval",
+            "https://www.googleapis.com/auth/drive.readonly": "Search and read Google Drive files & Docs",
         }
         return {
             "id": self.name,
@@ -221,7 +222,7 @@ def register_tool(
     enabled: bool = True,
 ) -> None:
     inferred_provider = (
-        "google" if name.startswith(("gmail.", "calendar."))
+        "google" if name.startswith(("gmail.", "calendar.", "drive."))
         else "research" if name == "research.search"
         else "followthrough" if owner == "followthrough"
         else "local"
@@ -229,6 +230,7 @@ def register_tool(
     inferred_category = (
         "calendar" if name.startswith("calendar.")
         else "email" if name.startswith("gmail.")
+        else "drive" if name.startswith("drive.")
         else "research" if name.startswith("research.")
         else "planning" if owner == "followthrough"
         else "analysis"

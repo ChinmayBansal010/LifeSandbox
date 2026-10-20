@@ -23,6 +23,7 @@ GOOGLE_SCOPE = {
     "gmail.read": "https://www.googleapis.com/auth/gmail.readonly",
     "gmail.draft": "https://www.googleapis.com/auth/gmail.compose",
     "gmail.send": "https://www.googleapis.com/auth/gmail.send",
+    "drive.read": "https://www.googleapis.com/auth/drive.readonly",
 }
 
 

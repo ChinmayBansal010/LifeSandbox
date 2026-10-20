@@ -305,7 +305,7 @@ export default function LifePanel({ onClose }: { onClose: () => void }) {
   const [policy, setPolicy] = useState<Item | null>(null);
   const [connections, setConnections] = useState<Item[]>([]);
   const [connectionConfigured, setConnectionConfigured] = useState(false);
-  const [connectionCapabilities, setConnectionCapabilities] = useState<string[]>(['calendar.read', 'gmail.read']);
+  const [connectionCapabilities, setConnectionCapabilities] = useState<string[]>(['calendar.read', 'gmail.read', 'drive.read']);
   const [pluginCapabilities, setPluginCapabilities] = useState<PluginCapability[]>([]);
   const [pluginExecutions, setPluginExecutions] = useState<PluginExecution[]>([]);
   const [loading, setLoading] = useState(true);
@@ -791,7 +791,7 @@ export default function LifePanel({ onClose }: { onClose: () => void }) {
             <p className="mb-4 text-sm text-fg-muted">Choose only the capabilities you want Life Sandbox to use. Credentials stay on the backend and are encrypted at rest.</p>
             {!connectionConfigured && <p className="mb-3 text-sm text-fg-muted">Google OAuth is not configured on this server.</p>}
             <div className="mb-4 grid gap-2 sm:grid-cols-2">
-              {[['calendar.read', 'Read Calendar events'], ['gmail.read', 'Search and read Gmail'], ['gmail.draft', 'Create Gmail drafts'], ['gmail.send', 'Allow sending only after explicit approval (also needs drafts)']].map(([value, label]) => <label key={value} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={connectionCapabilities.includes(value)} onChange={(event) => setConnectionCapabilities((current) => {
+              {[['calendar.read', 'Read Calendar events'], ['gmail.read', 'Search and read Gmail'], ['gmail.draft', 'Create Gmail drafts'], ['gmail.send', 'Allow sending only after explicit approval (also needs drafts)'], ['drive.read', 'Search and read Google Drive files & Docs']].map(([value, label]) => <label key={value} className="flex items-center gap-2 text-sm"><input type="checkbox" checked={connectionCapabilities.includes(value)} onChange={(event) => setConnectionCapabilities((current) => {
                 if (event.target.checked) return [...new Set([...current, value, ...(value === 'gmail.send' ? ['gmail.draft'] : [])])];
                 return current.filter((item) => item !== value && !(value === 'gmail.draft' && item === 'gmail.send'));
               })} />{label}</label>)}

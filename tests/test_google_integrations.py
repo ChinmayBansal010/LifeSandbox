@@ -161,3 +161,67 @@ def test_google_oauth_state_is_owner_bound_one_time_and_credentials_are_encrypte
     from sqlalchemy import select
 
     asyncio.run(assert_persisted_token_encrypted())
+
+
+@pytest.mark.asyncio
+async def test_search_drive_files_formats_results(monkeypatch):
+    async def fake_request(*args, **kwargs):
+        assert "drive/v3/files" in kwargs.get("url", args[4] if len(args) > 4 else "")
+        return {
+            "files": [
+                {
+                    "id": "doc123",
+                    "name": "Quarterly Budget.docx",
+                    "mimeType": "application/vnd.google-apps.document",
+                    "modifiedTime": "2026-10-20T10:00:00Z",
+                    "size": 2048,
+                    "webViewLink": "https://docs.google.com/doc123",
+                }
+            ]
+        }
+
+    monkeypatch.setattr(google_api, "_request", fake_request)
+    result = await google_api.search_drive_files(
+        None, "owner", query="Budget", mime_type="document", limit=10
+    )
+    assert result["count"] == 1
+    assert result["files"][0]["id"] == "doc123"
+    assert result["files"][0]["name"] == "Quarterly Budget.docx"
+    assert result["files"][0]["mime_type"] == "application/vnd.google-apps.document"
+
+
+@pytest.mark.asyncio
+async def test_get_drive_file_content_exports_docs(monkeypatch):
+    async def fake_request(*args, **kwargs):
+        url = kwargs.get("url", args[4] if len(args) > 4 else "")
+        if "export" in url:
+            return "This is the exported text of the quarterly budget document."
+        return {
+            "id": "doc123",
+            "name": "Quarterly Budget.docx",
+            "mimeType": "application/vnd.google-apps.document",
+            "webViewLink": "https://docs.google.com/doc123",
+        }
+
+    monkeypatch.setattr(google_api, "_request", fake_request)
+    result = await google_api.get_drive_file_content(None, "owner", "doc123")
+    assert result["file_id"] == "doc123"
+    assert result["name"] == "Quarterly Budget.docx"
+    assert result["content"] == "This is the exported text of the quarterly budget document."
+    assert result["truncated"] is False
+
+
+def test_drive_tools_registered_in_catalog():
+    from app.tools.registry import registry
+
+    search_tool = registry.get("drive.search_files")
+    assert search_tool is not None
+    assert search_tool.provider_id == "google"
+    assert search_tool.category == "drive"
+    assert "https://www.googleapis.com/auth/drive.readonly" in search_tool.required_permissions
+
+    content_tool = registry.get("drive.get_file_content")
+    assert content_tool is not None
+    assert content_tool.provider_id == "google"
+    assert content_tool.category == "drive"
+    assert "https://www.googleapis.com/auth/drive.readonly" in content_tool.required_permissions

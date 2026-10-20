@@ -144,3 +144,37 @@ register_tool(
         "https://www.googleapis.com/auth/gmail.send",
     ),
 )
+
+register_tool(
+    "drive.search_files",
+    "Search the connected user's Google Drive files by name, type, or query. Returns file metadata and links.",
+    {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "Search query or file name fragment"},
+            "mime_type": {
+                "type": "string",
+                "description": "Optional filter: document, spreadsheet, pdf, presentation, or folder",
+            },
+            "limit": {"type": "integer", "description": "Maximum number of files to return (1-30)"},
+        },
+    },
+    "google_drive",
+    connection_requirement="Google Drive",
+    required_permissions=("https://www.googleapis.com/auth/drive.readonly",),
+)
+
+register_tool(
+    "drive.get_file_content",
+    "Read the text content of a Google Drive file, Google Doc, or Google Sheet by its file ID.",
+    {
+        "type": "object",
+        "properties": {
+            "file_id": {"type": "string", "description": "The Google Drive file ID to read"},
+        },
+        "required": ["file_id"],
+    },
+    "google_drive",
+    connection_requirement="Google Drive",
+    required_permissions=("https://www.googleapis.com/auth/drive.readonly",),
+)

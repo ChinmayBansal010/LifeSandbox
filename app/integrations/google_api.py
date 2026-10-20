@@ -94,6 +94,7 @@ async def _request(
     method: str,
     url: str,
     connection_id: str | None = None,
+    as_text: bool = False,
     **kwargs,
 ):
     row, token = await _connection(db, user_id, scope, connection_id)
@@ -103,6 +104,8 @@ async def _request(
                 method, url, headers={"Authorization": f"Bearer {token}"}, **kwargs
             )
             response.raise_for_status()
+            if as_text:
+                return response.text
             return response.json()
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 401:
@@ -495,3 +498,133 @@ async def send_draft(db: AsyncSession, user_id: str, connection_id: str, draft_i
     if not result.get("id"):
         raise GoogleActionUncertain
     return {"message_id": result["id"], "thread_id": result.get("threadId"), "status": "sent"}
+
+
+async def search_drive_files(
+    db: AsyncSession,
+    user_id: str,
+    query: str | None = None,
+    mime_type: str | None = None,
+    limit: int = 15,
+    connection_id: str | None = None,
+) -> dict:
+    bounded_limit = min(max(int(limit), 1), 30)
+    clauses = ["trashed = false"]
+    if query and query.strip():
+        sanitized = query.strip().replace("\\", "\\\\").replace("'", "\\'")
+        clauses.append(f"(name contains '{sanitized}' or fullText contains '{sanitized}')")
+    if mime_type and mime_type.strip():
+        mt = mime_type.strip().lower()
+        type_mapping = {
+            "document": "application/vnd.google-apps.document",
+            "doc": "application/vnd.google-apps.document",
+            "spreadsheet": "application/vnd.google-apps.spreadsheet",
+            "sheet": "application/vnd.google-apps.spreadsheet",
+            "presentation": "application/vnd.google-apps.presentation",
+            "slide": "application/vnd.google-apps.presentation",
+            "pdf": "application/pdf",
+            "folder": "application/vnd.google-apps.folder",
+        }
+        resolved = type_mapping.get(mt, mt)
+        sanitized_mt = resolved.replace("\\", "\\\\").replace("'", "\\'")
+        clauses.append(f"mimeType = '{sanitized_mt}'")
+
+    params = {
+        "q": " and ".join(clauses),
+        "pageSize": bounded_limit,
+        "fields": "files(id, name, mimeType, modifiedTime, size, webViewLink)",
+        "orderBy": "modifiedTime desc",
+    }
+    payload = await _request(
+        db,
+        user_id,
+        "https://www.googleapis.com/auth/drive.readonly",
+        "GET",
+        "https://www.googleapis.com/drive/v3/files",
+        connection_id=connection_id,
+        params=params,
+    )
+    files = [
+        {
+            "id": item.get("id"),
+            "name": item.get("name"),
+            "mime_type": item.get("mimeType"),
+            "modified_time": item.get("modifiedTime"),
+            "size_bytes": item.get("size"),
+            "link": item.get("webViewLink"),
+        }
+        for item in payload.get("files", [])
+    ]
+    return {"query": query, "files": files, "count": len(files)}
+
+
+async def get_drive_file_content(
+    db: AsyncSession,
+    user_id: str,
+    file_id: str,
+    connection_id: str | None = None,
+) -> dict:
+    if (
+        not file_id
+        or not isinstance(file_id, str)
+        or len(file_id) > 250
+        or "/" in file_id
+        or "\\" in file_id
+    ):
+        raise ValueError("Invalid Google Drive file ID")
+
+    meta = await _request(
+        db,
+        user_id,
+        "https://www.googleapis.com/auth/drive.readonly",
+        "GET",
+        f"https://www.googleapis.com/drive/v3/files/{file_id}",
+        connection_id=connection_id,
+        params={"fields": "id, name, mimeType, size, webViewLink"},
+    )
+    name = meta.get("name", "untitled")
+    mime_type = meta.get("mimeType", "")
+
+    if mime_type == "application/vnd.google-apps.document":
+        text_content = await _request(
+            db,
+            user_id,
+            "https://www.googleapis.com/auth/drive.readonly",
+            "GET",
+            f"https://www.googleapis.com/drive/v3/files/{file_id}/export",
+            connection_id=connection_id,
+            as_text=True,
+            params={"mimeType": "text/plain"},
+        )
+    elif mime_type == "application/vnd.google-apps.spreadsheet":
+        text_content = await _request(
+            db,
+            user_id,
+            "https://www.googleapis.com/auth/drive.readonly",
+            "GET",
+            f"https://www.googleapis.com/drive/v3/files/{file_id}/export",
+            connection_id=connection_id,
+            as_text=True,
+            params={"mimeType": "text/csv"},
+        )
+    else:
+        text_content = await _request(
+            db,
+            user_id,
+            "https://www.googleapis.com/auth/drive.readonly",
+            "GET",
+            f"https://www.googleapis.com/drive/v3/files/{file_id}",
+            connection_id=connection_id,
+            as_text=True,
+            params={"alt": "media"},
+        )
+
+    content = text_content[:25000] if isinstance(text_content, str) else str(text_content)[:25000]
+    return {
+        "file_id": file_id,
+        "name": name,
+        "mime_type": mime_type,
+        "content": content,
+        "truncated": len(text_content) > 25000,
+        "link": meta.get("webViewLink"),
+    }

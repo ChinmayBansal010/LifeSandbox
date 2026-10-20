@@ -21,6 +21,7 @@ import {
   Activity,
   AlertCircle,
   Plug,
+  HardDrive,
 } from 'lucide-react';
 import type { PluginCapability, PluginExecution, CapabilityStatus } from '../types';
 
@@ -37,6 +38,7 @@ const CATEGORY_ICONS: Record<string, typeof Blocks> = {
   calendar: Calendar,
   email: Mail,
   research: ExternalLink,
+  drive: HardDrive,
 };
 
 const STATUS_LABELS: Record<CapabilityStatus, { label: string; color: string; bg: string }> = {
@@ -105,6 +107,10 @@ const SUGGESTED_PROMPTS: Record<string, string> = {
     'Draft a polite email to team@company.com with subject "Status Sync" asking for feedback.',
   'gmail.send_draft':
     'Help me draft and send an email update to my team after I review the draft.',
+  'drive.search_files':
+    'Search my Google Drive for documents and spreadsheets related to project plans.',
+  'drive.get_file_content':
+    'Read the text contents of my Google Doc notes from Google Drive.',
   'research.search':
     'Search the web for the latest benchmarks and architecture patterns in agentic workflows.',
 };
@@ -130,6 +136,7 @@ export default function PluginsPanel({ onClose, onUseInChat }: PluginsPanelProps
   const [connectionCapabilities, setConnectionCapabilities] = useState<string[]>([
     'calendar.read',
     'gmail.read',
+    'drive.read',
   ]);
   const [connectionBusy, setConnectionBusy] = useState(false);
 
@@ -846,6 +853,7 @@ export default function PluginsPanel({ onClose, onUseInChat }: PluginsPanelProps
                     ['gmail.read', 'Search and read Gmail threads'],
                     ['gmail.draft', 'Create Gmail drafts for you'],
                     ['gmail.send', 'Send emails (Strictly approval-gated)'],
+                    ['drive.read', 'Search and read Google Drive files & Docs'],
                   ].map(([value, label]) => (
                     <label
                       key={value}

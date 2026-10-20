@@ -16,8 +16,10 @@ from app.domain.followthrough_tools import FOLLOWTHROUGH_TOOL_NAMES
 from app.integrations.google_api import (
     create_draft,
     find_free_time,
+    get_drive_file_content,
     get_thread,
     list_events,
+    search_drive_files,
     search_messages,
 )
 from app.persistence.models import ApprovalRow, AuditRow, IntegrationConnectionRow
@@ -76,6 +78,21 @@ def select_relevant_tools(message: str, intent: str = "conversation") -> set[str
         selected.update({"gmail.search_messages", "gmail.get_thread", "gmail.create_draft"})
         if any(term in text for term in ("send", "deliver", "send this draft")):
             selected.add("gmail.send_draft")
+    if any(
+        term in text
+        for term in (
+            "drive",
+            "google drive",
+            "gdrive",
+            "document",
+            "doc",
+            "docs",
+            "sheet",
+            "sheets",
+            "spreadsheet",
+        )
+    ):
+        selected.update({"drive.search_files", "drive.get_file_content"})
     if any(
         term in text
         for term in ("latest", "current", "research", "open-source", "web", "online", "sources")
@@ -229,6 +246,8 @@ async def agent(state: ConversationState):
             "gmail.get_thread",
             "gmail.create_draft",
             "gmail.send_draft",
+            "drive.search_files",
+            "drive.get_file_content",
             *FOLLOWTHROUGH_TOOL_NAMES,
         }
         if (
@@ -351,6 +370,8 @@ async def agent(state: ConversationState):
                 allowed_tools.difference_update({"gmail.search_messages", "gmail.get_thread"})
             if "https://www.googleapis.com/auth/gmail.compose" not in granted:
                 allowed_tools.discard("gmail.create_draft")
+            if "https://www.googleapis.com/auth/drive.readonly" not in granted:
+                allowed_tools.difference_update({"drive.search_files", "drive.get_file_content"})
             if {
                 "https://www.googleapis.com/auth/gmail.compose",
                 "https://www.googleapis.com/auth/gmail.send",
@@ -466,7 +487,7 @@ async def execute_tools(state: ConversationState):
         async with trace_tool(
             name or "unknown_tool",
             "followthrough" if name in FOLLOWTHROUGH_TOOL_NAMES else "decision_tool",
-            {"redacted": True} if name.startswith(("gmail.", "calendar.")) else arguments,
+            {"redacted": True} if name.startswith(("gmail.", "calendar.", "drive.")) else arguments,
         ) as event:
             tool_db = state.get("db")
             audit = AuditRow(
@@ -543,7 +564,7 @@ async def execute_tools(state: ConversationState):
                                 correlation_id=call_id or None,
                             )
                         )
-                elif name.startswith("calendar.") or name.startswith("gmail."):
+                elif name.startswith("calendar.") or name.startswith("gmail.") or name.startswith("drive."):
                     tool_db = state.get("db")
                     user_id = state.get("user_id")
                     if tool_db is None or user_id is None:
@@ -580,6 +601,26 @@ async def execute_tools(state: ConversationState):
                         result = await _bounded(
                             get_thread(
                                 tool_db, user_id, arguments["thread_id"], arguments.get("limit", 10)
+                            ),
+                            definition.timeout_seconds,
+                        )
+                    elif name == "drive.search_files":
+                        result = await _bounded(
+                            search_drive_files(
+                                tool_db,
+                                user_id,
+                                arguments.get("query"),
+                                arguments.get("mime_type"),
+                                arguments.get("limit", 15),
+                            ),
+                            definition.timeout_seconds,
+                        )
+                    elif name == "drive.get_file_content":
+                        result = await _bounded(
+                            get_drive_file_content(
+                                tool_db,
+                                user_id,
+                                arguments["file_id"],
                             ),
                             definition.timeout_seconds,
                         )
@@ -674,14 +715,14 @@ async def execute_tools(state: ConversationState):
                     ), definition.timeout_seconds)
                 else:
                     result = execute_decision_tool(name, arguments)
-                if name.startswith("gmail.") or name.startswith("calendar."):
+                if name.startswith("gmail.") or name.startswith("calendar.") or name.startswith("drive."):
                     event["output_data"] = {
                         "status": result.get("status", "succeeded")
                         if isinstance(result, dict)
                         else "succeeded",
                         "count": sum(
                             len(result.get(key, []))
-                            for key in ("items", "messages", "slots")
+                            for key in ("items", "messages", "slots", "files")
                             if isinstance(result, dict)
                         ),
                         "connection": "google",
