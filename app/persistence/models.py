@@ -1,7 +1,9 @@
 from datetime import UTC, datetime
 from uuid import uuid4
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy.dialects.postgresql import TSVECTOR
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -66,6 +68,10 @@ class MemoryRow(Base):
     )
     confidence: Mapped[float] = mapped_column(default=1.0)
     identity_key: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(), nullable=True)
+    tsv: Mapped[str | None] = mapped_column(
+        Text().with_variant(TSVECTOR, "postgresql"), nullable=True
+    )
 
 
 class MemoryCandidateRow(Base):
@@ -287,6 +293,10 @@ class FileChunkRow(Base):
     chunk_index: Mapped[int] = mapped_column(Integer)
     page_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     content: Mapped[str] = mapped_column(Text)
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(), nullable=True)
+    tsv: Mapped[str | None] = mapped_column(
+        Text().with_variant(TSVECTOR, "postgresql"), nullable=True
+    )
 
 
 class PromptTraceRow(Base):

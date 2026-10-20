@@ -7,7 +7,16 @@ from datetime import UTC, datetime
 from functools import lru_cache
 
 import sentry_sdk
-from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field, field_validator
@@ -27,7 +36,6 @@ from app.persistence.models import (
     Base,
     ConversationRow,
     FeedbackRow,
-    FileChunkRow,
     FileRow,
     IntegrationConnectionRow,
     MessageRow,
@@ -583,13 +591,14 @@ async def create_upload(
 
 @app.post("/api/v1/files", status_code=201)
 async def upload_file(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(get_session),
 ):
+    from app.jobs.worker import run_due_once
+    from app.persistence.models import JobRow
     from app.services.files import (
-        chunks,
-        extract_pages,
         make_key,
         read_upload,
         safe_filename,
@@ -616,8 +625,6 @@ async def upload_file(
         }
         if declared and declared != "application/octet-stream" and declared not in aliases[mime]:
             raise ValueError("Declared MIME type does not match the file extension")
-        pages = extract_pages(ext, data)
-        extracted = [] if ext in {".png", ".jpg", ".jpeg"} else chunks(pages)
     except Exception as exc:
         # Parser diagnostics may contain internal paths or archive member names.
         message = (
@@ -630,27 +637,37 @@ async def upload_file(
     path = storage_path(key)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(data)
+
+    is_image = ext in {".png", ".jpg", ".jpeg"}
+    initial_status = "ready" if is_image else "processing"
+
     row = FileRow(
         id=key,
         user_id=principal.user_id,
         filename=filename,
         mime_type=mime,
         size_bytes=len(data),
-        status="ready",
+        status=initial_status,
         storage_key=key,
     )
     db.add(row)
-    for index, page, content in extracted:
-        db.add(
-            FileChunkRow(
-                file_id=key,
-                user_id=principal.user_id,
-                chunk_index=index,
-                page_number=page,
-                content=content,
-            )
+
+    if not is_image:
+        job = JobRow(
+            user_id=principal.user_id,
+            job_type="document_ingestion",
+            payload=json.dumps({"file_id": key}),
+            scheduled_at=datetime.now(UTC),
+            idempotency_key=f"doc_ingest:{key}",
+            status="queued",
         )
+        db.add(job)
+
     await db.commit()
+
+    if not is_image:
+        background_tasks.add_task(run_due_once, None, 25, "document_ingestion")
+
     return file_view(row)
 
 

@@ -52,8 +52,11 @@ class Settings(BaseSettings):
     aws_region: str = "us-east-2"
     aws_endpoint_url_s3: str | None = None
     neon_storage_bucket: str | None = None
-    embedding_provider: Literal["local_hash"] = "local_hash"
-    embedding_dimensions: int = Field(default=128, ge=8, le=8192)
+    embedding_provider: Literal["fastembed", "openai", "local_hash"] = "fastembed"
+    embedding_dimensions: int = Field(default=384, ge=8, le=8192)
+    fastembed_model: str = "BAAI/bge-small-en-v1.5"
+    openai_api_key: str | None = None
+    openai_embedding_model: str = "text-embedding-3-small"
     upload_max_bytes: int = Field(default=10_000_000, ge=1, le=100_000_000)
     file_storage_dir: str = "./data/uploads"
     extracted_text_max_chars: int = Field(default=200_000, ge=1, le=2_000_000)
@@ -93,6 +96,10 @@ class Settings(BaseSettings):
             raise ValueError(f"{self.llm_provider} requires its API key and model")
         if self.research_provider == "tavily" and not self.tavily_api_key:
             raise ValueError("TAVILY_API_KEY is required when RESEARCH_PROVIDER=tavily")
+        if self.embedding_provider == "openai" and not (
+            self.openai_api_key or self.nebius_api_key or self.openrouter_api_key
+        ):
+            raise ValueError("OpenAI embeddings require OPENAI_API_KEY")
         return self
 
 

@@ -1,6 +1,8 @@
 import asyncio
 import base64
+import json
 import logging
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -18,10 +20,12 @@ from app.persistence.models import (
     ConversationRow,
     FileChunkRow,
     FileRow,
+    JobRow,
     MessageRow,
 )
 from app.providers.mem0 import remember_exchange
 from app.providers.mem0 import search_memories as search_hosted_memories
+from app.rag.embeddings import cosine, embed
 from app.services.files import storage_path
 from app.services.tool_tracker import trace_prompt, trace_tool
 
@@ -109,17 +113,49 @@ async def run_chat(
                         conversation_id=row.id, file_id=file_id, user_id=user_id
                     )
                 )
-        chunks = list(
-            (
-                await db.scalars(
-                    select(FileChunkRow)
-                    .where(
-                        FileChunkRow.file_id.in_(known_file_ids), FileChunkRow.user_id == user_id
-                    )
-                    .order_by(FileChunkRow.chunk_index)
+        query_vec = embed(message)
+        dialect_name = getattr(db.bind, "dialect", None)
+        dialect = getattr(dialect_name, "name", "") if dialect_name else ""
+        top_chunks = []
+        if dialect == "postgresql":
+            try:
+                top_chunks = list(
+                    (
+                        await db.scalars(
+                            select(FileChunkRow)
+                            .where(
+                                FileChunkRow.file_id.in_(known_file_ids),
+                                FileChunkRow.user_id == user_id,
+                                FileChunkRow.embedding.is_not(None),
+                            )
+                            .order_by(FileChunkRow.embedding.cosine_distance(query_vec))
+                            .limit(5)
+                        )
+                    ).all()
                 )
-            ).all()
-        )
+            except Exception:
+                top_chunks = []
+        if not top_chunks:
+            all_candidate_chunks = list(
+                (
+                    await db.scalars(
+                        select(FileChunkRow).where(
+                            FileChunkRow.file_id.in_(known_file_ids),
+                            FileChunkRow.user_id == user_id,
+                        )
+                    )
+                ).all()
+            )
+            if all_candidate_chunks:
+                top_chunks = sorted(
+                    all_candidate_chunks,
+                    key=lambda c: cosine(
+                        query_vec,
+                        c.embedding if c.embedding is not None else embed(c.content),
+                    ),
+                    reverse=True,
+                )[:5]
+
         image_files = [file for file in files if file.mime_type in {"image/png", "image/jpeg"}]
         settings = get_settings()
         if image_files and (not settings.vision_enabled or settings.llm_provider == "mock"):
@@ -143,16 +179,13 @@ async def run_chat(
                     "data": base64.b64encode(image_bytes).decode("ascii"),
                 }
             )
-        remaining = 16000
         excerpts = []
-        for chunk in chunks:
-            if remaining <= 0:
-                break
-            file_row = next(item for item in files if item.id == chunk.file_id)
-            text = chunk.content[:remaining]
+        for chunk in top_chunks:
+            file_row = next((item for item in files if item.id == chunk.file_id), None)
+            if not file_row:
+                continue
             pos = f", page {chunk.page_number}" if chunk.page_number else ""
-            excerpts.append(f"[{file_row.filename}{pos}]\n{text}")
-            remaining -= len(text)
+            excerpts.append(f"[{file_row.filename}{pos}]\n{chunk.content}")
         if requested_file_ids and not excerpts and not image_inputs:
             raise ValueError("Attached files have no extracted text")
         file_context = "\n\n".join(excerpts)
@@ -296,6 +329,22 @@ async def run_chat(
                     save_event["error"] = str(exc)
 
         await db.refresh(row)
+        # Asynchronous memory reflection job without requiring explicit 'remember' syntax
+        reflection_job = JobRow(
+            user_id=user_id,
+            job_type="memory_reflection",
+            payload=json.dumps({
+                "conversation_id": row.id,
+                "message": message,
+                "reply": state.get("reply", ""),
+            }),
+            scheduled_at=datetime.now(UTC),
+            idempotency_key=f"reflect:{row.id}:{uuid4()}",
+            status="queued",
+        )
+        db.add(reflection_job)
+        await db.commit()
+
         trace_data["response_preview"] = state["reply"][:500]
         trace_data["skill"] = state.get("skill")
         trace_data["skill_trigger"] = state.get("skill_trigger")

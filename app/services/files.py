@@ -12,8 +12,11 @@ from pathlib import Path
 from xml.etree import ElementTree
 
 from fastapi import UploadFile
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
+from app.rag.chunking import chunk_text
 
 ALLOWED = {
     ".pdf": "application/pdf",
@@ -172,15 +175,92 @@ def chunks(pages: list[tuple[int | None, str]]) -> list[tuple[int, int | None, s
     content = "\n".join(text for _, text in pages)
     if not content.strip():
         raise ValueError("No extractable text was found in this document")
-    if len(content) > maximum:
-        content = content[:maximum]
     result = []
-    offset = 0
+    total_len = 0
     for page, text in pages:
-        for start in range(0, len(text), 2000):
-            result.append((len(result), page, text[start : start + 2000]))
-        offset += len(text)
+        if not text.strip():
+            continue
+        page_chunks = chunk_text(text, max_chars=1200, overlap=150)
+        for piece in page_chunks:
+            if total_len + len(piece) > maximum:
+                remaining_chars = max(0, maximum - total_len)
+                if remaining_chars > 0:
+                    result.append((len(result), page, piece[:remaining_chars]))
+                return result
+            result.append((len(result), page, piece))
+            total_len += len(piece)
+    if not result:
+        # Fallback if text was purely empty lines
+        raise ValueError("No extractable text was found in this document")
     return result
+
+
+async def process_document_ingestion(
+    db: AsyncSession, file_id: str, user_id: str | None = None
+) -> int:
+    """Extract, chunk with recursive sentence/markdown chunking, embed, and index a document."""
+    from app.persistence.models import FileChunkRow, FileRow
+    from app.rag.embeddings import embed_many
+
+    file_row = await db.get(FileRow, file_id)
+    if not file_row:
+        raise ValueError(f"File not found: {file_id}")
+    if user_id and file_row.user_id != user_id:
+        raise PermissionError("User does not own this file")
+
+    if file_row.mime_type in {"image/png", "image/jpeg"}:
+        file_row.status = "ready"
+        await db.commit()
+        return 0
+
+    path = storage_path(file_row.storage_key)
+    if not path.is_file():
+        file_row.status = "error"
+        file_row.error_message = "File content is missing from storage"
+        await db.commit()
+        raise ValueError(file_row.error_message)
+
+    try:
+        data = path.read_bytes()
+        ext = Path(file_row.filename).suffix.lower()
+        pages = extract_pages(ext, data)
+        extracted = chunks(pages)
+    except Exception as exc:
+        file_row.status = "error"
+        file_row.error_message = str(exc)[:500]
+        await db.commit()
+        raise
+
+    existing_chunks = list(
+        (await db.scalars(select(FileChunkRow).where(FileChunkRow.file_id == file_id))).all()
+    )
+    for c in existing_chunks:
+        await db.delete(c)
+    await db.flush()
+
+    if not extracted:
+        file_row.status = "ready"
+        await db.commit()
+        return 0
+
+    texts = [c[2] for c in extracted]
+    vectors = embed_many(texts)
+
+    for (index, page, text_content), vector in zip(extracted, vectors, strict=True):
+        db.add(
+            FileChunkRow(
+                file_id=file_row.id,
+                user_id=file_row.user_id,
+                chunk_index=index,
+                page_number=page,
+                content=text_content,
+                embedding=vector,
+            )
+        )
+    file_row.status = "ready"
+    file_row.error_message = None
+    await db.commit()
+    return len(extracted)
 
 
 def make_key() -> str:

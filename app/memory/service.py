@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 from datetime import UTC, datetime, timedelta
 
@@ -6,6 +7,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.persistence.models import MemoryCandidateRow, MemoryPolicyRow, MemoryRow
+from app.rag.embeddings import cosine, embed
+from app.rag.retrieval import reciprocal_rank_fusion
+
+logger = logging.getLogger("life_sandbox.memory")
 
 SENSITIVE_CATEGORIES = {"health", "financial", "identity", "credential"}
 
@@ -68,32 +73,85 @@ async def search_memories(db: AsyncSession, user_id: str, query: str, limit: int
     if not policy.enabled:
         return []
     await apply_retention(db, policy)
-    rows = (
-        await db.scalars(
-            select(MemoryRow)
-            .where(MemoryRow.user_id == user_id, MemoryRow.status == "active")
-            .order_by(MemoryRow.updated_at.desc())
-        )
-    ).all()
+    rows = list(
+        (
+            await db.scalars(
+                select(MemoryRow)
+                .where(MemoryRow.user_id == user_id, MemoryRow.status == "active")
+                .order_by(MemoryRow.updated_at.desc())
+            )
+        ).all()
+    )
+    if not rows:
+        return []
+
+    query_vec = embed(query)
+    dialect_name = getattr(db.bind, "dialect", None)
+    dialect = getattr(dialect_name, "name", "") if dialect_name else ""
+
+    # 1. Dense vector ranking
+    dense_ranked_rows: list[MemoryRow] = []
+    if dialect == "postgresql":
+        try:
+            dense_stmt = (
+                select(MemoryRow)
+                .where(
+                    MemoryRow.user_id == user_id,
+                    MemoryRow.status == "active",
+                    MemoryRow.embedding.is_not(None),
+                )
+                .order_by(MemoryRow.embedding.cosine_distance(query_vec))
+                .limit(limit * 3)
+            )
+            dense_ranked_rows = list((await db.scalars(dense_stmt)).all())
+        except Exception:
+            dense_ranked_rows = []
+
+    if not dense_ranked_rows:
+        scored_dense: list[tuple[MemoryRow, float]] = []
+        for r in rows:
+            vec = r.embedding if r.embedding is not None else embed(r.content)
+            try:
+                scored_dense.append((r, cosine(query_vec, vec)))
+            except Exception:
+                continue
+        if scored_dense:
+            max_sim = max(s for _, s in scored_dense)
+            min_thresh = max(0.45, max_sim - 0.15)
+            filtered_dense = [(r, s) for r, s in scored_dense if s >= min_thresh]
+            filtered_dense.sort(key=lambda pair: pair[1], reverse=True)
+            dense_ranked_rows = [p[0] for p in filtered_dense[: limit * 3]]
+
+    # 2. Sparse lexical / token overlap ranking
     query_terms = tokens(query)
-    ranked = []
+    scored_sparse: list[tuple[MemoryRow, float]] = []
     now = datetime.now(UTC)
-    for row in rows:
-        terms = tokens(row.content)
+    for r in rows:
+        terms = tokens(r.content)
         overlap = len(query_terms & terms)
         if overlap:
-            created_at = row.created_at
+            created_at = r.created_at
             if created_at.tzinfo is None:
                 created_at = created_at.replace(tzinfo=UTC)
             else:
                 created_at = created_at.astimezone(UTC)
             age_days = max(0, (now - created_at).days)
             score = (
-                overlap / max(len(query_terms), 1) + min(row.confidence, 1) * 0.1 - age_days / 3650
+                overlap / max(len(query_terms), 1) + min(r.confidence, 1) * 0.1 - age_days / 3650
             )
-            ranked.append((score, row))
-    ranked.sort(key=lambda pair: pair[0], reverse=True)
-    return [row for _, row in ranked[:limit]]
+            scored_sparse.append((r, score))
+    scored_sparse.sort(key=lambda pair: pair[1], reverse=True)
+    sparse_ranked_rows = [p[0] for p in scored_sparse[: limit * 3]]
+
+    # 3. Hybrid search combination using Reciprocal Rank Fusion
+    fused = reciprocal_rank_fusion(
+        [dense_ranked_rows, sparse_ranked_rows],
+        k=60,
+        key_fn=lambda r: r.id,
+    )
+    if fused:
+        return [row for row, _ in fused[:limit]]
+    return []
 
 
 async def save_memory(
@@ -137,6 +195,7 @@ async def save_memory(
         project_id=project_id,
         identity_key=key,
         status="active",
+        embedding=embed(content),
     )
     db.add(row)
     await db.flush()
@@ -219,3 +278,133 @@ def policy_json(policy: MemoryPolicyRow):
         "retention_days": policy.retention_days,
         "hosted_memory_allowed": policy.hosted_memory_allowed,
     }
+
+
+def extract_implicit_facts(message: str) -> list[tuple[str, str]]:
+    """Extract personal facts and preferences without requiring explicit 'remember' syntax."""
+    if not message or len(message) > 4000:
+        return []
+
+    lowered = message.lower()
+    if re.search(
+        r"\b(?:api[ _-]?key|password|passphrase|secret|credential|access token|bearer token)\b|"
+        r"sk-or-v1-[a-z0-9_-]+",
+        lowered,
+    ):
+        return []
+
+    facts = []
+    sentences = re.split(r"(?<=[.!?\n])\s+", message.strip())
+    for s in sentences:
+        s_clean = s.strip(" \t-*\r\n")
+        if not s_clean or len(s_clean) < 10 or len(s_clean) > 500:
+            continue
+        s_lower = s_clean.lower()
+        if re.search(r"\b(?:api[ _-]?key|password|passphrase|secret|credential)\b", s_lower):
+            continue
+
+        if re.search(
+            r"\b(?:i prefer|i like|i dislike|i avoid|i love|my favorite|"
+            r"i always use|i never use|i want)\b",
+            s_lower,
+        ):
+            facts.append(("preference", s_clean))
+        elif re.search(
+            r"\b(?:i am a|i am an|i work as|i work at|i live in|i moved to|my name is|"
+            r"i study at)\b",
+            s_lower,
+        ):
+            facts.append(("profile", s_clean))
+        elif re.search(
+            r"\b(?:i am building|i am working on|my project is|i'm developing|i'm creating)\b",
+            s_lower,
+        ):
+            facts.append(("project", s_clean))
+        elif re.search(
+            r"\b(?:yesterday i|last week i|last year i|recently i decided|i learned that)\b",
+            s_lower,
+        ):
+            facts.append(("episode", s_clean))
+
+    return facts
+
+
+async def process_reflection_job(
+    db: AsyncSession, user_id: str, payload: dict
+) -> list[str]:
+    """Asynchronously reflect on a conversation exchange and extract/save personal facts."""
+    conversation_id = payload.get("conversation_id")
+    message = payload.get("message", "")
+    if not message:
+        return []
+
+    policy = await policy_for(db, user_id)
+    if not policy.enabled:
+        return []
+
+    facts = extract_implicit_facts(message)
+    if not facts:
+        return []
+
+    auto_categories = set(json.loads(policy.auto_categories))
+    approval_categories = set(json.loads(policy.approval_categories))
+    never_auto = set(json.loads(policy.never_auto_categories))
+
+    persisted_ids = []
+    for category, fact in facts:
+        if category in never_auto or category in SENSITIVE_CATEGORIES:
+            if category in approval_categories:
+                pending = await db.scalar(
+                    select(MemoryCandidateRow).where(
+                        MemoryCandidateRow.user_id == user_id,
+                        MemoryCandidateRow.category == category,
+                        MemoryCandidateRow.content == fact,
+                        MemoryCandidateRow.status == "pending",
+                    )
+                )
+                if not pending:
+                    candidate = MemoryCandidateRow(
+                        user_id=user_id,
+                        content=fact,
+                        category=category,
+                        source_conversation_id=conversation_id,
+                        confidence=0.8,
+                    )
+                    db.add(candidate)
+                    await db.flush()
+                    persisted_ids.append(candidate.id)
+            continue
+
+        if category in auto_categories:
+            mem = await save_memory(
+                db,
+                user_id,
+                fact,
+                category,
+                consent=True,
+                source="agent-reflection",
+                source_conversation_id=conversation_id,
+            )
+            persisted_ids.append(mem.id)
+        elif category in approval_categories:
+            pending = await db.scalar(
+                select(MemoryCandidateRow).where(
+                    MemoryCandidateRow.user_id == user_id,
+                    MemoryCandidateRow.category == category,
+                    MemoryCandidateRow.content == fact,
+                    MemoryCandidateRow.status == "pending",
+                )
+            )
+            if not pending:
+                candidate = MemoryCandidateRow(
+                    user_id=user_id,
+                    content=fact,
+                    category=category,
+                    source_conversation_id=conversation_id,
+                    confidence=0.75,
+                )
+                db.add(candidate)
+                await db.flush()
+                persisted_ids.append(candidate.id)
+
+    return persisted_ids

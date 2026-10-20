@@ -83,6 +83,28 @@ def select_relevant_tools(message: str, intent: str = "conversation") -> set[str
         selected.add("research.search")
     if intent == "research":
         selected.add("research.search")
+    if any(
+        term in text
+        for term in (
+            "file",
+            "files",
+            "document",
+            "documents",
+            "doc",
+            "docs",
+            "note",
+            "notes",
+            "pdf",
+            "uploaded",
+            "attachment",
+            "knowledge",
+            "my files",
+            "my documents",
+            "search files",
+            "search notes",
+        )
+    ) or intent in {"research", "knowledge"}:
+        selected.add("knowledge.search")
     return selected
 
 
@@ -478,6 +500,45 @@ async def execute_tools(state: ConversationState):
                             AuditRow(
                                 user_id=state.get("user_id", "unknown"),
                                 action="research.search",
+                                outcome="succeeded",
+                                correlation_id=call_id or None,
+                            )
+                        )
+                elif name == "knowledge.search":
+                    tool_db = state.get("db")
+                    user_id = state.get("user_id")
+                    if tool_db is None or user_id is None:
+                        raise ValueError("Knowledge search requires an authenticated user context")
+                    from app.rag.retrieval import search_user_documents
+
+                    chunks = await _bounded(
+                        search_user_documents(
+                            tool_db,
+                            user_id,
+                            arguments["query"],
+                            limit=arguments.get("limit", 5),
+                        ),
+                        definition.timeout_seconds,
+                    )
+                    result = {
+                        "query": arguments["query"],
+                        "results": [
+                            {
+                                "file_id": c.file_id,
+                                "filename": c.filename,
+                                "page_number": c.page_number,
+                                "content": c.content,
+                                "score": round(c.score, 4),
+                            }
+                            for c in chunks
+                        ],
+                        "total_results": len(chunks),
+                    }
+                    if tool_db is not None:
+                        tool_db.add(
+                            AuditRow(
+                                user_id=user_id,
+                                action="knowledge.search",
                                 outcome="succeeded",
                                 correlation_id=call_id or None,
                             )

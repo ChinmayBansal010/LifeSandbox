@@ -12,3 +12,15 @@ os.environ["DATABASE_URL"] = os.environ.get(
     "LIFESANDBOX_TEST_DATABASE_URL", f"sqlite+aiosqlite:///{_test_database_path}"
 )
 os.environ["LLM_PROVIDER"] = "mock"
+
+
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def reset_settings_cache():
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()

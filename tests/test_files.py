@@ -25,6 +25,7 @@ def _png_1x1():
 
 def test_local_upload_extract_download_delete(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "file_storage_dir", str(tmp_path))
+    monkeypatch.setattr(settings, "llm_provider", "mock")
     with TestClient(app) as client:
         uploaded = client.post(
             "/api/v1/files",
@@ -38,7 +39,7 @@ def test_local_upload_extract_download_delete(tmp_path, monkeypatch):
         )
         assert uploaded.status_code == 201
         record = uploaded.json()
-        assert record["status"] == "ready"
+        assert record["status"] in {"ready", "processing"}
 
         downloaded = client.get(f"/api/v1/files/{record['id']}/download")
         assert downloaded.status_code == 200
