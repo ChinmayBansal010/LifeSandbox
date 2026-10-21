@@ -171,4 +171,60 @@ The browser agent harness (`tests/test_browser_agent_harness.py`) exercises the 
 uv run pytest tests/test_browser_agent_harness.py -v
 ```
 
+## RAG & Cross-Conversation Memory Evaluation Harness
+
+The RAG and memory retrieval harness (`evals/rag_harness.py`, `scripts/run_rag_harness.py`, `tests/test_rag_eval_harness.py`) benchmarks retrieval fidelity and guarantees data privacy:
+- **Information Retrieval Metrics**: Computes **Hit Rate@K** (k=1, 3, 5), **Mean Reciprocal Rank (MRR)**, and **NDCG@5** against known golden passages.
+- **Context Groundedness & Anti-Hallucination**: Verifies that generated answers cite established claims and flags unsupported tokens.
+- **Multi-Tenant Isolation Audit**: Verifies cross-tenant boundaries ensuring User A's queries never retrieve documents or past conversation turns belonging to User B.
+- **Chunking Boundary Verification**: Asserts markdown and sentence-aware chunk boundaries with 10-15% overlap preservation.
+
+```bash
+# Run standalone RAG benchmark and output JSON report:
+python scripts/run_rag_harness.py --suite all --output evals/reports/rag_eval.json
+
+# Run via Pytest:
+uv run pytest tests/test_rag_eval_harness.py -v
+
+# Run as part of unified evaluation:
+python scripts/run_evals.py --suite rag
+```
+
+## Google Workspace & Drive Provider Contract Harness
+
+The live contract harness (`tests/test_live_provider_contract_harness.py`) includes verification for Google Workspace:
+- **Google Drive v3 files.list Schema**: Verifies query filtering, fields extraction (`id`, `name`, `mime_type`, `size_bytes`, `link`).
+- **Google Docs & Sheets Export Conversion**: Asserts plain-text and CSV conversion transitions for Google Docs and Spreadsheets.
+- **OAuth Error Envelopes**: Simulates 401 token expired and 403 insufficient permission error responses.
+
+```bash
+uv run pytest tests/test_live_provider_contract_harness.py -v
+```
+
+## Telegram Two-Way Bot Concurrency & Media Inbound Harness
+
+The Telegram bot harness (`tests/test_telegram_harness.py`) exercises the inbound messaging pipeline:
+- **Burst Concurrency Ingestion**: Concurrently simulates 20 parallel incoming user messages through session allocation and chat graphs without deadlocks.
+- **Media Inbound Guidance**: Asserts that unhandled voice notes or media without text trigger polite guidance messages without unhandled server exceptions.
+- **Command State Machine Lifecycle**: Validates `/start`, `/status`, and `/reset` commands, confirming conversation resetting establishes new isolated threads.
+- **Message Chunking Boundaries**: Verifies multi-kilobyte text splitting across paragraph and character boundary thresholds.
+
+```bash
+uv run pytest tests/test_telegram_harness.py -v
+```
+
+## OpenUI AST & Schema Validation Harness
+
+The OpenUI Lang validation harness (`evals/openui_harness.py`, `tests/test_openui_harness.py`) validates declarative generative UI outputs:
+- **Root Entry Point Requirement**: Enforces that every program defines `root = Card(...)`.
+- **Positional Argument Enforcement**: Strictly disallows illegal keyword colon syntax inside component calls (e.g. `Card(title: "...")`).
+- **Component Whitelist**: Asserts all invoked components belong to the supported OpenUI library (Charts, Tables, Metrics, Cards, Forms).
+- **Delimiter Balance**: Verifies closure of all brackets, parentheses, and string literals.
+- **Reference Graph Connectivity**: Warns on orphan variables that are defined but never rendered in a parent container.
+
+```bash
+uv run pytest tests/test_openui_harness.py -v
+```
+
+
 

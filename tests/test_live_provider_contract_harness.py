@@ -262,3 +262,145 @@ async def test_live_openrouter_provider_contract():
     assert result.provider == "openrouter"
     assert len(result.text.strip()) > 0
 
+
+# ─── 4. Google Workspace & Drive Provider Contract ──────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_google_drive_files_list_contract_schema(monkeypatch):
+    """Harness: Google Drive v3 files.list upstream contract adheres to schema."""
+    import app.integrations.google_api as google_api
+
+    upstream_drive_list = {
+        "kind": "drive#fileList",
+        "incompleteSearch": False,
+        "files": [
+            {
+                "kind": "drive#file",
+                "id": "1A2B3C4D5E6F",
+                "name": "Financial_Model_2026.xlsx",
+                "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                "size": "45056",
+                "modifiedTime": "2026-10-20T12:00:00.000Z",
+                "webViewLink": "https://drive.google.com/file/d/1A2B3C4D5E6F/view",
+            },
+            {
+                "kind": "drive#file",
+                "id": "7G8H9I0J1K2L",
+                "name": "Project Roadmap",
+                "mimeType": "application/vnd.google-apps.document",
+                "modifiedTime": "2026-10-21T09:30:00.000Z",
+                "webViewLink": "https://docs.google.com/document/d/7G8H9I0J1K2L/edit",
+            },
+        ],
+    }
+
+    async def fake_request(*args, **kwargs):
+        assert "drive/v3/files" in kwargs.get("url", args[4] if len(args) > 4 else "")
+        return upstream_drive_list
+
+    monkeypatch.setattr(google_api, "_request", fake_request)
+    result = await google_api.search_drive_files(None, "user_test", query="Roadmap", limit=10)
+    assert result["count"] == 2
+    assert result["files"][0]["id"] == "1A2B3C4D5E6F"
+    assert result["files"][0]["name"] == "Financial_Model_2026.xlsx"
+    assert result["files"][0]["size_bytes"] == "45056"
+    assert result["files"][1]["mime_type"] == "application/vnd.google-apps.document"
+
+
+@pytest.mark.asyncio
+async def test_google_drive_document_export_contract(monkeypatch):
+    """Harness: Google Drive export endpoint converts Google Docs to plain text."""
+    import app.integrations.google_api as google_api
+
+    async def fake_request(*args, **kwargs):
+        url = kwargs.get("url", args[4] if len(args) > 4 else "")
+        if url.endswith("/export"):
+            params = kwargs.get("params", {})
+            assert params.get("mimeType") == "text/plain"
+            return "LifeSandbox Executive Summary\n- Risk Assessment: Low\n- Runway: 18 months"
+        return {
+            "id": "doc_sample_789",
+            "name": "Executive Summary",
+            "mimeType": "application/vnd.google-apps.document",
+            "webViewLink": "https://docs.google.com/document/d/doc_sample_789/edit",
+        }
+
+    monkeypatch.setattr(google_api, "_request", fake_request)
+    content_res = await google_api.get_drive_file_content(None, "user_test", "doc_sample_789")
+    assert content_res["file_id"] == "doc_sample_789"
+    assert "LifeSandbox Executive Summary" in content_res["content"]
+    assert content_res["mime_type"] == "application/vnd.google-apps.document"
+
+
+@pytest.mark.asyncio
+async def test_google_api_upstream_error_envelopes(monkeypatch):
+    """Harness: Google REST API error envelopes (401, 403, 404) are reliably handled."""
+    from fastapi import HTTPException
+
+    async def fake_401_request(*args, **kwargs):
+        raise HTTPException(
+            409,
+            detail={
+                "code": "google_reconnect_required",
+                "message": "Google rejected the connection. Reconnect the account.",
+            },
+        )
+
+    monkeypatch.setattr("app.integrations.google_api._request", fake_401_request)
+    import app.integrations.google_api as google_api
+
+    with pytest.raises(HTTPException) as exc_info:
+        await google_api.search_drive_files(None, "user_test", query="Anything")
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail["code"] == "google_reconnect_required"
+
+
+# ─── 5. Telegram Bot API Upstream Contract ──────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_telegram_bot_api_contract_schema(monkeypatch):
+    """Harness: Telegram Bot API sendMessage and sendChatAction success and error envelopes."""
+    import app.integrations.telegram as telegram
+    from app.core.config import get_settings
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "telegram_bot_token", "test_token_123")
+    monkeypatch.setattr(settings, "telegram_chat_id", "12345678")
+
+    upstream_success_envelope = {
+        "ok": True,
+        "result": {
+            "message_id": 9901,
+            "date": 1700000000,
+            "chat": {"id": 12345678, "type": "private", "username": "tester"},
+            "text": "Hello from LifeSandbox Agent",
+        },
+    }
+
+    mock_resp = httpx.Response(
+        200,
+        json=upstream_success_envelope,
+        request=httpx.Request("POST", "https://api.telegram.org/botTOKEN/sendMessage"),
+    )
+
+    class MockAsyncClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            pass
+
+        async def post(self, url, **kwargs):
+            return mock_resp
+
+    monkeypatch.setattr(telegram.httpx, "AsyncClient", MockAsyncClient)
+    sent = await telegram.send_telegram_message("12345678", "Hello from LifeSandbox Agent")
+    assert isinstance(sent, dict)
+    assert sent["status"] == "sent"
+    assert sent["message_id"] == 9901
+

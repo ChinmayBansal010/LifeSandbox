@@ -57,6 +57,18 @@ def test_skill_routing_regression(message: str, expected_skill: str):
             "Search my email inbox for messages from professor and draft a polite reply.",
             "gmail.search_messages",
         ),
+        (
+            "Search my Google Drive for the quarterly budget spreadsheet.",
+            "drive.search_files",
+        ),
+        (
+            "Read the project roadmap document from Google Drive.",
+            "drive.get_file_content",
+        ),
+        (
+            "Notify me on Telegram when the report is ready.",
+            "telegram.send_message",
+        ),
     ],
 )
 def test_tool_authorization_regression(message: str, required_tool: str):

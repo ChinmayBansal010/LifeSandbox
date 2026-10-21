@@ -49,11 +49,18 @@ def run_speech_harness() -> int:
     return result.returncode
 
 
+def run_rag_harness() -> int:
+    print("Running RAG and Retrieval evaluation harness (scripts/run_rag_harness.py)...")
+    cmd = ["uv", "run", "python", "scripts/run_rag_harness.py", "--suite", "all"]
+    result = subprocess.run(cmd, cwd=ROOT)
+    return result.returncode
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run LLM evaluation and regression harness.")
     parser.add_argument(
         "--suite",
-        choices=["promptfoo", "pytest", "speech", "all"],
+        choices=["promptfoo", "pytest", "speech", "rag", "all"],
         default="all",
         help="Evaluation suite to execute (default: all)",
     )
@@ -101,6 +108,12 @@ def main() -> int:
         if sp_code != 0:
             print(f"Speech harness evaluation failed with code {sp_code}", file=sys.stderr)
             exit_code = sp_code
+
+    if args.suite in ("rag", "all"):
+        rag_code = run_rag_harness()
+        if rag_code != 0:
+            print(f"RAG harness evaluation failed with code {rag_code}", file=sys.stderr)
+            exit_code = rag_code
 
     if exit_code == 0:
         print("All evaluation suites passed cleanly without regression.")

@@ -97,6 +97,27 @@ tests:
       - type: javascript
         value: "context.metadata.authorized_tools.includes('gmail.search_messages')"
 
+  - description: "Tool selection: Drive documents search activates Google Drive search tool"
+    vars:
+      message: "Search my Google Drive for the quarterly budget spreadsheet."
+    assert:
+      - type: javascript
+        value: "context.metadata.authorized_tools.includes('drive.search_files')"
+
+  - description: "Tool selection: Drive file inspection activates get_file_content tool"
+    vars:
+      message: "Read the project roadmap document from Google Drive."
+    assert:
+      - type: javascript
+        value: "context.metadata.authorized_tools.includes('drive.get_file_content')"
+
+  - description: "Tool selection: Telegram notification activates telegram.send_message tool"
+    vars:
+      message: "Notify me on Telegram when the report is ready."
+    assert:
+      - type: javascript
+        value: "context.metadata.authorized_tools.includes('telegram.send_message')"
+
   # =========================================================================
   # 3. Guardrails, Safety & Approval Enforcement Regression
   # =========================================================================

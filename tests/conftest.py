@@ -7,6 +7,10 @@ from pathlib import Path
 os.environ["APP_ENV"] = "development"
 os.environ["AUTH_MODE"] = "development"
 os.environ["TELEGRAM_POLLING_ENABLED"] = "false"
+os.environ["GOOGLE_OAUTH_CLIENT_ID"] = ""
+os.environ["GOOGLE_OAUTH_CLIENT_SECRET"] = ""
+os.environ["GOOGLE_OAUTH_CALLBACK_URL"] = ""
+os.environ["GOOGLE_TOKEN_ENCRYPTION_KEY"] = ""
 _test_database_directory = tempfile.TemporaryDirectory(prefix="life-sandbox-tests-")
 _test_database_path = Path(_test_database_directory.name) / "test.db"
 os.environ["DATABASE_URL"] = os.environ.get(

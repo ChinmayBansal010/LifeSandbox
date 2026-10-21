@@ -13,6 +13,7 @@ from app.core.config import get_settings
 from app.memory.service import (
     policy_for,
     process_explicit_memory_request,
+    search_conversation_history,
     search_memories,
 )
 from app.persistence.models import (
@@ -197,6 +198,7 @@ async def run_chat(
         db=db,
     ) as trace_data:
         memories = []
+        past_conversations = []
         hosted_search_status = "not_requested"
         try:
             # Isolate optional memory-store failures so they do not poison the
@@ -208,6 +210,15 @@ async def run_chat(
             ]
         except Exception:
             logging.getLogger("life_sandbox.memory").exception("Local memory retrieval failed")
+        try:
+            async with db.begin_nested():
+                past_conversations = await search_conversation_history(
+                    db, user_id, row.id, message
+                )
+        except Exception:
+            logging.getLogger("life_sandbox.memory").exception(
+                "Local conversation recall failed"
+            )
         if remember:
             hosted_allowed = False
             try:
@@ -215,7 +226,7 @@ async def run_chat(
                     policy = await policy_for(db, user_id)
                     # The per-message switch is explicit consent for this exchange.
                     # Keep the global memory policy as the user's master off switch.
-                    hosted_allowed = policy.enabled
+                    hosted_allowed = policy.enabled and policy.hosted_memory_allowed
             except Exception:
                 logging.getLogger("life_sandbox.memory").exception("Memory policy lookup failed")
             if hosted_allowed:
@@ -238,6 +249,8 @@ async def run_chat(
                         )
                         mem_event["status"] = "error"
                         mem_event["error"] = "provider call failed"
+            else:
+                hosted_search_status = "disabled"
 
         db.add(MessageRow(conversation_id=row.id, role="user", content=message))
         try:
@@ -249,6 +262,7 @@ async def run_chat(
                         "message": message,
                         "history": history,
                         "memories": memories,
+                        "past_conversations": past_conversations,
                         "file_context": file_context,
                         "image_inputs": image_inputs,
                         "allow_browser_use": browse,
@@ -286,7 +300,9 @@ async def run_chat(
 
         memory_saved = False
         mem0_search_status = hosted_search_status
-        mem0_save_status = "not_requested" if not remember else "not_attempted"
+        mem0_save_status = "not_requested" if not remember else (
+            "not_attempted" if hosted_allowed else "disabled"
+        )
         failure_detail = None
         if mem0_search_status in {"failed", "timed_out"}:
             failure_detail = {

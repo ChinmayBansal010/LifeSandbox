@@ -1,6 +1,6 @@
 /* ─── Chat interface: Clean Linear Conversation + Composer ──────────── */
 
-import { useState, useRef, useEffect, type KeyboardEvent } from 'react';
+import { useState, useRef, useEffect, lazy, Suspense, type KeyboardEvent } from 'react';
 import {
   Send,
   Copy,
@@ -21,8 +21,17 @@ import {
   Blocks,
 } from 'lucide-react';
 import type { Conversation, ChatMessage, FileAttachment } from '../types';
+import type { ThemePreference } from '../types';
 import { formatTimestamp } from '../graph-utils';
 import { FormattedMessage } from './FormattedMessage';
+const OpenUIMessage = lazy(() => import('./OpenUIMessage'));
+
+function AssistantContent({ content, themeMode }: { content: string; themeMode: 'light' | 'dark' }) {
+  const fenced = content.match(/```openui\s*\n([\s\S]*?)\n```/i);
+  const program = fenced?.[1] ?? ( /(^|\n)root\s*=/.test(content) ? content : null );
+  if (program) return <Suspense fallback={<div className="text-xs text-fg-muted">Loading interactive view…</div>}><OpenUIMessage response={program} mode={themeMode} /></Suspense>;
+  return <FormattedMessage content={content} />;
+}
 
 type ChatProps = {
   conversation: Conversation;
@@ -33,6 +42,7 @@ type ChatProps = {
     attachments: FileAttachment[],
   ) => Promise<string>;
   mem0Enabled: boolean;
+  hostedMemoryAllowed: boolean;
   browserUseEnabled: boolean;
   sttEnabled: boolean;
   ttsEnabled: boolean;
@@ -43,6 +53,7 @@ type ChatProps = {
   initialPrompt?: string | null;
   onClearInitialPrompt?: () => void;
   isPending: boolean;
+  theme: ThemePreference;
 };
 
 let activeSpeech: HTMLAudioElement | null = null;
@@ -63,12 +74,14 @@ function MessageBubble({
   onOpenAdminPanel,
   ttsEnabled,
   autoRead,
+  themeMode,
 }: {
   message: ChatMessage;
   onCopyResponse: (text: string) => void;
   onOpenAdminPanel?: (traceId?: string) => void;
   ttsEnabled: boolean;
   autoRead: boolean;
+  themeMode: 'light' | 'dark';
 }) {
   const [copied, setCopied] = useState(false);
   const isLoading = message.assistantMessage === '';
@@ -189,7 +202,20 @@ function MessageBubble({
                     )}
                   </div>
                 )}
-                <FormattedMessage content={message.assistantMessage} />
+                <AssistantContent content={message.assistantMessage} themeMode={themeMode} />
+                {message.mem0OptIn && (
+                  <p className="mt-3 border-t border-border/60 pt-2 text-[11px] text-fg-muted" role="status">
+                    {message.mem0SearchStatus === 'disabled'
+                      ? 'Hosted memory was not used: enable it in Memory & tasks → Memory policy.'
+                      : message.mem0SearchStatus === 'failed' || message.mem0SearchStatus === 'timed_out'
+                        ? 'Hosted memory could not be searched for this exchange.'
+                        : message.mem0SaveStatus === 'saved'
+                          ? 'Hosted memory searched and this exchange was saved.'
+                          : message.mem0SaveStatus === 'failed' || message.mem0SaveStatus === 'timed_out'
+                            ? 'Hosted memory search ran, but saving this exchange failed.'
+                            : 'Hosted memory was requested for this exchange.'}
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -278,9 +304,12 @@ export default function Chat({
   initialPrompt,
   onClearInitialPrompt,
   isPending,
+  mem0Enabled,
+  hostedMemoryAllowed,
   sttEnabled,
   ttsEnabled,
   imageUnderstandingEnabled,
+  theme,
 }: ChatProps) {
   const [input, setInput] = useState('');
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -297,6 +326,10 @@ export default function Chat({
   const [fileStatus, setFileStatus] = useState('');
   const [recording, setRecording] = useState(false);
   const [autoRead, setAutoRead] = useState(() => localStorage.getItem('life-sandbox-auto-read') === 'true');
+  const [rememberThisExchange, setRememberThisExchange] = useState(false);
+  const themeMode = theme === 'system'
+    ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+    : theme;
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -489,7 +522,9 @@ export default function Chat({
     setShowSlashPopup(false);
     const messageAttachments = attachments;
     setAttachments([]);
-    await onSendMessage(msg, false, false, messageAttachments);
+    const useHostedMemory = rememberThisExchange;
+    setRememberThisExchange(false);
+    await onSendMessage(msg, useHostedMemory, false, messageAttachments);
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -707,6 +742,7 @@ export default function Chat({
                 onOpenAdminPanel={onOpenAdminPanel}
                 ttsEnabled={ttsEnabled}
                 autoRead={autoRead && message.id === [...messages].reverse().find((item) => item.assistantMessage.trim())?.id}
+                themeMode={themeMode}
               />
             ))}
           </div>
@@ -935,6 +971,20 @@ export default function Chat({
               Read replies aloud
             </label>
           </div>
+          {mem0Enabled && (
+            <label className="mt-2 inline-flex items-center gap-1.5 px-1 text-[10px] text-fg-muted">
+              <input
+                type="checkbox"
+                checked={rememberThisExchange}
+                onChange={(event) => setRememberThisExchange(event.target.checked)}
+                disabled={isPending || !hostedMemoryAllowed}
+                className="rounded border-border text-accent focus:ring-accent"
+              />
+              {hostedMemoryAllowed
+                ? 'Use hosted memory for this exchange (search and save)'
+                : 'Enable hosted memory in Memory & tasks → Memory policy'}
+            </label>
+          )}
 
           {fileStatus && (
             <p className="text-[10px] text-fg-muted mt-1 text-center animate-fade-in font-medium">

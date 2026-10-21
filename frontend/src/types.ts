@@ -25,8 +25,8 @@ export type ChatMessage = {
   skillTrigger?: string | null;
   intent?: string | null;
   mem0OptIn?: boolean;
-  mem0SearchStatus?: 'not_requested' | 'succeeded' | 'failed' | 'timed_out';
-  mem0SaveStatus?: 'not_requested' | 'saved' | 'not_attempted' | 'failed' | 'timed_out' | 'cancelled';
+  mem0SearchStatus?: 'not_requested' | 'succeeded' | 'failed' | 'timed_out' | 'disabled';
+  mem0SaveStatus?: 'not_requested' | 'saved' | 'not_attempted' | 'failed' | 'timed_out' | 'cancelled' | 'disabled';
 };
 
 export type FileAttachment = {

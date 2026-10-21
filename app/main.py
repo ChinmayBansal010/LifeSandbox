@@ -59,7 +59,15 @@ from app.services.tool_tracker import clear_traces, get_stats, get_trace_by_id, 
 from app.tools import catalog as _tool_catalog  # noqa: F401 - registers built-in capabilities
 from app.tools.registry import CapabilityStatus, registry
 
-settings = get_settings()
+class _SettingsProxy:
+    def __getattr__(self, name: str):
+        return getattr(get_settings(), name)
+
+    def __setattr__(self, name: str, value):
+        setattr(get_settings(), name, value)
+
+
+settings = _SettingsProxy()
 
 
 @lru_cache(maxsize=1)

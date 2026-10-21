@@ -12,6 +12,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@openuidev/lang-core": "^1.0.1",
+    "@openuidev/react-lang": "^1.0.1",
+    "@openuidev/react-ui": "^0.18.1",
     "@tailwindcss/vite": "^4.3.3",
     "lucide-react": "^1.58.0",
     "react": "^19.3.1",

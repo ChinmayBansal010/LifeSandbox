@@ -36,6 +36,7 @@ export default function App() {
   const [adminTraceId, setAdminTraceId] = useState<string | null>(null);
 
   const [mem0Enabled, setMem0Enabled] = useState(false);
+  const [hostedMemoryAllowed, setHostedMemoryAllowed] = useState(false);
   const [browserUseEnabled, setBrowserUseEnabled] = useState(false);
   const [sttEnabled, setSttEnabled] = useState(false);
   const [ttsEnabled, setTtsEnabled] = useState(false);
@@ -58,6 +59,10 @@ export default function App() {
         setTtsEnabled(false);
         setImageUnderstandingEnabled(false);
       });
+    fetch('/api/v1/memory-policy')
+      .then((response) => (response.ok ? response.json() : null))
+      .then((policy) => setHostedMemoryAllowed(policy?.enabled === true && policy?.hosted_memory_allowed === true))
+      .catch(() => setHostedMemoryAllowed(false));
   }, []);
 
   // Responsive: detect mobile
@@ -231,7 +236,13 @@ export default function App() {
             />
           </div>
         ) : lifeOpen ? (
-          <LifePanel onClose={() => setLifeOpen(false)} />
+          <LifePanel onClose={() => {
+            setLifeOpen(false);
+            fetch('/api/v1/memory-policy')
+              .then((response) => (response.ok ? response.json() : null))
+              .then((policy) => setHostedMemoryAllowed(policy?.enabled === true && policy?.hosted_memory_allowed === true))
+              .catch(() => setHostedMemoryAllowed(false));
+          }} />
         ) : adminOpen ? (
           <div className="flex-1 flex flex-col min-w-0">
             <AdminPanel
@@ -252,10 +263,12 @@ export default function App() {
               onClearInitialPrompt={() => setInitialPluginPrompt(null)}
               isPending={isPending}
               mem0Enabled={mem0Enabled}
+              hostedMemoryAllowed={hostedMemoryAllowed}
               browserUseEnabled={browserUseEnabled}
               sttEnabled={sttEnabled}
               ttsEnabled={ttsEnabled}
               imageUnderstandingEnabled={imageUnderstandingEnabled}
+              theme={state.theme}
             />
           </div>
         ) : (

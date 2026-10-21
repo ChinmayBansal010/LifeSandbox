@@ -3,14 +3,104 @@ import logging
 import re
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.persistence.models import MemoryCandidateRow, MemoryPolicyRow, MemoryRow
+from app.persistence.models import (
+    ConversationRow,
+    MemoryCandidateRow,
+    MemoryPolicyRow,
+    MemoryRow,
+    MessageRow,
+)
 from app.rag.embeddings import cosine, embed
 from app.rag.retrieval import reciprocal_rank_fusion
 
 logger = logging.getLogger("life_sandbox.memory")
+
+_HISTORY_STOP_WORDS = {
+    "about", "after", "again", "and", "are", "but", "can", "did", "does", "for",
+    "from", "have", "how", "into", "last", "like", "mention", "more", "much", "please",
+    "remember", "said", "that", "the", "then", "there", "this", "time", "talk", "talked",
+    "tell", "them", "they", "what", "when", "where", "which", "who", "with", "would",
+    "you", "your", "conversation", "chat", "discuss", "discussed", "earlier", "previous",
+}
+
+
+async def search_conversation_history(
+    db: AsyncSession,
+    user_id: str,
+    current_conversation_id: str,
+    query: str,
+    limit: int = 4,
+) -> list[str]:
+    """Recall relevant user/assistant turns from this owner's earlier conversations."""
+    policy = await policy_for(db, user_id)
+    if not policy.enabled:
+        return []
+
+    query_terms = tokens(query) - _HISTORY_STOP_WORDS
+    broad_recall = bool(
+        re.search(
+            r"\b(last time|previous conversation|earlier conversation|what did we (?:discuss|talk about)|"
+            r"what (?:was|did) (?:my )?last (?:message|chat)|remember when|we talked about)\b",
+            query.lower(),
+        )
+    )
+    statement = (
+        select(
+            MessageRow.id,
+            MessageRow.conversation_id,
+            func.substr(MessageRow.content, 1, 2000),
+            MessageRow.created_at,
+            ConversationRow.title,
+        )
+        .join(ConversationRow, ConversationRow.id == MessageRow.conversation_id)
+        .where(
+            ConversationRow.user_id == user_id,
+            ConversationRow.id != current_conversation_id,
+            MessageRow.role == "user",
+        )
+        .order_by(MessageRow.created_at.desc())
+        .limit(1000)
+    )
+    candidates = list((await db.execute(statement)).all())
+    scored = []
+    for row in candidates:
+        content = row[2] or ""
+        terms = tokens(content) - _HISTORY_STOP_WORDS
+        overlap = query_terms & terms
+        if overlap:
+            score = len(overlap) / max(len(query_terms), 1) + 0.2 * len(overlap) / max(len(terms), 1)
+            scored.append((score, row))
+    scored.sort(key=lambda item: (item[0], item[1][3]), reverse=True)
+
+    if scored:
+        selected = [row for score, row in scored if score > 0][:limit]
+    elif broad_recall:
+        selected = candidates[:limit]
+    else:
+        return []
+
+    recalled = []
+    for row in selected:
+        user_message_id, conversation_id, user_text, created_at, title = row
+        assistant_text = await db.scalar(
+            select(func.substr(MessageRow.content, 1, 2000))
+            .where(
+                MessageRow.conversation_id == conversation_id,
+                MessageRow.role == "assistant",
+                MessageRow.created_at >= created_at,
+            )
+            .order_by(MessageRow.created_at.asc())
+            .limit(1)
+        )
+        date = created_at.isoformat() if created_at else "date unavailable"
+        recalled.append(
+            f"[Earlier conversation: {title or 'Untitled'}; {date}]\n"
+            f"User: {user_text}\nAssistant: {assistant_text or '(no saved reply)'}"
+        )
+    return recalled
 
 SENSITIVE_CATEGORIES = {"health", "financial", "identity", "credential"}
 
@@ -19,14 +109,17 @@ def tokens(value: str) -> set[str]:
     return set(re.findall(r"[a-z0-9]{3,}", value.lower()))
 
 
+_IDENTITY_MODIFIERS = {
+    "concise", "detailed", "short", "long", "brief", "verbose",
+    "dark", "light", "fast", "slow", "simple", "complex",
+    "more", "less", "high", "low", "morning", "evening",
+}
+
+
 def identity_key_for(category: str, content: str) -> str:
     normalized = re.sub(r"[^a-z0-9 ]", " ", content.lower())
-    normalized = " ".join(normalized.split())
-    predicate = re.search(
-        r"\b(?:prefer|likes?|dislikes?|avoid|wants?|needs?|am|is|are|uses?|works?)\b",
-        normalized,
-    )
-    identity = normalized[: predicate.end()] if predicate else " ".join(sorted(tokens(content)))
+    words = [w for w in normalized.split() if w not in _IDENTITY_MODIFIERS]
+    identity = " ".join(words) if words else normalized
     return f"{category}:{identity[:180]}"
 
 
