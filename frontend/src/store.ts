@@ -1,7 +1,7 @@
 /* ─── Application store hook: Sequential Chats & State Orchestration ─── */
 
 import { useCallback, useEffect, useSyncExternalStore } from 'react';
-import type { AppState, ChatMessage, Conversation, FileAttachment, ThemePreference } from './types';
+import type { AppState, ChatMessage, Conversation, CustomSkill, FileAttachment, ThemePreference } from './types';
 import { createId } from './graph-utils';
 import { loadState, saveState } from './persistence';
 
@@ -90,6 +90,47 @@ function renameConversation(conversationId: string, title: string) {
 
 function setTheme(theme: ThemePreference) {
   setState({ ...state, theme });
+}
+
+// shortcut: custom skills are stored in frontend localStorage; backend AI model execution requires passing dynamic system prompts via future backend endpoint
+function saveCustomSkill(skill: {
+  id?: string;
+  name: string;
+  description?: string;
+  slash_command?: string;
+  definition: string;
+}): CustomSkill {
+  const currentSkills = { ...(state.customSkills || {}) };
+  const id = skill.id || createId();
+  const now = Date.now();
+  const existing = currentSkills[id];
+  const slugified = (skill.slash_command || skill.name)
+    .toLowerCase()
+    .trim()
+    .replace(/^[/]+/, '')
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'custom-skill';
+
+  const newSkill: CustomSkill = {
+    id,
+    name: skill.name.trim(),
+    description: (skill.description || '').trim(),
+    slash_command: slugified,
+    definition: skill.definition,
+    createdAt: existing?.createdAt || now,
+    updatedAt: now,
+  };
+
+  currentSkills[id] = newSkill;
+  setState({ ...state, customSkills: currentSkills });
+  return newSkill;
+}
+
+function deleteCustomSkill(id: string) {
+  const currentSkills = { ...(state.customSkills || {}) };
+  if (!currentSkills[id]) return;
+  delete currentSkills[id];
+  setState({ ...state, customSkills: currentSkills });
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────
@@ -288,6 +329,8 @@ export function useStore() {
     activeConversation,
     isPending,
 
+    customSkills: appState.customSkills || {},
+
     // Actions
     createConversation,
     deleteConversation,
@@ -295,6 +338,8 @@ export function useStore() {
     renameConversation,
     sendMessage,
     setTheme,
+    saveCustomSkill,
+    deleteCustomSkill,
   };
 }
 

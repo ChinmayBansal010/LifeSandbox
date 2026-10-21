@@ -477,7 +477,7 @@ export default function AdminPanel({ onClose, initialSelectedTraceId }: AdminPan
       <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6">
         {/* ─── Metrics Stats Bar ───────────────────────────────── */}
         <section className="grid grid-cols-2 md:grid-cols-4 gap-4" aria-label="System Metrics">
-          <div className="p-4 rounded-2xl bg-surface border border-border shadow-xs">
+          <div className="p-4 rounded-2xl bg-surface border border-border shadow-xs hover:border-accent/40 transition-all">
             <span className="text-[11px] font-medium text-fg-muted uppercase tracking-wider block">
               Total Prompts Processed
             </span>
@@ -489,7 +489,7 @@ export default function AdminPanel({ onClose, initialSelectedTraceId }: AdminPan
             </div>
           </div>
 
-          <div className="p-4 rounded-2xl bg-surface border border-border shadow-xs">
+          <div className="p-4 rounded-2xl bg-surface border border-border shadow-xs hover:border-accent/40 transition-all">
             <span className="text-[11px] font-medium text-fg-muted uppercase tracking-wider block">
               Tool Invocations
             </span>
@@ -501,7 +501,7 @@ export default function AdminPanel({ onClose, initialSelectedTraceId }: AdminPan
             </div>
           </div>
 
-          <div className="p-4 rounded-2xl bg-surface border border-border shadow-xs">
+          <div className="p-4 rounded-2xl bg-surface border border-border shadow-xs hover:border-accent/40 transition-all">
             <span className="text-[11px] font-medium text-fg-muted uppercase tracking-wider block">
               Avg Processing Latency
             </span>
@@ -512,7 +512,7 @@ export default function AdminPanel({ onClose, initialSelectedTraceId }: AdminPan
             </div>
           </div>
 
-          <div className="p-4 rounded-2xl bg-surface border border-border shadow-xs">
+          <div className="p-4 rounded-2xl bg-surface border border-border shadow-xs hover:border-accent/40 transition-all">
             <span className="text-[11px] font-medium text-fg-muted uppercase tracking-wider block">
               Skills in Registry
             </span>

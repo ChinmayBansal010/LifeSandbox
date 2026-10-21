@@ -1,6 +1,6 @@
 /* ─── Local storage persistence with migration ──────────────────────── */
 
-import type { AppState, ChatMessage, Conversation, ThemePreference } from './types';
+import type { AppState, ChatMessage, Conversation, CustomSkill, ThemePreference } from './types';
 
 const STORAGE_KEY = 'life-sandbox-state';
 const STORAGE_VERSION = 2;
@@ -30,6 +30,7 @@ type StoredPayload = {
     nodes?: Record<string, LegacyScenarioNode>;
     activeScenarioId?: string | null;
     theme?: ThemePreference;
+    customSkills?: Record<string, CustomSkill>;
   };
 };
 
@@ -54,10 +55,23 @@ function isConversation(value: unknown): value is Conversation {
     ));
 }
 
+export const DEFAULT_CUSTOM_SKILLS: Record<string, CustomSkill> = {
+  'code-reviewer': {
+    id: 'code-reviewer',
+    name: 'Code Reviewer',
+    description: 'Review code for performance, bugs, and edge cases',
+    slash_command: 'code-reviewer',
+    definition: `# Code Reviewer\n\nReview provided source code with precision:\n1. Check for logic flaws, race conditions, and unhandled edge cases\n2. Verify security issues and input validation\n3. Recommend concise, idiomatic improvements`,
+    createdAt: 1710000000000,
+    updatedAt: 1710000000000,
+  },
+};
+
 const DEFAULT_STATE: AppState = {
   conversations: {},
   activeConversationId: null,
   theme: 'system',
+  customSkills: DEFAULT_CUSTOM_SKILLS,
 };
 
 /**
@@ -75,6 +89,10 @@ export function loadState(): AppState {
 
     const { data } = parsed;
     const theme: ThemePreference = isThemePreference(data.theme) ? data.theme : 'system';
+    const customSkills: Record<string, CustomSkill> =
+      data.customSkills && typeof data.customSkills === 'object' && !Array.isArray(data.customSkills)
+        ? data.customSkills
+        : { ...DEFAULT_CUSTOM_SKILLS };
 
     // If already in new conversation format
     if (data.conversations && typeof data.conversations === 'object' && !Array.isArray(data.conversations)) {
@@ -85,7 +103,7 @@ export function loadState(): AppState {
       const activeConversationId = typeof requestedActiveId === 'string' && conversations[requestedActiveId]
         ? requestedActiveId
         : Object.keys(conversations)[0] ?? null;
-      return { conversations, activeConversationId, theme };
+      return { conversations, activeConversationId, theme, customSkills };
     }
 
     // Auto-migrate from legacy branching scenario tree format
@@ -122,6 +140,7 @@ export function loadState(): AppState {
         conversations: migratedConversations,
         activeConversationId: activeId,
         theme,
+        customSkills,
       };
 
       saveState(migratedState);

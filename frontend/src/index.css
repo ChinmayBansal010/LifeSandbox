@@ -476,23 +476,41 @@
 }
 
 @keyframes pulse-dot {
-  0%, 100% { opacity: 0.4; }
+  0%, 100% { opacity: 0.35; transform: scale(0.92); }
+  50% { opacity: 1; transform: scale(1.08); }
+}
+
+@keyframes bounce-subtle {
+  0%, 100% { transform: translateY(0); opacity: 0.45; }
+  50% { transform: translateY(-3px); opacity: 1; }
+}
+
+@keyframes idle-breathe {
+  0%, 100% { opacity: 0.6; }
   50% { opacity: 1; }
 }
 
 .animate-fade-in {
-  animation: fade-in 200ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: fade-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .animate-scale-in {
-  animation: scale-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: scale-in 160ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .animate-slide-in-left {
-  animation: slide-in-left 200ms ease-out;
+  animation: slide-in-left 180ms ease-out;
 }
 
 .animate-slide-in-right {
-  animation: slide-in-right 200ms ease-out;
+  animation: slide-in-right 180ms ease-out;
+}
+
+.animate-bounce-subtle {
+  animation: bounce-subtle 1.2s infinite ease-in-out;
+}
+
+.animate-idle-breathe {
+  animation: idle-breathe 2.4s infinite ease-in-out;
 }
 

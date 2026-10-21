@@ -14,7 +14,6 @@ import {
   ShieldAlert,
   Code,
   Sparkles,
-  Clock,
   ChevronDown,
   ChevronUp,
   ArrowRight,
@@ -23,15 +22,32 @@ import {
   Plug,
   HardDrive,
   Send,
+  Plus,
+  Trash2,
+  Edit3,
+  FileText,
+  Upload,
+  Check,
+  Eye,
 } from 'lucide-react';
-import type { PluginCapability, PluginExecution, CapabilityStatus } from '../types';
+import type { PluginCapability, PluginExecution, CapabilityStatus, CustomSkill } from '../types';
+
+type ViewTab = 'catalogue' | 'connected' | 'discover' | 'custom-skills' | 'executions' | 'connections';
 
 type PluginsPanelProps = {
   onClose: () => void;
   onUseInChat?: (suggestedPrompt: string) => void;
+  customSkills?: Record<string, CustomSkill>;
+  onSaveCustomSkill?: (skill: {
+    id?: string;
+    name: string;
+    description?: string;
+    slash_command?: string;
+    definition: string;
+  }) => CustomSkill;
+  onDeleteCustomSkill?: (id: string) => void;
+  initialTab?: ViewTab | null;
 };
-
-type ViewTab = 'catalogue' | 'executions' | 'connections';
 
 const CATEGORY_ICONS: Record<string, typeof Blocks> = {
   analysis: Calculator,
@@ -119,13 +135,21 @@ const SUGGESTED_PROMPTS: Record<string, string> = {
     'Search the web for the latest benchmarks and architecture patterns in agentic workflows.',
 };
 
-export default function PluginsPanel({ onClose, onUseInChat }: PluginsPanelProps) {
+export default function PluginsPanel({
+  onClose,
+  onUseInChat,
+  customSkills = {},
+  onSaveCustomSkill,
+  onDeleteCustomSkill,
+  initialTab,
+}: PluginsPanelProps) {
   const [plugins, setPlugins] = useState<PluginCapability[]>([]);
   const [executions, setExecutions] = useState<PluginExecution[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<ViewTab>('catalogue');
+  const [activeTab, setActiveTab] = useState<ViewTab>(initialTab || 'catalogue');
+  const [selectedPluginId, setSelectedPluginId] = useState<string | null>(null);
 
   // Search & filter state
   const [searchQuery, setSearchQuery] = useState('');
@@ -143,6 +167,19 @@ export default function PluginsPanel({ onClose, onUseInChat }: PluginsPanelProps
     'drive.read',
   ]);
   const [connectionBusy, setConnectionBusy] = useState(false);
+
+  // Custom Skills Modal State
+  const [isSkillEditorOpen, setIsSkillEditorOpen] = useState(false);
+  const [editingSkill, setEditingSkill] = useState<CustomSkill | null>(null);
+  const [skillName, setSkillName] = useState('');
+  const [skillDesc, setSkillDesc] = useState('');
+  const [skillCommand, setSkillCommand] = useState('');
+  const [skillDefinition, setSkillDefinition] = useState('');
+  const [skillInputMode, setSkillInputMode] = useState<'editor' | 'upload'>('editor');
+  const [uploadedFilename, setUploadedFilename] = useState<string | null>(null);
+  const [skillEditorError, setSkillEditorError] = useState<string | null>(null);
+  const [skillEditorSuccess, setSkillEditorSuccess] = useState<string | null>(null);
+  const [viewingSkill, setViewingSkill] = useState<CustomSkill | null>(null);
 
   const fetchPluginsData = useCallback(async () => {
     setError(null);
@@ -232,9 +269,16 @@ export default function PluginsPanel({ onClose, onUseInChat }: PluginsPanelProps
     return Array.from(set).sort();
   }, [plugins]);
 
-  // Filtered plugins
+  // Filtered plugins based on tab and search filters
   const filteredPlugins = useMemo(() => {
     return plugins.filter((plugin) => {
+      // Tab-level filtering
+      if (activeTab === 'connected') {
+        if (plugin.status !== 'available' && plugin.status !== 'connected') return false;
+      } else if (activeTab === 'discover') {
+        if (plugin.status === 'available' || plugin.status === 'connected') return false;
+      }
+
       // Category filter
       if (selectedCategory !== 'all' && plugin.category !== selectedCategory) return false;
 
@@ -256,7 +300,7 @@ export default function PluginsPanel({ onClose, onUseInChat }: PluginsPanelProps
 
       return true;
     });
-  }, [plugins, selectedCategory, selectedProvider, selectedStatus, searchQuery]);
+  }, [plugins, activeTab, selectedCategory, selectedProvider, selectedStatus, searchQuery]);
 
   // Metrics
   const metrics = useMemo(() => {
@@ -345,6 +389,101 @@ export default function PluginsPanel({ onClose, onUseInChat }: PluginsPanelProps
     }
   };
 
+  // Custom Skills Handlers
+  const handleOpenNewSkill = () => {
+    setEditingSkill(null);
+    setSkillName('');
+    setSkillDesc('');
+    setSkillCommand('');
+    setSkillDefinition('');
+    setUploadedFilename(null);
+    setSkillInputMode('editor');
+    setSkillEditorError(null);
+    setSkillEditorSuccess(null);
+    setIsSkillEditorOpen(true);
+  };
+
+  const handleOpenEditSkill = (skill: CustomSkill) => {
+    setEditingSkill(skill);
+    setSkillName(skill.name);
+    setSkillDesc(skill.description);
+    setSkillCommand(skill.slash_command);
+    setSkillDefinition(skill.definition);
+    setUploadedFilename(null);
+    setSkillInputMode('editor');
+    setSkillEditorError(null);
+    setSkillEditorSuccess(null);
+    setIsSkillEditorOpen(true);
+  };
+
+  const handleSkillFileUpload = (file: File) => {
+    if (!file.name.endsWith('.md') && !file.name.endsWith('.markdown') && !file.name.endsWith('.txt')) {
+      setSkillEditorError('Please upload a Markdown (.md, .markdown) or plain text file.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result;
+      if (typeof text === 'string') {
+        setSkillDefinition(text);
+        setUploadedFilename(file.name);
+        setSkillEditorError(null);
+        if (!skillName.trim()) {
+          const guessedName = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
+          setSkillName(guessedName);
+          setSkillCommand(guessedName.toLowerCase().replace(/[^a-z0-9_-]+/g, '-'));
+        }
+      }
+    };
+    reader.onerror = () => {
+      setSkillEditorError('Failed to read file from your device.');
+    };
+    reader.readAsText(file);
+  };
+
+  const handleSaveSkill = () => {
+    if (!skillName.trim()) {
+      setSkillEditorError('Skill name is required.');
+      return;
+    }
+    if (!skillDefinition.trim()) {
+      setSkillEditorError('Skill definition (Markdown content) cannot be empty.');
+      return;
+    }
+
+    const commandIdentifier = (skillCommand || skillName)
+      .toLowerCase()
+      .trim()
+      .replace(/^[/]+/, '')
+      .replace(/[^a-z0-9_-]+/g, '-')
+      .replace(/^-+|-+$/g, '') || 'custom-skill';
+
+    try {
+      if (onSaveCustomSkill) {
+        onSaveCustomSkill({
+          id: editingSkill?.id,
+          name: skillName.trim(),
+          description: skillDesc.trim(),
+          slash_command: commandIdentifier,
+          definition: skillDefinition,
+        });
+      }
+      setSkillEditorSuccess('Skill saved successfully!');
+      setTimeout(() => {
+        setIsSkillEditorOpen(false);
+        setSkillEditorSuccess(null);
+      }, 400);
+    } catch {
+      setSkillEditorError('Failed to save skill.');
+    }
+  };
+
+  const handleDeleteSkill = (id: string, name: string) => {
+    if (window.confirm(`Are you sure you want to delete the custom skill "${name}"?`)) {
+      onDeleteCustomSkill?.(id);
+    }
+  };
+
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col overflow-hidden bg-bg text-fg">
       {/* ─── Top Header ────────────────────────────────────────── */}
@@ -361,12 +500,21 @@ export default function PluginsPanel({ onClose, onUseInChat }: PluginsPanelProps
               </span>
             </div>
             <p className="text-xs text-fg-muted">
-              Dynamically discovered from the backend tool registry. Model-callable schemas and live provider integration.
+              Dynamically discovered from the backend tool registry. Model-callable schemas, custom skills, and live integrations.
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleOpenNewSkill}
+            className="flex items-center gap-1.5 rounded-lg bg-accent text-accent-fg px-3 py-1.5 text-xs font-semibold hover:bg-accent-hover transition-colors shadow-2xs active:scale-95"
+            title="Create a new custom skill"
+          >
+            <Plus size={14} />
+            <span>Custom Skills +</span>
+          </button>
           <button
             type="button"
             onClick={handleRefresh}
@@ -388,12 +536,12 @@ export default function PluginsPanel({ onClose, onUseInChat }: PluginsPanelProps
         </div>
       </header>
 
-      {/* ─── Metrics Sub-bar ──────────────────────────────────── */}
+      {/* ─── Metrics Sub-bar & Section Navigation ─────────────── */}
       <div className="border-b border-border bg-bg-secondary px-6 py-2.5">
         <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
           <div className="flex flex-wrap items-center gap-5">
             <div className="flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-full bg-emerald-500" />
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
               <span className="font-semibold text-fg">{metrics.availableOrConnected}</span>
               <span className="text-fg-muted">Ready / Connected</span>
             </div>
@@ -404,13 +552,13 @@ export default function PluginsPanel({ onClose, onUseInChat }: PluginsPanelProps
             </div>
             <div className="flex items-center gap-1.5">
               <span className="h-2 w-2 rounded-full bg-accent" />
-              <span className="font-semibold text-fg">{metrics.approvalRequired}</span>
-              <span className="text-fg-muted">Approval-Gated</span>
+              <span className="font-semibold text-fg">{Object.keys(customSkills).length}</span>
+              <span className="text-fg-muted">Custom Skills</span>
             </div>
           </div>
 
-          {/* Navigation Tabs */}
-          <div className="flex items-center gap-1 rounded-lg bg-surface p-1 border border-border">
+          {/* Navigation Tabs with Intuitive Sectioning */}
+          <div className="flex items-center gap-1 rounded-lg bg-surface p-1 border border-border overflow-x-auto">
             <button
               type="button"
               onClick={() => setActiveTab('catalogue')}
@@ -421,7 +569,43 @@ export default function PluginsPanel({ onClose, onUseInChat }: PluginsPanelProps
               }`}
             >
               <Blocks size={13} />
-              <span>Plugin Catalogue ({plugins.length})</span>
+              <span>All Plugins ({plugins.length})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('connected')}
+              className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                activeTab === 'connected'
+                  ? 'bg-accent text-accent-fg font-semibold shadow-2xs'
+                  : 'text-fg-secondary hover:text-fg'
+              }`}
+            >
+              <Check size={13} />
+              <span>Connected ({metrics.availableOrConnected})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('discover')}
+              className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                activeTab === 'discover'
+                  ? 'bg-accent text-accent-fg font-semibold shadow-2xs'
+                  : 'text-fg-secondary hover:text-fg'
+              }`}
+            >
+              <Sparkles size={13} />
+              <span>Discover ({metrics.requiresAction})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('custom-skills')}
+              className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                activeTab === 'custom-skills'
+                  ? 'bg-accent text-accent-fg font-semibold shadow-2xs'
+                  : 'text-fg-secondary hover:text-fg'
+              }`}
+            >
+              <FileText size={13} />
+              <span>Custom Skills ({Object.keys(customSkills).length})</span>
             </button>
             <button
               type="button"
@@ -445,7 +629,7 @@ export default function PluginsPanel({ onClose, onUseInChat }: PluginsPanelProps
               }`}
             >
               <Plug size={13} />
-              <span>OAuth Connections</span>
+              <span>OAuth ({connections.length})</span>
             </button>
           </div>
         </div>
@@ -476,7 +660,7 @@ export default function PluginsPanel({ onClose, onUseInChat }: PluginsPanelProps
             <p className="text-sm font-medium text-fg">Loading plugins from backend registry…</p>
             <p className="text-xs text-fg-muted mt-1">Connecting to /api/v1/plugins</p>
           </div>
-        ) : activeTab === 'catalogue' ? (
+        ) : activeTab === 'catalogue' || activeTab === 'connected' || activeTab === 'discover' ? (
           <div className="space-y-6 max-w-7xl mx-auto">
             {/* Filter and Search Bar */}
             <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
@@ -563,7 +747,7 @@ export default function PluginsPanel({ onClose, onUseInChat }: PluginsPanelProps
 
             {/* Plugin Cards Grid */}
             {filteredPlugins.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-border p-12 text-center">
+              <div className="rounded-2xl border border-dashed border-border p-12 text-center bg-surface/50">
                 {error ? (
                   <>
                     <AlertCircle size={32} className="mx-auto text-error mb-3" />
@@ -587,7 +771,11 @@ export default function PluginsPanel({ onClose, onUseInChat }: PluginsPanelProps
                     <Blocks size={32} className="mx-auto text-fg-muted mb-3 opacity-40" />
                     <h3 className="text-sm font-semibold text-fg">No matching plugins found</h3>
                     <p className="text-xs text-fg-muted mt-1">
-                      Try adjusting your search query or clearing the category and provider filters.
+                      {activeTab === 'connected'
+                        ? 'No connected plugins match the search criteria. Try the "Discover" or "All Plugins" tab.'
+                        : activeTab === 'discover'
+                        ? 'No integrations currently need setup.'
+                        : 'Try adjusting your search query or clearing the category and provider filters.'}
                     </p>
                     <button
                       type="button"
@@ -610,12 +798,18 @@ export default function PluginsPanel({ onClose, onUseInChat }: PluginsPanelProps
                   const Icon = CATEGORY_ICONS[plugin.category] || Blocks;
                   const statusInfo = STATUS_LABELS[plugin.status] || STATUS_LABELS.available;
                   const isExpanded = expandedSchemaTool === plugin.id;
+                  const isSelected = selectedPluginId === plugin.id;
                   const promptSuggestion = SUGGESTED_PROMPTS[plugin.id] || `Use the ${plugin.display_name} tool.`;
 
                   return (
                     <div
                       key={plugin.id}
-                      className="group flex flex-col justify-between rounded-2xl border border-border bg-surface p-4 shadow-2xs hover:border-accent/40 hover:shadow-xs transition-all"
+                      onClick={() => setSelectedPluginId(isSelected ? null : plugin.id)}
+                      className={`group flex flex-col justify-between rounded-2xl border bg-surface p-4 shadow-2xs transition-all cursor-pointer ${
+                        isSelected
+                          ? 'border-accent ring-1 ring-accent/40 shadow-sm'
+                          : 'border-border hover:border-accent/40 hover:shadow-xs'
+                      }`}
                     >
                       <div>
                         {/* Top Badge Row */}
@@ -649,17 +843,17 @@ export default function PluginsPanel({ onClose, onUseInChat }: PluginsPanelProps
 
                         {/* Meta Tags */}
                         <div className="flex flex-wrap items-center gap-1.5 mb-3 text-[10px]">
-                          <span className="rounded-md bg-bg-secondary px-2 py-0.5 font-medium uppercase text-fg-muted">
+                          <span className="rounded-md bg-bg-secondary px-2 py-0.5 font-medium uppercase text-fg-muted border border-border/50">
                             {plugin.category}
                           </span>
-                          <span className="rounded-md bg-bg-secondary px-2 py-0.5 font-medium uppercase text-fg-muted">
+                          <span className="rounded-md bg-bg-secondary px-2 py-0.5 font-medium uppercase text-fg-muted border border-border/50">
                             {plugin.provider}
                           </span>
-                          <span className="rounded-md bg-bg-secondary px-2 py-0.5 text-fg-muted">
+                          <span className="rounded-md bg-bg-secondary px-2 py-0.5 text-fg-muted border border-border/50">
                             {plugin.read_only ? 'Read-only' : 'State Modifying'}
                           </span>
                           {plugin.approval_required && (
-                            <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 text-amber-500 px-2 py-0.5 font-semibold">
+                            <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 text-amber-500 px-2 py-0.5 font-semibold border border-amber-500/20">
                               <ShieldAlert size={10} />
                               Approval Required
                             </span>
@@ -716,7 +910,7 @@ export default function PluginsPanel({ onClose, onUseInChat }: PluginsPanelProps
                       </div>
 
                       {/* Card Action Footer */}
-                      <div className="mt-3 pt-3 border-t border-border flex items-center justify-between gap-2">
+                      <div className="mt-3 pt-3 border-t border-border flex items-center justify-between gap-2" onClick={(e) => e.stopPropagation()}>
                         <button
                           type="button"
                           onClick={() => setExpandedSchemaTool(isExpanded ? null : plugin.id)}
@@ -734,7 +928,7 @@ export default function PluginsPanel({ onClose, onUseInChat }: PluginsPanelProps
                               onUseInChat(promptSuggestion);
                               onClose();
                             }}
-                            className="inline-flex items-center gap-1 rounded-lg bg-accent text-accent-fg px-2.5 py-1 text-xs font-semibold hover:bg-accent-hover transition-colors shadow-2xs"
+                            className="inline-flex items-center gap-1 rounded-lg bg-accent text-accent-fg px-2.5 py-1 text-xs font-semibold hover:bg-accent-hover transition-colors shadow-2xs active:scale-95"
                             title="Pre-fill a chat prompt using this plugin"
                           >
                             <Sparkles size={12} />
@@ -749,32 +943,162 @@ export default function PluginsPanel({ onClose, onUseInChat }: PluginsPanelProps
               </div>
             )}
           </div>
+        ) : activeTab === 'custom-skills' ? (
+          /* ─── Custom Skills Tab ────────────────────────────────────── */
+          <div className="space-y-6 max-w-7xl mx-auto animate-fade-in">
+            {/* Header description with Action */}
+            <div className="rounded-2xl border border-border bg-surface p-6 shadow-2xs flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <h2 className="text-base font-bold text-fg">Custom Skills & Slash Commands</h2>
+                  <span className="rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 px-2 py-0.5 text-[11px] font-semibold">
+                    {Object.keys(customSkills).length} Active
+                  </span>
+                </div>
+                <p className="text-xs text-fg-secondary mt-1 max-w-2xl leading-relaxed">
+                  Define your own specialized skills using Markdown. Once saved, custom skills are immediately discoverable in the chat composer by typing <code className="font-mono text-accent bg-bg-secondary px-1 py-0.5 rounded border border-border">/command</code>.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleOpenNewSkill}
+                className="flex items-center gap-1.5 rounded-xl bg-accent text-accent-fg px-4 py-2 text-xs font-semibold hover:bg-accent-hover transition-colors shadow-xs active:scale-95 shrink-0"
+              >
+                <Plus size={15} />
+                <span>Create Custom Skill</span>
+              </button>
+            </div>
+
+            {/* Custom Skills Grid */}
+            {Object.keys(customSkills).length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-border p-12 text-center bg-surface/50">
+                <FileText size={32} className="mx-auto text-fg-muted mb-3 opacity-40" />
+                <h3 className="text-sm font-semibold text-fg">No custom skills created yet</h3>
+                <p className="text-xs text-fg-muted mt-1 max-w-md mx-auto">
+                  Create custom skills by pasting a prompt template or uploading a <code className="font-mono text-accent">skill.md</code> file from your machine.
+                </p>
+                <button
+                  type="button"
+                  onClick={handleOpenNewSkill}
+                  className="mt-4 inline-flex items-center gap-1.5 rounded-xl bg-accent text-accent-fg px-4 py-2 text-xs font-semibold hover:bg-accent-hover transition-colors shadow-xs"
+                >
+                  <Plus size={14} />
+                  <span>Create your first skill</span>
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {Object.values(customSkills).map((skill) => (
+                  <div
+                    key={skill.id}
+                    className="flex flex-col justify-between rounded-2xl border border-border bg-surface p-4 shadow-2xs hover:border-accent/40 transition-all group"
+                  >
+                    <div>
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2">
+                          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
+                            <Sparkles size={16} />
+                          </div>
+                          <div>
+                            <h3 className="text-sm font-semibold text-fg leading-tight">
+                              {skill.name}
+                            </h3>
+                            <span className="font-mono text-[10px] text-accent font-semibold">
+                              /{skill.slash_command}
+                            </span>
+                          </div>
+                        </div>
+
+                        <span className="rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20 px-2 py-0.5 text-[10px] font-semibold">
+                          Custom
+                        </span>
+                      </div>
+
+                      <p className="text-xs text-fg-secondary leading-relaxed mb-3 line-clamp-2">
+                        {skill.description || 'No description provided.'}
+                      </p>
+
+                      <div className="rounded-lg bg-bg-secondary p-2 border border-border/60 text-[11px] font-mono text-fg-muted mb-3 max-h-24 overflow-hidden">
+                        <pre className="line-clamp-3 whitespace-pre-wrap">{skill.definition}</pre>
+                      </div>
+                    </div>
+
+                    <div className="pt-3 border-t border-border flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setViewingSkill(skill)}
+                          className="p-1.5 rounded-lg text-fg-muted hover:text-fg hover:bg-surface-hover transition-colors"
+                          title="View definition"
+                          aria-label={`View ${skill.name} definition`}
+                        >
+                          <Eye size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEditSkill(skill)}
+                          className="p-1.5 rounded-lg text-fg-muted hover:text-accent hover:bg-surface-hover transition-colors"
+                          title="Edit skill"
+                          aria-label={`Edit ${skill.name}`}
+                        >
+                          <Edit3 size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteSkill(skill.id, skill.name)}
+                          className="p-1.5 rounded-lg text-fg-muted hover:text-error hover:bg-surface-hover transition-colors"
+                          title="Delete skill"
+                          aria-label={`Delete ${skill.name}`}
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+
+                      {onUseInChat && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onUseInChat(`/${skill.slash_command} `);
+                            onClose();
+                          }}
+                          className="inline-flex items-center gap-1 rounded-lg bg-accent text-accent-fg px-2.5 py-1 text-xs font-semibold hover:bg-accent-hover transition-colors shadow-2xs active:scale-95"
+                          title="Use this skill command in chat"
+                        >
+                          <Sparkles size={12} />
+                          <span>Use in Chat</span>
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         ) : activeTab === 'executions' ? (
-          /* ─── Executions Log Tab ──────────────────────────────────── */
-          <div className="max-w-5xl mx-auto space-y-4">
+          /* ─── Executions / Activity Tab ────────────────────────────── */
+          <div className="space-y-4 max-w-7xl mx-auto">
             <div className="flex items-center justify-between">
               <div>
-                <h2 className="text-sm font-bold text-fg">Recent Tool Execution Traces</h2>
-                <p className="text-xs text-fg-muted">
-                  Recorded from real-time agent invocations via /api/v1/plugins/executions. Private payloads are sanitized.
-                </p>
+                <h2 className="text-base font-bold text-fg">Recent Tool Execution Traces</h2>
+                <p className="text-xs text-fg-muted">Live telemetry and round-trip duration from backend tool runners.</p>
               </div>
               <button
                 type="button"
                 onClick={handleRefresh}
-                className="flex items-center gap-1 rounded-lg border border-border bg-surface px-2.5 py-1 text-xs text-fg hover:bg-surface-hover"
+                className="flex items-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-1.5 text-xs font-medium text-fg hover:bg-surface-hover transition-colors"
               >
                 <RefreshCw size={12} className={refreshing ? 'animate-spin' : ''} />
-                <span>Refresh Activity</span>
+                <span>Refresh Logs</span>
               </button>
             </div>
 
             {executions.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-border p-12 text-center">
-                <Clock size={32} className="mx-auto text-fg-muted mb-3 opacity-40" />
-                <h3 className="text-sm font-semibold text-fg">No recent plugin executions</h3>
+              <div className="rounded-2xl border border-dashed border-border p-12 text-center bg-surface/50">
+                <Activity size={32} className="mx-auto text-fg-muted mb-2 opacity-50" />
+                <h3 className="text-sm font-semibold text-fg">No recorded executions yet</h3>
                 <p className="text-xs text-fg-muted mt-1">
-                  Send a prompt in chat that triggers a decision or follow-through tool to see execution telemetry here.
+                  Run a query in Chat that utilizes tools to see telemetry logs here.
                 </p>
               </div>
             ) : (
@@ -782,21 +1106,21 @@ export default function PluginsPanel({ onClose, onUseInChat }: PluginsPanelProps
                 <table className="w-full text-left text-xs">
                   <thead className="border-b border-border bg-bg-secondary text-[11px] font-semibold text-fg-muted uppercase">
                     <tr>
-                      <th className="px-4 py-2.5">Tool / Plugin</th>
-                      <th className="px-4 py-2.5">Provider</th>
-                      <th className="px-4 py-2.5">Status</th>
-                      <th className="px-4 py-2.5">Duration</th>
-                      <th className="px-4 py-2.5">Timestamp</th>
+                      <th className="px-4 py-3">Tool Name</th>
+                      <th className="px-4 py-3">Provider</th>
+                      <th className="px-4 py-3">Status</th>
+                      <th className="px-4 py-3">Duration</th>
+                      <th className="px-4 py-3">Executed At</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
-                    {executions.map((ex, idx) => (
-                      <tr key={ex.id ?? `${ex.tool_id}-${idx}`} className="hover:bg-surface-hover/50 transition-colors">
-                        <td className="px-4 py-3">
-                          <span className="font-semibold text-fg block">{ex.display_name}</span>
-                          <code className="text-[10px] text-fg-muted font-mono">{ex.tool_id}</code>
+                    {executions.map((ex, index) => (
+                      <tr key={ex.id || `${ex.tool_id}-${index}`} className="hover:bg-surface-hover/60 transition-colors">
+                        <td className="px-4 py-3 font-medium text-fg flex items-center gap-2">
+                          <Code size={13} className="text-accent shrink-0" />
+                          <span>{ex.display_name || ex.tool_id}</span>
                         </td>
-                        <td className="px-4 py-3 capitalize text-fg-secondary">
+                        <td className="px-4 py-3">
                           <span className="rounded bg-bg-secondary px-1.5 py-0.5 text-[10px] font-mono border border-border">
                             {ex.provider}
                           </span>
@@ -937,6 +1261,244 @@ export default function PluginsPanel({ onClose, onUseInChat }: PluginsPanelProps
           </div>
         )}
       </div>
+
+      {/* ─── Custom Skill Editor Modal ────────────────────────────── */}
+      {isSkillEditorOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-fade-in">
+          <div
+            className="w-full max-w-2xl bg-surface border border-border-strong rounded-2xl shadow-2xl flex flex-col max-h-[90vh] overflow-hidden animate-scale-in"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="skill-modal-title"
+          >
+            {/* Modal Header */}
+            <div className="px-6 py-4 border-b border-border flex items-center justify-between shrink-0 bg-surface">
+              <div className="flex items-center gap-2">
+                <FileText size={18} className="text-accent" />
+                <h3 id="skill-modal-title" className="text-base font-bold text-fg">
+                  {editingSkill ? 'Edit Custom Skill' : 'Create Custom Skill'}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSkillEditorOpen(false)}
+                className="p-1 rounded-lg text-fg-muted hover:text-fg hover:bg-surface-hover transition-colors"
+                aria-label="Close skill editor"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-6 overflow-y-auto space-y-4 text-xs">
+              {skillEditorError && (
+                <div className="p-3 rounded-xl border border-error/30 bg-error/10 text-error flex items-center gap-2">
+                  <AlertCircle size={15} className="shrink-0" />
+                  <span>{skillEditorError}</span>
+                </div>
+              )}
+              {skillEditorSuccess && (
+                <div className="p-3 rounded-xl border border-success/30 bg-success/10 text-success flex items-center gap-2">
+                  <Check size={15} className="shrink-0" />
+                  <span>{skillEditorSuccess}</span>
+                </div>
+              )}
+
+              {/* Name & Command */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="font-semibold text-fg block mb-1">
+                    Skill Name <span className="text-error">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Code Reviewer, Systems Architect"
+                    value={skillName}
+                    onChange={(e) => {
+                      setSkillName(e.target.value);
+                      if (!editingSkill && !skillCommand) {
+                        setSkillCommand(e.target.value.toLowerCase().replace(/[^a-z0-9_-]+/g, '-'));
+                      }
+                    }}
+                    className="w-full rounded-xl border border-border bg-bg px-3 py-2 text-xs text-fg focus:outline-none focus:border-accent"
+                  />
+                </div>
+
+                <div>
+                  <label className="font-semibold text-fg block mb-1">
+                    Slash Command <span className="text-fg-muted">(in chat)</span>
+                  </label>
+                  <div className="flex items-center rounded-xl border border-border bg-bg px-3 py-2 focus-within:border-accent">
+                    <span className="font-mono text-accent font-semibold mr-1">/</span>
+                    <input
+                      type="text"
+                      placeholder="code-reviewer"
+                      value={skillCommand}
+                      onChange={(e) => setSkillCommand(e.target.value.replace(/^[/]+/, ''))}
+                      className="w-full bg-transparent font-mono text-xs text-fg focus:outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className="font-semibold text-fg block mb-1">
+                  Description <span className="text-fg-muted font-normal">(short summary)</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Thoroughly inspect TypeScript and Rust code for edge cases and performance"
+                  value={skillDesc}
+                  onChange={(e) => setSkillDesc(e.target.value)}
+                  className="w-full rounded-xl border border-border bg-bg px-3 py-2 text-xs text-fg focus:outline-none focus:border-accent"
+                />
+              </div>
+
+              {/* Skill Definition: Tabs */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="font-semibold text-fg">
+                    Skill Definition (`skill.md`) <span className="text-error">*</span>
+                  </label>
+                  <div className="flex items-center gap-1 rounded-lg bg-bg-secondary p-0.5 border border-border">
+                    <button
+                      type="button"
+                      onClick={() => setSkillInputMode('editor')}
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                        skillInputMode === 'editor'
+                          ? 'bg-surface text-fg font-semibold shadow-2xs'
+                          : 'text-fg-muted hover:text-fg'
+                      }`}
+                    >
+                      Write Markdown
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSkillInputMode('upload')}
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                        skillInputMode === 'upload'
+                          ? 'bg-surface text-fg font-semibold shadow-2xs'
+                          : 'text-fg-muted hover:text-fg'
+                      }`}
+                    >
+                      Upload File
+                    </button>
+                  </div>
+                </div>
+
+                {skillInputMode === 'upload' && (
+                  <div className="p-4 mb-3 rounded-xl border border-dashed border-border-strong bg-bg text-center">
+                    <Upload size={24} className="mx-auto text-accent mb-2" />
+                    <p className="text-xs font-semibold text-fg">Choose a Markdown or text file</p>
+                    <p className="text-[11px] text-fg-muted mt-0.5 mb-3">
+                      Accepts `.md`, `.markdown`, `.txt`. The contents will load directly into the editor below.
+                    </p>
+                    <label className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent text-accent-fg font-semibold text-xs cursor-pointer hover:bg-accent-hover transition-colors shadow-2xs">
+                      <span>Browse file</span>
+                      <input
+                        type="file"
+                        accept=".md,.markdown,.txt"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleSkillFileUpload(file);
+                        }}
+                      />
+                    </label>
+                    {uploadedFilename && (
+                      <p className="text-xs text-accent mt-2 font-medium">
+                        Loaded: {uploadedFilename}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                <textarea
+                  rows={8}
+                  placeholder={`# Your Skill Name\n\nProvide the instructions and guidelines for this skill:\n1. Steps to execute\n2. Output format preferences\n3. Quality constraints`}
+                  value={skillDefinition}
+                  onChange={(e) => setSkillDefinition(e.target.value)}
+                  className="w-full rounded-xl border border-border bg-bg p-3 font-mono text-xs text-fg leading-relaxed focus:outline-none focus:border-accent resize-y max-h-80"
+                />
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-3.5 border-t border-border flex items-center justify-end gap-2 bg-surface shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsSkillEditorOpen(false)}
+                className="px-4 py-2 rounded-xl border border-border bg-bg text-xs font-semibold text-fg hover:bg-surface-hover transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveSkill}
+                className="px-5 py-2 rounded-xl bg-accent text-accent-fg text-xs font-semibold hover:bg-accent-hover transition-colors shadow-xs active:scale-95"
+              >
+                Save Skill
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── Custom Skill Viewer Modal ────────────────────────────── */}
+      {viewingSkill && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-xs animate-fade-in">
+          <div className="w-full max-w-2xl bg-surface border border-border-strong rounded-2xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden animate-scale-in">
+            <div className="px-6 py-4 border-b border-border flex items-center justify-between shrink-0 bg-surface">
+              <div className="flex items-center gap-2">
+                <FileText size={18} className="text-accent" />
+                <h3 className="text-base font-bold text-fg">{viewingSkill.name}</h3>
+                <span className="font-mono text-xs text-accent bg-accent-muted px-2 py-0.5 rounded-full border border-accent/20">
+                  /{viewingSkill.slash_command}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setViewingSkill(null)}
+                className="p-1 rounded-lg text-fg-muted hover:text-fg hover:bg-surface-hover transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="p-6 overflow-y-auto space-y-4 text-xs">
+              {viewingSkill.description && (
+                <p className="text-xs text-fg-secondary italic">{viewingSkill.description}</p>
+              )}
+              <div className="rounded-xl border border-border bg-bg p-4 font-mono text-xs leading-relaxed whitespace-pre-wrap text-fg max-h-96 overflow-y-auto">
+                {viewingSkill.definition}
+              </div>
+            </div>
+
+            <div className="px-6 py-3.5 border-t border-border flex items-center justify-end gap-2 bg-surface shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  const toEdit = viewingSkill;
+                  setViewingSkill(null);
+                  handleOpenEditSkill(toEdit);
+                }}
+                className="px-4 py-2 rounded-xl border border-border bg-bg text-xs font-semibold text-fg hover:bg-surface-hover transition-colors flex items-center gap-1.5"
+              >
+                <Edit3 size={13} />
+                <span>Edit</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewingSkill(null)}
+                className="px-4 py-2 rounded-xl bg-accent text-accent-fg text-xs font-semibold hover:bg-accent-hover transition-colors shadow-xs"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

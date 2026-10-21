@@ -21,6 +21,8 @@ export default function App() {
     renameConversation,
     sendMessage,
     setTheme,
+    saveCustomSkill,
+    deleteCustomSkill,
   } = useStore();
 
   // Apply theme
@@ -32,6 +34,7 @@ export default function App() {
   const [adminOpen, setAdminOpen] = useState(false);
   const [lifeOpen, setLifeOpen] = useState(false);
   const [pluginsOpen, setPluginsOpen] = useState(false);
+  const [pluginsInitialTab, setPluginsInitialTab] = useState<string | null>(null);
   const [initialPluginPrompt, setInitialPluginPrompt] = useState<string | null>(null);
   const [adminTraceId, setAdminTraceId] = useState<string | null>(null);
 
@@ -126,7 +129,8 @@ export default function App() {
     setAdminTraceId(null);
   }, []);
 
-  const handleOpenPlugins = useCallback(() => {
+  const handleOpenPlugins = useCallback((tab?: string) => {
+    setPluginsInitialTab(tab || null);
     setPluginsOpen(true);
     setAdminOpen(false);
     setLifeOpen(false);
@@ -135,6 +139,7 @@ export default function App() {
 
   const handleClosePlugins = useCallback(() => {
     setPluginsOpen(false);
+    setPluginsInitialTab(null);
   }, []);
 
   const handleUsePluginInChat = useCallback(
@@ -233,6 +238,10 @@ export default function App() {
             <PluginsPanel
               onClose={handleClosePlugins}
               onUseInChat={handleUsePluginInChat}
+              customSkills={state.customSkills || {}}
+              onSaveCustomSkill={saveCustomSkill}
+              onDeleteCustomSkill={deleteCustomSkill}
+              initialTab={pluginsInitialTab as any}
             />
           </div>
         ) : lifeOpen ? (
@@ -259,6 +268,9 @@ export default function App() {
               onRenameConversation={renameConversation}
               onOpenAdminPanel={handleOpenAdmin}
               onOpenPlugins={handleOpenPlugins}
+              onOpenCustomSkills={() => handleOpenPlugins('custom-skills')}
+              customSkills={state.customSkills || {}}
+              onSaveCustomSkill={saveCustomSkill}
               initialPrompt={initialPluginPrompt}
               onClearInitialPrompt={() => setInitialPluginPrompt(null)}
               isPending={isPending}
@@ -293,7 +305,7 @@ export default function App() {
                 <span>Start a new chat</span>
               </button>
               <button
-                onClick={handleOpenPlugins}
+                onClick={() => handleOpenPlugins()}
                 className="flex items-center gap-2 px-5 py-2.5 rounded-xl border border-border bg-surface hover:bg-surface-hover text-fg text-sm font-semibold transition-all duration-150 shadow-2xs hover:shadow-xs active:scale-95"
               >
                 <Blocks size={16} className="text-accent" />

@@ -54,12 +54,23 @@ export type Conversation = {
   updatedAt: number;
 };
 
+export type CustomSkill = {
+  id: string;
+  name: string;
+  description: string;
+  slash_command: string;
+  definition: string;
+  createdAt: number;
+  updatedAt: number;
+};
+
 export type ThemePreference = 'light' | 'dark' | 'system';
 
 export type AppState = {
   conversations: Record<string, Conversation>;
   activeConversationId: string | null;
   theme: ThemePreference;
+  customSkills?: Record<string, CustomSkill>;
 };
 
 export type PromptTrace = {

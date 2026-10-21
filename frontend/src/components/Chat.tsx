@@ -1,6 +1,6 @@
 /* ─── Chat interface: Clean Linear Conversation + Composer ──────────── */
 
-import { useState, useRef, useEffect, lazy, Suspense, type KeyboardEvent } from 'react';
+import { useState, useRef, useEffect, useMemo, lazy, Suspense, type KeyboardEvent } from 'react';
 import {
   Send,
   Copy,
@@ -11,7 +11,6 @@ import {
   MessageSquare,
   Activity,
   Menu,
-  Upload,
   Mic,
   Paperclip,
   Square,
@@ -19,8 +18,10 @@ import {
   FileText,
   Image as ImageIcon,
   Blocks,
+  Plus,
+  ChevronRight,
 } from 'lucide-react';
-import type { Conversation, ChatMessage, FileAttachment } from '../types';
+import type { Conversation, ChatMessage, CustomSkill, FileAttachment } from '../types';
 import type { ThemePreference } from '../types';
 import { formatTimestamp } from '../graph-utils';
 import { FormattedMessage } from './FormattedMessage';
@@ -50,6 +51,9 @@ type ChatProps = {
   onRenameConversation?: (conversationId: string, title: string) => void;
   onOpenAdminPanel?: (traceId?: string) => void;
   onOpenPlugins?: () => void;
+  onOpenCustomSkills?: () => void;
+  customSkills?: Record<string, CustomSkill>;
+  onSaveCustomSkill?: (skill: any) => void;
   initialPrompt?: string | null;
   onClearInitialPrompt?: () => void;
   isPending: boolean;
@@ -182,9 +186,17 @@ function MessageBubble({
         <div className="max-w-[88%] sm:max-w-[82%] lg:max-w-[80%] xl:max-w-[78%]">
           <div className="bg-surface border border-border px-4 py-3.5 rounded-2xl rounded-bl-md text-sm leading-relaxed text-fg shadow-xs">
             {isLoading ? (
-              <div className="flex items-center gap-2.5 text-fg-muted py-1.5">
-                <Loader2 size={15} className="animate-spin text-accent" />
-                <span className="text-xs">Processing prompt and accessing tools…</span>
+              <div className="flex items-center gap-3 py-1 text-xs text-fg-muted">
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-accent-muted border border-accent/20">
+                  <span className="h-1.5 w-1.5 rounded-full bg-accent animate-pulse" />
+                  <span className="text-[11px] font-semibold text-accent">Reasoning</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="h-1.5 w-1.5 rounded-full bg-accent/70 animate-bounce-subtle" style={{ animationDelay: '0ms' }} />
+                  <span className="h-1.5 w-1.5 rounded-full bg-accent/70 animate-bounce-subtle" style={{ animationDelay: '180ms' }} />
+                  <span className="h-1.5 w-1.5 rounded-full bg-accent/70 animate-bounce-subtle" style={{ animationDelay: '360ms' }} />
+                </div>
+                <span className="text-[11px] text-fg-secondary">Processing prompt and accessing tools…</span>
               </div>
             ) : (
               <div>
@@ -301,6 +313,8 @@ export default function Chat({
   onRenameConversation,
   onOpenAdminPanel,
   onOpenPlugins,
+  onOpenCustomSkills,
+  customSkills = {},
   initialPrompt,
   onClearInitialPrompt,
   isPending,
@@ -319,9 +333,12 @@ export default function Chat({
   const [showSlashPopup, setShowSlashPopup] = useState(false);
   const [slashFilter, setSlashFilter] = useState('');
   const [slashSelectedIndex, setSlashSelectedIndex] = useState(0);
+  const [slashTrigger, setSlashTrigger] = useState<{ start: number; end: number; query: string } | null>(null);
+  const [dismissedTriggerStart, setDismissedTriggerStart] = useState<number | null>(null);
 
-  // Attachment menu and files state
-  const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
+  // Tools & Plugins menu in composer
+  const [showToolsMenu, setShowToolsMenu] = useState(false);
+  const [toolsSearch, setToolsSearch] = useState('');
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
   const [fileStatus, setFileStatus] = useState('');
   const [recording, setRecording] = useState(false);
@@ -335,7 +352,7 @@ export default function Chat({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const attachmentMenuRef = useRef<HTMLDivElement>(null);
+  const toolsMenuRef = useRef<HTMLDivElement>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const recordedRef = useRef<Blob[]>([]);
@@ -381,56 +398,127 @@ export default function Chat({
     }
   }, [input]);
 
-  // Close attachment menu on outside click
+  // Close tools menu on outside click
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (
-        attachmentMenuRef.current &&
-        !attachmentMenuRef.current.contains(event.target as Node)
+        toolsMenuRef.current &&
+        !toolsMenuRef.current.contains(event.target as Node)
       ) {
-        setShowAttachmentMenu(false);
+        setShowToolsMenu(false);
       }
     }
-    if (showAttachmentMenu) {
+    if (showToolsMenu) {
       document.addEventListener('mousedown', handleClickOutside);
     }
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [showAttachmentMenu]);
+  }, [showToolsMenu]);
 
-  // Filter slash commands
-  const filteredCommands = SLASH_COMMANDS.filter(
-    (c) =>
-      c.cmd.toLowerCase().includes(slashFilter.toLowerCase()) ||
-      c.name.toLowerCase().includes(slashFilter.toLowerCase()) ||
-      c.desc.toLowerCase().includes(slashFilter.toLowerCase())
-  );
+  // Combined command list: Built-in + Custom Skills
+  const allCommands = useMemo(() => {
+    const list: Array<{ cmd: string; name: string; desc: string; isCustom?: boolean; id?: string }> = [
+      ...SLASH_COMMANDS,
+    ];
+    if (customSkills) {
+      Object.values(customSkills).forEach((cs) => {
+        const cmd = `/${cs.slash_command.toLowerCase().replace(/^\/+/, '')}`;
+        if (!list.some((existing) => existing.cmd === cmd)) {
+          list.push({
+            cmd,
+            name: cs.name,
+            desc: cs.description || 'Custom user skill',
+            isCustom: true,
+            id: cs.id,
+          });
+        }
+      });
+    }
+    return list;
+  }, [customSkills]);
 
-  // Update slash popup status on input change
-  const handleInputChange = (val: string) => {
-    setInput(val);
-    if (val.startsWith('/')) {
-      const match = val.match(/^\/(\S*)/);
-      if (match && !val.includes(' ')) {
-        setShowSlashPopup(true);
-        setSlashFilter(match[1] || '');
-        setSlashSelectedIndex(0);
+  // Filtered slash commands
+  const filteredCommands = useMemo(() => {
+    const q = slashFilter.toLowerCase();
+    return allCommands.filter(
+      (c) =>
+        c.cmd.toLowerCase().includes(q) ||
+        c.name.toLowerCase().includes(q) ||
+        c.desc.toLowerCase().includes(q)
+    );
+  }, [allCommands, slashFilter]);
+
+  // Evaluate slash trigger anywhere in the draft
+  const evaluateSlashTrigger = (text: string, cursorPos: number) => {
+    const textBefore = text.slice(0, cursorPos);
+    // Find a slash at start of line or preceded by whitespace, followed by word characters up to cursor
+    const match = textBefore.match(/(?:^|\s)\/([a-zA-Z0-9_-]*)$/);
+    if (match) {
+      const query = match[1] || '';
+      const slashIndex = textBefore.lastIndexOf('/' + query);
+      if (dismissedTriggerStart !== null && slashIndex === dismissedTriggerStart) {
+        setShowSlashPopup(false);
+    setSlashTrigger(null);
+    setShowToolsMenu(false);
+        setSlashTrigger(null);
         return;
       }
+      setSlashTrigger({ start: slashIndex, end: cursorPos, query });
+      setSlashFilter(query);
+      setShowSlashPopup(true);
+      setSlashSelectedIndex(0);
+      return;
     }
     setShowSlashPopup(false);
+    setSlashTrigger(null);
+    setShowToolsMenu(false);
+    setSlashTrigger(null);
+    setDismissedTriggerStart(null);
+  };
+
+  // Update slash popup status on input change with cursor awareness
+  const handleInputChange = (val: string, cursorPos?: number) => {
+    setInput(val);
+    const pos = cursorPos !== undefined ? cursorPos : (textareaRef.current?.selectionStart ?? val.length);
+    evaluateSlashTrigger(val, pos);
   };
 
   const handleSelectSlashCommand = (cmd: string) => {
     if (cmd === '/plugins' && onOpenPlugins) {
       setShowSlashPopup(false);
-      setInput('');
+    setSlashTrigger(null);
+    setShowToolsMenu(false);
+      setSlashTrigger(null);
       onOpenPlugins();
       return;
     }
+
+    if (slashTrigger && textareaRef.current) {
+      const before = input.slice(0, slashTrigger.start);
+      const after = input.slice(slashTrigger.end);
+      const insertion = `${cmd} `;
+      const nextInput = before + insertion + after;
+      setInput(nextInput);
+      setShowSlashPopup(false);
+    setSlashTrigger(null);
+    setShowToolsMenu(false);
+      setSlashTrigger(null);
+      const newCursorPos = before.length + insertion.length;
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.focus();
+          textareaRef.current.setSelectionRange(newCursorPos, newCursorPos);
+        }
+      }, 0);
+      return;
+    }
+
     setInput(`${cmd} `);
     setShowSlashPopup(false);
+    setSlashTrigger(null);
+    setShowToolsMenu(false);
+    setSlashTrigger(null);
     textareaRef.current?.focus();
   };
 
@@ -520,6 +608,8 @@ export default function Chat({
     setInput('');
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
     setShowSlashPopup(false);
+    setSlashTrigger(null);
+    setShowToolsMenu(false);
     const messageAttachments = attachments;
     setAttachments([]);
     const useHostedMemory = rememberThisExchange;
@@ -554,6 +644,11 @@ export default function Chat({
       if (e.key === 'Escape') {
         e.preventDefault();
         setShowSlashPopup(false);
+    setSlashTrigger(null);
+    setShowToolsMenu(false);
+        if (slashTrigger) {
+          setDismissedTriggerStart(slashTrigger.start);
+        }
         return;
       }
     }
@@ -765,7 +860,6 @@ export default function Chat({
                 Array.from(files).forEach((f) => void uploadAttachment(f));
               }
               event.target.value = '';
-              setShowAttachmentMenu(false);
             }}
             className="hidden"
             aria-label="Upload files"
@@ -774,12 +868,15 @@ export default function Chat({
           {/* Slash command suggestion popup - Positioned ABOVE composer */}
           {showSlashPopup && filteredCommands.length > 0 && (
             <div
-              className="absolute bottom-full mb-2 left-0 w-full max-w-md bg-surface border border-border rounded-xl shadow-lg overflow-hidden z-30 animate-fade-in"
+              className="absolute bottom-full mb-2 left-0 w-full max-w-md bg-surface border border-border-strong rounded-xl shadow-lg overflow-hidden z-30 animate-fade-in"
               role="listbox"
               aria-label="Slash commands"
             >
               <div className="px-3 py-1.5 bg-bg-secondary border-b border-border text-[11px] font-semibold text-fg-muted flex items-center justify-between">
-                <span>SKILL COMMANDS</span>
+                <span className="flex items-center gap-1.5">
+                  <Sparkles size={12} className="text-accent" />
+                  <span>COMMANDS & SKILLS</span>
+                </span>
                 <span className="text-[10px]">↑↓ to navigate · Enter to select · Esc to close</span>
               </div>
               <div className="max-h-56 overflow-y-auto p-1.5 space-y-0.5">
@@ -791,7 +888,7 @@ export default function Chat({
                     onMouseEnter={() => setSlashSelectedIndex(idx)}
                     className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left text-xs transition-colors ${
                       idx === slashSelectedIndex
-                        ? 'bg-accent text-accent-fg'
+                        ? 'bg-accent text-accent-fg shadow-2xs font-medium'
                         : 'hover:bg-surface-hover text-fg'
                     }`}
                   >
@@ -799,17 +896,28 @@ export default function Chat({
                       <span className="font-mono font-semibold shrink-0">
                         {command.cmd}
                       </span>
-                      <span className={`text-[11px] truncate ${idx === slashSelectedIndex ? 'text-accent-fg/80' : 'text-fg-muted'}`}>
+                      <span className={`text-[11px] truncate ${idx === slashSelectedIndex ? 'text-accent-fg/90' : 'text-fg-muted'}`}>
                         {command.desc}
                       </span>
                     </div>
-                    <span className={`text-[10px] shrink-0 font-medium px-1.5 py-0.5 rounded ${
-                      idx === slashSelectedIndex
-                        ? 'bg-white/20 text-white'
-                        : 'bg-bg-secondary text-fg-muted'
-                    }`}>
-                      {command.name}
-                    </span>
+                    <div className="flex items-center gap-1 shrink-0 ml-2">
+                      {command.isCustom && (
+                        <span className={`text-[9px] font-semibold px-1 py-0.2 rounded ${
+                          idx === slashSelectedIndex
+                            ? 'bg-white/25 text-white'
+                            : 'bg-purple-500/10 text-purple-600 dark:text-purple-400'
+                        }`}>
+                          Custom
+                        </span>
+                      )}
+                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
+                        idx === slashSelectedIndex
+                          ? 'bg-white/20 text-white'
+                          : 'bg-bg-secondary text-fg-muted'
+                      }`}>
+                        {command.name}
+                      </span>
+                    </div>
                   </button>
                 ))}
               </div>
@@ -818,32 +926,167 @@ export default function Chat({
 
           {/* Composer Input Box */}
           <div className="relative flex items-end gap-2 bg-surface border border-border rounded-xl px-2 py-1.5 focus-within:border-accent focus-within:ring-1 focus-within:ring-accent/30 transition-all shadow-xs">
-            {/* Attachment Menu Button on Left */}
-            <div className="relative shrink-0" ref={attachmentMenuRef}>
+            {/* Tools & Plugins Menu Button on Left */}
+            <div className="relative shrink-0" ref={toolsMenuRef}>
               <button
                 type="button"
-                onClick={() => setShowAttachmentMenu((prev) => !prev)}
+                onClick={() => {
+                  setShowToolsMenu((prev) => !prev);
+                  setToolsSearch('');
+                }}
                 disabled={isPending}
-                className="p-1.5 rounded-lg text-fg-muted hover:text-fg hover:bg-surface-hover transition-colors disabled:opacity-40"
-                aria-label="Attachment options"
-                title="Add files"
+                className={`p-1.5 rounded-lg transition-colors ${
+                  showToolsMenu
+                    ? 'bg-accent text-accent-fg shadow-xs'
+                    : 'text-fg-muted hover:text-fg hover:bg-surface-hover'
+                } disabled:opacity-40`}
+                aria-label="Tools and skills menu"
+                title="Tools & Skills (Plugins, Built-ins, Custom Skills)"
               >
                 <Menu size={18} />
               </button>
 
-              {/* Attachment Dropdown */}
-              {showAttachmentMenu && (
-                <div className="absolute bottom-full mb-2 left-0 w-52 bg-surface border border-border rounded-xl shadow-lg p-1 z-30 animate-fade-in text-xs">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      fileInputRef.current?.click();
-                    }}
-                    className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left text-fg hover:bg-surface-hover hover:text-accent transition-colors"
-                  >
-                    <Upload size={14} className="text-accent" />
-                    <span>Upload files from device</span>
-                  </button>
+              {/* Tools & Plugins Popover */}
+              {showToolsMenu && (
+                <div
+                  className="absolute bottom-full mb-2 left-0 w-72 sm:w-80 bg-surface border border-border-strong rounded-2xl shadow-xl p-2 z-40 animate-fade-in text-xs max-h-[380px] flex flex-col overflow-hidden"
+                  role="dialog"
+                  aria-label="Tools and capabilities"
+                >
+                  <div className="px-2 py-1.5 border-b border-border flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 font-semibold text-fg text-xs">
+                      <Blocks size={14} className="text-accent" />
+                      <span>Tools & Capabilities</span>
+                    </div>
+                    <span className="text-[10px] text-fg-muted font-medium">Quick Access</span>
+                  </div>
+
+                  {/* Search filter within tools menu */}
+                  <div className="p-1.5">
+                    <input
+                      type="text"
+                      placeholder="Search tools & skills…"
+                      value={toolsSearch}
+                      onChange={(e) => setToolsSearch(e.target.value)}
+                      className="w-full px-2.5 py-1 text-xs rounded-lg border border-border bg-bg text-fg placeholder:text-fg-muted focus:outline-none focus:border-accent"
+                    />
+                  </div>
+
+                  {/* Scrollable list */}
+                  <div className="flex-1 overflow-y-auto space-y-2 p-1">
+                    {/* Built-in Skills */}
+                    <div>
+                      <div className="text-[10px] font-semibold text-fg-muted uppercase tracking-wider px-1.5 py-0.5">
+                        Decision Skills
+                      </div>
+                      <div className="space-y-0.5 mt-0.5">
+                        {SLASH_COMMANDS.filter((c) =>
+                          !toolsSearch ||
+                          c.name.toLowerCase().includes(toolsSearch.toLowerCase()) ||
+                          c.cmd.toLowerCase().includes(toolsSearch.toLowerCase())
+                        ).map((cmd) => (
+                          <button
+                            key={cmd.cmd}
+                            type="button"
+                            onClick={() => {
+                              handleSelectSlashCommand(cmd.cmd);
+                              setShowToolsMenu(false);
+                            }}
+                            className="w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-left text-xs hover:bg-surface-hover hover:text-accent transition-colors group"
+                          >
+                            <div className="min-w-0 pr-2">
+                              <span className="font-semibold text-fg block text-xs truncate group-hover:text-accent">
+                                {cmd.name}
+                              </span>
+                              <span className="text-[10px] text-fg-muted font-mono">{cmd.cmd}</span>
+                            </div>
+                            <span className="text-[10px] font-mono text-accent opacity-0 group-hover:opacity-100 transition-opacity">
+                              Use →
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Custom Skills */}
+                    <div>
+                      <div className="flex items-center justify-between px-1.5 py-0.5 text-[10px] font-semibold text-fg-muted uppercase tracking-wider">
+                        <span>Custom Skills</span>
+                        {Object.keys(customSkills).length > 0 && (
+                          <span className="text-accent">{Object.keys(customSkills).length}</span>
+                        )}
+                      </div>
+                      <div className="space-y-0.5 mt-0.5">
+                        {Object.values(customSkills)
+                          .filter((cs) =>
+                            !toolsSearch ||
+                            cs.name.toLowerCase().includes(toolsSearch.toLowerCase()) ||
+                            cs.slash_command.toLowerCase().includes(toolsSearch.toLowerCase())
+                          )
+                          .map((cs) => (
+                            <button
+                              key={cs.id}
+                              type="button"
+                              onClick={() => {
+                                handleSelectSlashCommand(`/${cs.slash_command}`);
+                                setShowToolsMenu(false);
+                              }}
+                              className="w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-left text-xs hover:bg-surface-hover hover:text-accent transition-colors group"
+                            >
+                              <div className="min-w-0 pr-2">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-semibold text-fg text-xs truncate group-hover:text-accent">
+                                    {cs.name}
+                                  </span>
+                                  <span className="text-[9px] font-semibold px-1 py-0.2 rounded bg-purple-500/10 text-purple-600 dark:text-purple-400">
+                                    Custom
+                                  </span>
+                                </div>
+                                <span className="text-[10px] text-fg-muted font-mono">/{cs.slash_command}</span>
+                              </div>
+                              <span className="text-[10px] font-mono text-accent opacity-0 group-hover:opacity-100 transition-opacity">
+                                Use →
+                              </span>
+                            </button>
+                          ))}
+                        {Object.keys(customSkills).length === 0 && (
+                          <div className="px-2 py-2 text-center text-fg-muted text-[11px] rounded-lg bg-bg-secondary/50">
+                            No custom skills created yet
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Footer actions */}
+                  <div className="pt-2 border-t border-border mt-1 flex flex-col gap-1">
+                    {onOpenCustomSkills && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowToolsMenu(false);
+                          onOpenCustomSkills();
+                        }}
+                        className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-accent-muted text-accent font-semibold text-xs hover:bg-accent hover:text-accent-fg transition-colors"
+                      >
+                        <Plus size={13} />
+                        <span>Create Custom Skill</span>
+                      </button>
+                    )}
+                    {onOpenPlugins && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowToolsMenu(false);
+                          onOpenPlugins();
+                        }}
+                        className="w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-fg-secondary hover:text-fg hover:bg-surface-hover text-xs font-medium transition-colors"
+                      >
+                        <span>Browse All Plugins & Tools</span>
+                        <ChevronRight size={13} />
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -853,17 +1096,20 @@ export default function Chat({
               className={`p-1.5 rounded-lg text-fg-muted hover:text-accent transition-colors ${
                 isPending ? 'cursor-not-allowed opacity-40' : 'cursor-pointer'
               }`}
-              title="Attach a file"
+              title="Attach files (.pdf, .docx, .txt, .md, images)"
             >
               <Paperclip size={16} />
               <input
                 type="file"
                 className="hidden"
                 disabled={isPending}
+                multiple
                 accept=".pdf,.docx,.txt,.md,.markdown,.csv,.json,.png,.jpg,.jpeg"
                 onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  if (file) void uploadAttachment(file);
+                  const files = event.target.files;
+                  if (files) {
+                    Array.from(files).forEach((f) => void uploadAttachment(f));
+                  }
                   event.target.value = '';
                 }}
               />
@@ -885,7 +1131,17 @@ export default function Chat({
             <textarea
               ref={textareaRef}
               value={input}
-              onChange={(e) => handleInputChange(e.target.value)}
+              onChange={(e) => handleInputChange(e.target.value, e.target.selectionStart)}
+              onClick={(e) => {
+                const target = e.target as HTMLTextAreaElement;
+                evaluateSlashTrigger(target.value, target.selectionStart);
+              }}
+              onKeyUp={(e) => {
+                const target = e.target as HTMLTextAreaElement;
+                if (!['ArrowUp', 'ArrowDown', 'Enter', 'Escape'].includes(e.key)) {
+                  evaluateSlashTrigger(target.value, target.selectionStart);
+                }
+              }}
               onKeyDown={handleKeyDown}
               placeholder="Ask a question, comparison, or type / for skills…"
               rows={1}
