@@ -1,6 +1,8 @@
+import asyncio
 import importlib.util
 import json
 import logging
+import os
 import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -32,6 +34,13 @@ from app.core.rate_limit import SlidingWindowRateLimiter
 from app.core.security import Principal, current_principal
 from app.domain.simulation import SimulationRequest, simulate
 from app.integrations.google import router as integrations_router
+from app.integrations.telegram import (
+    router as telegram_router,
+)
+from app.integrations.telegram import (
+    run_telegram_polling,
+    telegram_is_configured,
+)
 from app.persistence.models import (
     Base,
     ConversationRow,
@@ -85,8 +94,27 @@ async def lifespan(_: FastAPI):
     if settings.app_env != "production":
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-    yield
-    await engine.dispose()
+
+    telegram_task = None
+    telegram_stop = asyncio.Event()
+    if (
+        telegram_is_configured()
+        and getattr(settings, "telegram_polling_enabled", True)
+        and not os.environ.get("PYTEST_CURRENT_TEST")
+    ):
+        telegram_task = asyncio.create_task(run_telegram_polling(telegram_stop))
+
+    try:
+        yield
+    finally:
+        if telegram_task:
+            telegram_stop.set()
+            telegram_task.cancel()
+            try:
+                await asyncio.wait_for(telegram_task, timeout=5.0)
+            except (TimeoutError, asyncio.CancelledError):
+                pass
+        await engine.dispose()
 
 
 app = FastAPI(title="Life Sandbox API", version="0.1.0", lifespan=lifespan)
@@ -96,6 +124,7 @@ app.include_router(auth_router)
 app.include_router(memory_router)
 app.include_router(workflow_router)
 app.include_router(integrations_router)
+app.include_router(telegram_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,

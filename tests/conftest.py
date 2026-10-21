@@ -6,6 +6,7 @@ from pathlib import Path
 
 os.environ["APP_ENV"] = "development"
 os.environ["AUTH_MODE"] = "development"
+os.environ["TELEGRAM_POLLING_ENABLED"] = "false"
 _test_database_directory = tempfile.TemporaryDirectory(prefix="life-sandbox-tests-")
 _test_database_path = Path(_test_database_directory.name) / "test.db"
 os.environ["DATABASE_URL"] = os.environ.get(

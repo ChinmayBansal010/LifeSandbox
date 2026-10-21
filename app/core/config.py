@@ -49,6 +49,10 @@ class Settings(BaseSettings):
     google_oauth_redirect_uri: str | None = None
     telegram_bot_token: str | None = None
     telegram_chat_id: str | None = None
+    telegram_allowed_chat_ids: str | None = None
+    telegram_default_user_id: str = "local-user"
+    telegram_polling_enabled: bool = True
+    telegram_webhook_secret: str | None = None
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
     aws_region: str = "us-east-2"
