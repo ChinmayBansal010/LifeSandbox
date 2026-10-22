@@ -281,11 +281,34 @@ export async function fetchMessages(conversationId: string, force = false): Prom
 
   const promise = (async () => {
     try {
-      const targetId = conv.serverConversationId || conv.id;
+      const targetId = conv.serverConversationId || (conv.isLocalOnly ? null : conv.id);
+      if (!targetId) {
+        messagesLoading = { ...messagesLoading, [conversationId]: false };
+        notify();
+        return;
+      }
       const res = await fetch(`/api/v1/conversations/${encodeURIComponent(targetId)}/messages`);
       if (!res.ok) {
         if (res.status === 404) {
-          throw new Error('Conversation not found on server');
+          const currentConv = state.conversations[conversationId];
+          if (currentConv) {
+            state = {
+              ...state,
+              conversations: {
+                ...state.conversations,
+                [conversationId]: {
+                  ...currentConv,
+                  isLocalOnly: true,
+                  serverConversationId: undefined,
+                  hasLoadedMessages: true,
+                },
+              },
+            };
+            saveState(state);
+          }
+          messagesLoading = { ...messagesLoading, [conversationId]: false };
+          notify();
+          return;
         }
         throw new Error(`Failed to load messages (HTTP ${res.status})`);
       }
@@ -585,9 +608,9 @@ export function useStore() {
           ])
           .slice(-12);
 
-        const targetServerId = currentConv.serverConversationId ?? (isUUID(currentConv.id) ? currentConv.id : null);
+        const targetServerId = currentConv.serverConversationId ?? (currentConv.isLocalOnly ? null : (isUUID(currentConv.id) ? currentConv.id : null));
 
-        const response = await fetch('/api/v1/chat', {
+        let response = await fetch('/api/v1/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           signal: controller.signal,
@@ -600,6 +623,23 @@ export function useStore() {
             attachment_ids: attachments.map((file) => file.id),
           }),
         });
+
+        // If the server reported 404 Conversation not found, automatically retry with conversation_id: null
+        if (!response.ok && response.status === 404 && targetServerId) {
+          response = await fetch('/api/v1/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: controller.signal,
+            body: JSON.stringify({
+              message: userMessage,
+              conversation_id: null,
+              history,
+              remember,
+              browse,
+              attachment_ids: attachments.map((file) => file.id),
+            }),
+          });
+        }
 
         const rawText = await response.text();
         let payload: any = null;

@@ -22,6 +22,25 @@ def test_chat_persists_history_and_rejects_unknown_conversation():
         assert missing.status_code == 404
 
 
+def test_chat_creates_conversation_when_client_id_not_found():
+    import uuid
+    client_conv_id = str(uuid.uuid4())
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v1/chat",
+            json={"message": "Check my calendar to find free time this Friday afternoon", "conversation_id": client_conv_id},
+        )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["conversation_id"] == client_conv_id
+        assert len(body["reply"]) > 0
+
+        # Verify conversation was persisted
+        history = client.get(f"/api/v1/conversations/{client_conv_id}/messages")
+        assert history.status_code == 200
+        assert len(history.json()["items"]) == 2
+
+
 def test_simulation_endpoint_returns_deterministic_result():
     with TestClient(app) as client:
         response = client.post(

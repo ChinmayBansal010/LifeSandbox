@@ -600,25 +600,50 @@ async def execute_tools(state: ConversationState):
                     if tool_db is None or user_id is None:
                         raise ValueError("Google tools require an authenticated user context")
                     if name == "calendar.list_events":
+                        tz_str = arguments.get("timezone", "UTC")
+                        try:
+                            tz = ZoneInfo(tz_str)
+                        except Exception:
+                            tz = UTC
+                            tz_str = "UTC"
+                        start_dt = datetime.fromisoformat(arguments["start"])
+                        if start_dt.tzinfo is None:
+                            start_dt = start_dt.replace(tzinfo=tz)
+                        end_dt = datetime.fromisoformat(arguments["end"])
+                        if end_dt.tzinfo is None:
+                            end_dt = end_dt.replace(tzinfo=tz)
                         result = await _bounded(list_events(
                             tool_db,
                             user_id,
-                            datetime.fromisoformat(arguments["start"]),
-                            datetime.fromisoformat(arguments["end"]),
-                            arguments["timezone"],
+                            start_dt,
+                            end_dt,
+                            tz_str,
                             arguments.get("calendar_id", "primary"),
                             arguments.get("limit", 50),
                         ), definition.timeout_seconds)
                     elif name == "calendar.find_free_time":
+                        tz_str = arguments.get("timezone", "UTC")
+                        try:
+                            tz = ZoneInfo(tz_str)
+                        except Exception:
+                            tz = UTC
+                            tz_str = "UTC"
+                        start_dt = datetime.fromisoformat(arguments["start"])
+                        if start_dt.tzinfo is None:
+                            start_dt = start_dt.replace(tzinfo=tz)
+                        end_dt = datetime.fromisoformat(arguments["end"])
+                        if end_dt.tzinfo is None:
+                            end_dt = end_dt.replace(tzinfo=tz)
+                        duration = int(arguments.get("duration_minutes", 30))
                         result = await _bounded(find_free_time(
                             tool_db,
                             user_id,
-                            datetime.fromisoformat(arguments["start"]),
-                            datetime.fromisoformat(arguments["end"]),
-                            arguments["timezone"],
-                            arguments["duration_minutes"],
-                            arguments.get("working_start", 9),
-                            arguments.get("working_end", 17),
+                            start_dt,
+                            end_dt,
+                            tz_str,
+                            duration,
+                            int(arguments.get("working_start", 9)),
+                            int(arguments.get("working_end", 17)),
                         ), definition.timeout_seconds)
                     elif name == "gmail.search_messages":
                         result = await _bounded(

@@ -49,10 +49,22 @@ async def run_chat(
             )
         )
         if row is None:
-            return None
-        if row.title in {"New conversation", "New chat", ""} and message.strip():
-            row.title = message[:80].strip()
-        row.updated_at = datetime.now(UTC)
+            existing = await db.scalar(
+                select(ConversationRow.id).where(ConversationRow.id == conversation_id)
+            )
+            if existing is not None:
+                return None
+            row = ConversationRow(
+                id=conversation_id,
+                user_id=user_id,
+                title=message[:80].strip() or "New conversation",
+            )
+            db.add(row)
+            await db.flush()
+        else:
+            if row.title in {"New conversation", "New chat", ""} and message.strip():
+                row.title = message[:80].strip()
+            row.updated_at = datetime.now(UTC)
     else:
         row = ConversationRow(id=str(uuid4()), user_id=user_id, title=message[:80])
         db.add(row)
