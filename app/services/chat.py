@@ -50,6 +50,9 @@ async def run_chat(
         )
         if row is None:
             return None
+        if row.title in {"New conversation", "New chat", ""} and message.strip():
+            row.title = message[:80].strip()
+        row.updated_at = datetime.now(UTC)
     else:
         row = ConversationRow(id=str(uuid4()), user_id=user_id, title=message[:80])
         db.add(row)
@@ -296,6 +299,7 @@ async def run_chat(
             )
 
         db.add(MessageRow(conversation_id=row.id, role="assistant", content=state["reply"]))
+        row.updated_at = datetime.now(UTC)
         await db.commit()
 
         memory_saved = False

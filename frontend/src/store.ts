@@ -5,9 +5,102 @@ import type { AppState, ChatMessage, Conversation, CustomSkill, FileAttachment, 
 import { createId } from './graph-utils';
 import { loadState, saveState } from './persistence';
 
-// ─── Singleton store ──────────────────────────────────────────────
+export function isUUID(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
+/**
+ * Converts a sequence of server role/content messages into user/assistant ChatMessage pairs.
+ */
+export function parseBackendMessages(
+  items: Array<{ id: string; role: string; content: string; created_at?: string }>
+): ChatMessage[] {
+  const result: ChatMessage[] = [];
+  let pendingUser: { id: string; content: string; createdAt: number } | null = null;
+
+  for (const item of items) {
+    const createdAt = item.created_at ? new Date(item.created_at).getTime() || Date.now() : Date.now();
+    if (item.role === 'user') {
+      if (pendingUser) {
+        result.push({
+          id: pendingUser.id,
+          userMessage: pendingUser.content,
+          assistantMessage: '',
+          createdAt: pendingUser.createdAt,
+        });
+      }
+      pendingUser = { id: item.id, content: item.content, createdAt };
+    } else if (item.role === 'assistant') {
+      if (pendingUser) {
+        result.push({
+          id: pendingUser.id,
+          userMessage: pendingUser.content,
+          assistantMessage: item.content,
+          createdAt: pendingUser.createdAt,
+        });
+        pendingUser = null;
+      } else {
+        result.push({
+          id: item.id,
+          userMessage: '',
+          assistantMessage: item.content,
+          createdAt,
+        });
+      }
+    }
+  }
+
+  if (pendingUser) {
+    result.push({
+      id: pendingUser.id,
+      userMessage: pendingUser.content,
+      assistantMessage: '',
+      createdAt: pendingUser.createdAt,
+    });
+  }
+
+  return result;
+}
+
+/**
+ * Reconciles parsed backend messages with any existing rich client metadata (traces, attachments, badges).
+ */
+export function reconcileMessages(
+  backendMessages: ChatMessage[],
+  existingMessages: ChatMessage[]
+): ChatMessage[] {
+  return backendMessages.map((bMsg) => {
+    const existing = existingMessages.find(
+      (e) => (e.id === bMsg.id) || (e.userMessage.trim() === bMsg.userMessage.trim() && e.assistantMessage.trim() === bMsg.assistantMessage.trim())
+    );
+    if (existing) {
+      return {
+        ...bMsg,
+        traceId: existing.traceId ?? bMsg.traceId,
+        toolsAccessed: existing.toolsAccessed ?? bMsg.toolsAccessed,
+        skill: existing.skill ?? bMsg.skill,
+        skillTrigger: existing.skillTrigger ?? bMsg.skillTrigger,
+        intent: existing.intent ?? bMsg.intent,
+        mem0OptIn: existing.mem0OptIn ?? bMsg.mem0OptIn,
+        mem0SearchStatus: existing.mem0SearchStatus ?? bMsg.mem0SearchStatus,
+        mem0SaveStatus: existing.mem0SaveStatus ?? bMsg.mem0SaveStatus,
+        attachments: existing.attachments ?? bMsg.attachments,
+      };
+    }
+    return bMsg;
+  });
+}
+
+// ─── Singleton store state ─────────────────────────────────────────
 let state: AppState = loadState();
 let isPending = false;
+let conversationsLoading = false;
+let conversationsError: string | null = null;
+let messagesLoading: Record<string, boolean> = {};
+let messagesError: Record<string, string | null> = {};
+let deletingId: string | null = null;
+let deleteError: string | null = null;
+
 const listeners = new Set<() => void>();
 
 function getState(): AppState {
@@ -34,65 +127,356 @@ function subscribe(listener: () => void) {
   return () => listeners.delete(listener);
 }
 
-// ─── Actions ──────────────────────────────────────────────────────
-function createConversation(title?: string): Conversation {
-  const id = createId();
+export function resetStoreForTesting(initialState?: AppState) {
+  state = initialState || loadState();
+  conversationsLoading = false;
+  conversationsError = null;
+  messagesLoading = {};
+  messagesError = {};
+  deletingId = null;
+  deleteError = null;
+  loadConversationsPromise = null;
+  inFlightMessageFetches.clear();
+  notify();
+}
+
+// ─── Server Sync & Actions ─────────────────────────────────────────
+let loadConversationsPromise: Promise<void> | null = null;
+
+export async function loadConversations(): Promise<void> {
+  if (loadConversationsPromise) {
+    return loadConversationsPromise;
+  }
+
+  conversationsLoading = true;
+  conversationsError = null;
+  notify();
+
+  loadConversationsPromise = (async () => {
+    try {
+      const response = await fetch('/api/v1/conversations');
+      if (!response.ok) {
+        throw new Error(`Failed to load conversations (HTTP ${response.status})`);
+      }
+      const data = await response.json();
+      const serverItems: Array<{ id: string; title: string; created_at: string; updated_at: string }> =
+        Array.isArray(data.items) ? data.items : [];
+
+      const currentConversations = { ...state.conversations };
+      const serverIdSet = new Set(serverItems.map((s) => s.id));
+      const nextConversations: Record<string, Conversation> = {};
+
+      // 1. Incorporate server conversations
+      for (const item of serverItems) {
+        const existing = currentConversations[item.id] ||
+          Object.values(currentConversations).find((c) => c.serverConversationId === item.id);
+
+        const createdAt = item.created_at ? new Date(item.created_at).getTime() || Date.now() : Date.now();
+        const updatedAt = item.updated_at ? new Date(item.updated_at).getTime() || Date.now() : Date.now();
+
+        if (existing) {
+          nextConversations[item.id] = {
+            ...existing,
+            id: item.id,
+            serverConversationId: item.id,
+            title: item.title || existing.title,
+            createdAt: existing.createdAt || createdAt,
+            updatedAt: Math.max(existing.updatedAt, updatedAt),
+            isLocalOnly: false,
+          };
+        } else {
+          nextConversations[item.id] = {
+            id: item.id,
+            serverConversationId: item.id,
+            title: item.title || 'New chat',
+            messages: [],
+            createdAt,
+            updatedAt,
+            isLocalOnly: false,
+            hasLoadedMessages: false,
+          };
+        }
+      }
+
+      // 2. Preserve any local-only conversations from browser localStorage
+      for (const [id, conv] of Object.entries(currentConversations)) {
+        if (!serverIdSet.has(id) && (!conv.serverConversationId || !serverIdSet.has(conv.serverConversationId))) {
+          nextConversations[id] = {
+            ...conv,
+            isLocalOnly: true,
+          };
+        }
+      }
+
+      // 3. Reconcile active conversation ID
+      let nextActiveId = state.activeConversationId;
+      if (nextActiveId && !nextConversations[nextActiveId]) {
+        nextActiveId = Object.keys(nextConversations)[0] ?? null;
+      } else if (!nextActiveId && Object.keys(nextConversations).length > 0) {
+        nextActiveId = Object.keys(nextConversations)[0];
+      }
+
+      state = {
+        ...state,
+        conversations: nextConversations,
+        activeConversationId: nextActiveId,
+      };
+      saveState(state);
+      conversationsLoading = false;
+      conversationsError = null;
+      notify();
+
+      // Automatically fetch messages for the active conversation if it hasn't loaded yet
+      if (
+        nextActiveId &&
+        nextConversations[nextActiveId] &&
+        !nextConversations[nextActiveId].isLocalOnly &&
+        !nextConversations[nextActiveId].hasLoadedMessages
+      ) {
+        void fetchMessages(nextActiveId);
+      }
+    } catch (err) {
+      conversationsLoading = false;
+      conversationsError = err instanceof Error ? err.message : 'Failed to load conversations';
+      notify();
+    } finally {
+      loadConversationsPromise = null;
+    }
+  })();
+
+  return loadConversationsPromise;
+}
+
+const inFlightMessageFetches = new Map<string, Promise<void>>();
+
+export async function fetchMessages(conversationId: string, force = false): Promise<void> {
+  const conv = state.conversations[conversationId];
+  if (!conv) return;
+
+  if (conv.isLocalOnly && !conv.serverConversationId) {
+    if (!conv.hasLoadedMessages) {
+      state = {
+        ...state,
+        conversations: {
+          ...state.conversations,
+          [conversationId]: { ...conv, hasLoadedMessages: true },
+        },
+      };
+      notify();
+    }
+    return;
+  }
+
+  if (!force && inFlightMessageFetches.has(conversationId)) {
+    return inFlightMessageFetches.get(conversationId);
+  }
+
+  if (!force && conv.hasLoadedMessages && conv.messages.length > 0) {
+    return;
+  }
+
+  messagesLoading = { ...messagesLoading, [conversationId]: true };
+  messagesError = { ...messagesError, [conversationId]: null };
+  notify();
+
+  const promise = (async () => {
+    try {
+      const targetId = conv.serverConversationId || conv.id;
+      const res = await fetch(`/api/v1/conversations/${encodeURIComponent(targetId)}/messages`);
+      if (!res.ok) {
+        if (res.status === 404) {
+          throw new Error('Conversation not found on server');
+        }
+        throw new Error(`Failed to load messages (HTTP ${res.status})`);
+      }
+      const data = await res.json();
+      const items = Array.isArray(data.items) ? data.items : [];
+      const backendMessages = parseBackendMessages(items);
+
+      const currentConv = state.conversations[conversationId];
+      if (currentConv) {
+        const reconciled = reconcileMessages(backendMessages, currentConv.messages);
+        state = {
+          ...state,
+          conversations: {
+            ...state.conversations,
+            [conversationId]: {
+              ...currentConv,
+              messages: reconciled,
+              hasLoadedMessages: true,
+            },
+          },
+        };
+        saveState(state);
+      }
+      messagesLoading = { ...messagesLoading, [conversationId]: false };
+      messagesError = { ...messagesError, [conversationId]: null };
+      notify();
+    } catch (err) {
+      messagesLoading = { ...messagesLoading, [conversationId]: false };
+      messagesError = {
+        ...messagesError,
+        [conversationId]: err instanceof Error ? err.message : 'Failed to load messages',
+      };
+      notify();
+    } finally {
+      inFlightMessageFetches.delete(conversationId);
+    }
+  })();
+
+  inFlightMessageFetches.set(conversationId, promise);
+  return promise;
+}
+
+export async function createConversation(title?: string): Promise<Conversation> {
   const now = Date.now();
+  let serverId: string | null = null;
+  let serverTitle = title || 'New chat';
+
+  try {
+    const res = await fetch('/api/v1/conversations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data && typeof data.id === 'string') {
+        serverId = data.id;
+        if (!title && data.title) {
+          serverTitle = data.title;
+        }
+      }
+    }
+  } catch {
+    // Offline or server down: fallback safely to local
+  }
+
+  const id = serverId || createId();
   const conversation: Conversation = {
     id,
-    title: title || 'New chat',
+    serverConversationId: serverId ?? undefined,
+    title: serverTitle,
     messages: [],
     createdAt: now,
     updatedAt: now,
+    isLocalOnly: !serverId,
+    hasLoadedMessages: true,
   };
-  setState({
+
+  state = {
     ...state,
     conversations: { ...state.conversations, [id]: conversation },
     activeConversationId: id,
-  });
+  };
+  saveState(state);
+  notify();
   return conversation;
 }
 
-function deleteConversation(conversationId: string) {
+export async function deleteConversation(conversationId: string): Promise<boolean> {
   const conv = state.conversations[conversationId];
-  if (!conv) return;
+  if (!conv) return false;
 
-  const newConversations = { ...state.conversations };
-  delete newConversations[conversationId];
+  deletingId = conversationId;
+  deleteError = null;
+  notify();
 
-  const convIds = Object.keys(newConversations);
-  setState({
-    ...state,
-    conversations: newConversations,
-    activeConversationId:
-      state.activeConversationId === conversationId
-        ? convIds[0] ?? null
-        : state.activeConversationId,
-  });
+  try {
+    const isLocal = conv.isLocalOnly && !conv.serverConversationId;
+    if (!isLocal) {
+      const targetId = conv.serverConversationId || conv.id;
+      const res = await fetch(`/api/v1/conversations/${encodeURIComponent(targetId)}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok && res.status !== 404) {
+        let errMessage = `Server error (${res.status})`;
+        try {
+          const body = await res.json();
+          errMessage = body.detail?.message || body.detail || errMessage;
+        } catch {
+          // ignore parse error
+        }
+        throw new Error(errMessage);
+      }
+    }
+
+    // Only update state after server has confirmed deletion
+    const newConversations = { ...state.conversations };
+    delete newConversations[conversationId];
+
+    const convIds = Object.keys(newConversations);
+    state = {
+      ...state,
+      conversations: newConversations,
+      activeConversationId:
+        state.activeConversationId === conversationId
+          ? convIds[0] ?? null
+          : state.activeConversationId,
+    };
+    saveState(state);
+    notify();
+    return true;
+  } catch (err) {
+    deleteError = err instanceof Error ? err.message : 'Failed to delete conversation';
+    notify();
+    throw err;
+  } finally {
+    deletingId = null;
+    notify();
+  }
 }
 
-function setActiveConversation(conversationId: string) {
+export function setActiveConversation(conversationId: string) {
   if (!state.conversations[conversationId]) return;
-  setState({ ...state, activeConversationId: conversationId });
+  state = { ...state, activeConversationId: conversationId };
+  notify();
+
+  const conv = state.conversations[conversationId];
+  if (conv && !conv.isLocalOnly && !conv.hasLoadedMessages) {
+    void fetchMessages(conversationId);
+  }
 }
 
-function renameConversation(conversationId: string, title: string) {
+export async function renameConversation(conversationId: string, title: string): Promise<void> {
   const conv = state.conversations[conversationId];
   if (!conv) return;
-  setState({
+
+  const trimmed = title.trim();
+  if (!trimmed) return;
+
+  state = {
     ...state,
     conversations: {
       ...state.conversations,
-      [conversationId]: { ...conv, title, updatedAt: Date.now() },
+      [conversationId]: { ...conv, title: trimmed, updatedAt: Date.now() },
     },
-  });
+  };
+  saveState(state);
+  notify();
+
+  if (!conv.isLocalOnly || conv.serverConversationId) {
+    const targetId = conv.serverConversationId || conv.id;
+    try {
+      await fetch(`/api/v1/conversations/${encodeURIComponent(targetId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: trimmed }),
+      });
+    } catch {
+      // Offline fallback: retains local title
+    }
+  }
+}
+
+export function clearDeleteError() {
+  deleteError = null;
+  notify();
 }
 
 function setTheme(theme: ThemePreference) {
   setState({ ...state, theme });
 }
 
-// shortcut: custom skills are stored in frontend localStorage; backend AI model execution requires passing dynamic system prompts via future backend endpoint
 function saveCustomSkill(skill: {
   id?: string;
   name: string;
@@ -201,13 +585,15 @@ export function useStore() {
           ])
           .slice(-12);
 
+        const targetServerId = currentConv.serverConversationId ?? (isUUID(currentConv.id) ? currentConv.id : null);
+
         const response = await fetch('/api/v1/chat', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           signal: controller.signal,
           body: JSON.stringify({
             message: userMessage,
-            conversation_id: currentConv.serverConversationId ?? null,
+            conversation_id: targetServerId,
             history,
             remember,
             browse,
@@ -246,6 +632,7 @@ export function useStore() {
           throw new Error('The assistant returned an empty response.');
         }
 
+        const returnedServerId = typeof payload.conversation_id === 'string' ? payload.conversation_id : null;
         const currentState = getState();
         const convToUpdate = currentState.conversations[conversationId];
         if (convToUpdate) {
@@ -265,17 +652,31 @@ export function useStore() {
                 }
               : m
           );
+
+          const canonicalId = returnedServerId || conversationId;
+          const reconciledConv: Conversation = {
+            ...convToUpdate,
+            id: canonicalId,
+            serverConversationId: returnedServerId || convToUpdate.serverConversationId,
+            isLocalOnly: false,
+            hasLoadedMessages: true,
+            messages: updatedMessages,
+            updatedAt: Date.now(),
+          };
+
+          const newConversations = { ...currentState.conversations };
+          if (canonicalId !== conversationId) {
+            delete newConversations[conversationId];
+          }
+          newConversations[canonicalId] = reconciledConv;
+
           setState({
             ...currentState,
-            conversations: {
-              ...currentState.conversations,
-              [conversationId]: {
-                ...convToUpdate,
-                serverConversationId: payload.conversation_id,
-                messages: updatedMessages,
-                updatedAt: Date.now(),
-              },
-            },
+            conversations: newConversations,
+            activeConversationId:
+              currentState.activeConversationId === conversationId
+                ? canonicalId
+                : currentState.activeConversationId,
           });
         }
         return JSON.stringify({ saved: payload.mem0_save_status === 'saved', search: payload.mem0_search_status, save: payload.mem0_save_status });
@@ -329,14 +730,25 @@ export function useStore() {
     activeConversation,
     isPending,
 
+    // Sync & loading flags
+    conversationsLoading,
+    conversationsError,
+    messagesLoading,
+    messagesError,
+    deletingId,
+    deleteError,
+
     customSkills: appState.customSkills || {},
 
     // Actions
+    loadConversations,
+    fetchMessages,
     createConversation,
     deleteConversation,
     setActiveConversation,
     renameConversation,
     sendMessage,
+    clearDeleteError,
     setTheme,
     saveCustomSkill,
     deleteCustomSkill,

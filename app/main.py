@@ -545,6 +545,36 @@ async def get_conversation(
     }
 
 
+class RenameConversationPayload(BaseModel):
+    title: str = Field(min_length=1, max_length=200)
+
+
+@app.patch("/api/v1/conversations/{conversation_id}")
+async def rename_conversation(
+    conversation_id: str,
+    payload: RenameConversationPayload,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(get_session),
+):
+    row = await db.scalar(
+        select(ConversationRow).where(
+            ConversationRow.id == conversation_id, ConversationRow.user_id == principal.user_id
+        )
+    )
+    if row is None:
+        raise HTTPException(404, detail={"code": "not_found", "message": "Conversation not found"})
+    row.title = payload.title.strip()
+    row.updated_at = datetime.now(UTC)
+    await db.commit()
+    await db.refresh(row)
+    return {
+        "id": row.id,
+        "title": row.title,
+        "created_at": row.created_at,
+        "updated_at": row.updated_at,
+    }
+
+
 @app.get("/api/v1/conversations/{conversation_id}/messages")
 async def messages(
     conversation_id: str,

@@ -11,6 +11,10 @@ import {
   Activity,
   NotebookTabs,
   Blocks,
+  Loader2,
+  RefreshCw,
+  AlertCircle,
+  X,
 } from 'lucide-react';
 import type { Conversation, ThemePreference } from '../types';
 import { truncate } from '../graph-utils';
@@ -32,6 +36,12 @@ type SidebarProps = {
   isLifeActive?: boolean;
   isPluginsActive?: boolean;
   onSetTheme: (theme: ThemePreference) => void;
+  isLoading?: boolean;
+  error?: string | null;
+  onRetryLoad?: () => void;
+  deletingId?: string | null;
+  deleteError?: string | null;
+  onClearDeleteError?: () => void;
 };
 
 export default function Sidebar({
@@ -50,6 +60,12 @@ export default function Sidebar({
   isLifeActive = false,
   isPluginsActive = false,
   onSetTheme,
+  isLoading = false,
+  error = null,
+  onRetryLoad,
+  deletingId = null,
+  deleteError = null,
+  onClearDeleteError,
 }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -171,15 +187,58 @@ export default function Sidebar({
         </div>
       </div>
 
+      {/* Delete error notification banner */}
+      {deleteError && (
+        <div className="mx-3 mb-2 p-2 rounded-lg bg-error/15 border border-error/30 text-xs flex items-start justify-between gap-1.5 animate-fade-in">
+          <div className="flex items-start gap-1.5 text-error">
+            <AlertCircle size={14} className="shrink-0 mt-0.5" />
+            <span className="leading-tight">{deleteError}</span>
+          </div>
+          {onClearDeleteError && (
+            <button
+              onClick={onClearDeleteError}
+              className="p-0.5 rounded hover:bg-error/20 text-error shrink-0"
+              aria-label="Dismiss error"
+            >
+              <X size={12} />
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Chat list */}
       <nav className="flex-1 overflow-y-auto px-2 py-1" aria-label="Conversations">
-        {filtered.length === 0 && (
+        {isLoading && conversationList.length === 0 && (
+          <div className="flex items-center justify-center py-6 gap-2 text-xs text-fg-muted" role="status">
+            <Loader2 size={14} className="animate-spin text-accent" />
+            <span>Loading chats…</span>
+          </div>
+        )}
+
+        {error && (
+          <div className="mx-2 my-2 p-2.5 rounded-lg bg-error/10 border border-error/20 text-xs">
+            <p className="text-error font-medium">Failed to load chats</p>
+            <p className="text-[11px] text-fg-muted mt-0.5 line-clamp-2">{error}</p>
+            {onRetryLoad && (
+              <button
+                onClick={onRetryLoad}
+                className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-accent hover:underline"
+              >
+                <RefreshCw size={11} /> Retry
+              </button>
+            )}
+          </div>
+        )}
+
+        {!isLoading && filtered.length === 0 && !error && (
           <p className="px-3 py-4 text-xs text-fg-muted text-center">
             {searchQuery ? 'No matching chats' : 'No chats yet'}
           </p>
         )}
+
         {filtered.map((conv) => {
           const isActive = !isAdminActive && conv.id === activeConversationId;
+          const isDeleting = deletingId === conv.id;
           return (
             <div key={conv.id} className="group relative">
               <button
@@ -192,19 +251,32 @@ export default function Sidebar({
                 aria-current={isActive ? 'page' : undefined}
               >
                 <MessageSquare size={14} className="shrink-0 opacity-60" />
-                <span className="truncate">
-                  {truncate(conv.title, 26)}
+                <span className="truncate flex-1">
+                  {truncate(conv.title, 22)}
                 </span>
+                {conv.isLocalOnly && (
+                  <span
+                    className="text-[9px] font-mono px-1 py-0.2 rounded bg-surface border border-border text-fg-muted shrink-0"
+                    title="Saved in browser localStorage"
+                  >
+                    Local
+                  </span>
+                )}
               </button>
               <button
                 onClick={(e) => {
                   e.stopPropagation();
-                  onDeleteConversation(conv.id);
+                  if (!isDeleting) onDeleteConversation(conv.id);
                 }}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-error/10 text-fg-muted hover:text-error transition-all"
+                disabled={isDeleting}
+                className={`absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded transition-all ${
+                  isDeleting
+                    ? 'opacity-100 text-fg-muted'
+                    : 'opacity-0 group-hover:opacity-100 hover:bg-error/10 text-fg-muted hover:text-error'
+                }`}
                 aria-label={`Delete ${conv.title}`}
               >
-                <Trash2 size={13} />
+                {isDeleting ? <Loader2 size={13} className="animate-spin text-accent" /> : <Trash2 size={13} />}
               </button>
             </div>
           );

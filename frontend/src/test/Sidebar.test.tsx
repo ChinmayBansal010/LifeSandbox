@@ -70,4 +70,114 @@ describe('Sidebar Component', () => {
     fireEvent.click(pluginsButton);
     expect(handleOpenPlugins).toHaveBeenCalled();
   });
+
+  it('renders loading indicator when isLoading is true and no conversations exist', () => {
+    render(
+      <Sidebar
+        conversations={{}}
+        activeConversationId={null}
+        theme="system"
+        collapsed={false}
+        isLoading={true}
+        onToggleCollapse={vi.fn()}
+        onCreateConversation={vi.fn()}
+        onSelectConversation={vi.fn()}
+        onDeleteConversation={vi.fn()}
+        onOpenAdminPanel={vi.fn()}
+        onOpenLifePanel={vi.fn()}
+        onOpenPlugins={vi.fn()}
+        onSetTheme={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText('Loading chats…')).toBeInTheDocument();
+  });
+
+  it('renders error state and invokes onRetryLoad when Retry button is clicked', () => {
+    const handleRetry = vi.fn();
+    render(
+      <Sidebar
+        conversations={{}}
+        activeConversationId={null}
+        theme="system"
+        collapsed={false}
+        error="Failed to load conversations (HTTP 500)"
+        onRetryLoad={handleRetry}
+        onToggleCollapse={vi.fn()}
+        onCreateConversation={vi.fn()}
+        onSelectConversation={vi.fn()}
+        onDeleteConversation={vi.fn()}
+        onOpenAdminPanel={vi.fn()}
+        onOpenLifePanel={vi.fn()}
+        onOpenPlugins={vi.fn()}
+        onSetTheme={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText('Failed to load chats')).toBeInTheDocument();
+    expect(screen.getByText('Failed to load conversations (HTTP 500)')).toBeInTheDocument();
+
+    const retryButton = screen.getByText('Retry');
+    fireEvent.click(retryButton);
+    expect(handleRetry).toHaveBeenCalled();
+  });
+
+  it('renders "Local" badge for browser-only conversations', () => {
+    const localConversations: Record<string, Conversation> = {
+      local1: {
+        id: 'local1',
+        title: 'Draft Scenario in Browser',
+        messages: [],
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        isLocalOnly: true,
+      },
+    };
+
+    render(
+      <Sidebar
+        conversations={localConversations}
+        activeConversationId="local1"
+        theme="system"
+        collapsed={false}
+        onToggleCollapse={vi.fn()}
+        onCreateConversation={vi.fn()}
+        onSelectConversation={vi.fn()}
+        onDeleteConversation={vi.fn()}
+        onOpenAdminPanel={vi.fn()}
+        onOpenLifePanel={vi.fn()}
+        onOpenPlugins={vi.fn()}
+        onSetTheme={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText('Local')).toBeInTheDocument();
+  });
+
+  it('renders delete error banner and allows dismissing it', () => {
+    const handleClear = vi.fn();
+    render(
+      <Sidebar
+        conversations={mockConversations}
+        activeConversationId="conv1"
+        theme="system"
+        collapsed={false}
+        deleteError="Server rejected conversation deletion"
+        onClearDeleteError={handleClear}
+        onToggleCollapse={vi.fn()}
+        onCreateConversation={vi.fn()}
+        onSelectConversation={vi.fn()}
+        onDeleteConversation={vi.fn()}
+        onOpenAdminPanel={vi.fn()}
+        onOpenLifePanel={vi.fn()}
+        onOpenPlugins={vi.fn()}
+        onSetTheme={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText('Server rejected conversation deletion')).toBeInTheDocument();
+    const dismissButton = screen.getByLabelText('Dismiss error');
+    fireEvent.click(dismissButton);
+    expect(handleClear).toHaveBeenCalled();
+  });
 });

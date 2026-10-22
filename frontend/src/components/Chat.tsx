@@ -20,6 +20,8 @@ import {
   Blocks,
   Plus,
   ChevronRight,
+  RefreshCw,
+  AlertCircle,
 } from 'lucide-react';
 import type { Conversation, ChatMessage, CustomSkill, FileAttachment } from '../types';
 import type { ThemePreference } from '../types';
@@ -58,6 +60,9 @@ type ChatProps = {
   onClearInitialPrompt?: () => void;
   isPending: boolean;
   theme: ThemePreference;
+  isMessagesLoading?: boolean;
+  messagesError?: string | null;
+  onRetryLoadMessages?: () => void;
 };
 
 let activeSpeech: HTMLAudioElement | null = null;
@@ -324,6 +329,9 @@ export default function Chat({
   ttsEnabled,
   imageUnderstandingEnabled,
   theme,
+  isMessagesLoading = false,
+  messagesError = null,
+  onRetryLoadMessages,
 }: ChatProps) {
   const [input, setInput] = useState('');
   const [isEditingTitle, setIsEditingTitle] = useState(false);
@@ -746,7 +754,28 @@ export default function Chat({
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 sm:px-6 lg:px-8 py-6">
-        {messages.length === 0 ? (
+        {isMessagesLoading && messages.length === 0 ? (
+          <div className="h-full flex flex-col items-center justify-center text-center p-8 text-fg-muted" role="status">
+            <Loader2 size={24} className="animate-spin text-accent mb-3" />
+            <p className="text-sm font-medium text-fg">Loading conversation history…</p>
+            <p className="text-xs text-fg-muted mt-1">Retrieving saved messages from server</p>
+          </div>
+        ) : messagesError ? (
+          <div className="mx-auto my-8 max-w-md p-5 rounded-2xl bg-error/10 border border-error/20 text-center animate-fade-in shadow-xs">
+            <AlertCircle size={24} className="text-error mx-auto mb-2" />
+            <p className="text-sm font-semibold text-error">Failed to load message history</p>
+            <p className="text-xs text-fg-muted mt-1 leading-relaxed">{messagesError}</p>
+            {onRetryLoadMessages && (
+              <button
+                type="button"
+                onClick={onRetryLoadMessages}
+                className="mt-3.5 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-surface border border-border text-xs font-medium hover:bg-surface-hover text-fg transition-colors shadow-2xs"
+              >
+                <RefreshCw size={12} /> Retry
+              </button>
+            )}
+          </div>
+        ) : messages.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-center px-4 max-w-4xl mx-auto animate-fade-in">
             <div className="w-14 h-14 rounded-2xl bg-accent-muted flex items-center justify-center mb-4 shadow-sm border border-accent/20 animate-scale-in">
               <MessageSquare size={26} className="text-accent" />

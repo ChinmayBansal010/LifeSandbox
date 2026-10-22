@@ -82,3 +82,64 @@ def test_openrouter_timeout_contract_marks_mem0_not_attempted(monkeypatch):
     assert body["failure_detail"]["provider"] == "openrouter"
     assert body["failure_detail"]["stage"] == "llm_generate"
     assert body["failure_detail"]["code"] == "timeout"
+
+
+def test_conversation_crud_lifecycle_and_messages():
+    with TestClient(app) as client:
+        # 1. Create a conversation
+        create_res = client.post("/api/v1/conversations")
+        assert create_res.status_code == 201
+        created = create_res.json()
+        conv_id = created["id"]
+        assert created["title"] == "New conversation"
+
+        # 2. List conversations includes created conversation
+        list_res = client.get("/api/v1/conversations")
+        assert list_res.status_code == 200
+        items = list_res.json()["items"]
+        assert any(item["id"] == conv_id for item in items)
+
+        # 3. Rename conversation
+        rename_res = client.patch(
+            f"/api/v1/conversations/{conv_id}",
+            json={"title": "Updated Strategy Session"},
+        )
+        assert rename_res.status_code == 200
+        assert rename_res.json()["title"] == "Updated Strategy Session"
+
+        # 4. Fetch renamed conversation
+        get_res = client.get(f"/api/v1/conversations/{conv_id}")
+        assert get_res.status_code == 200
+        assert get_res.json()["title"] == "Updated Strategy Session"
+
+        # 5. Insert messages directly to verify /messages endpoint
+        from app.persistence.session import SessionLocal
+        from app.persistence.models import MessageRow
+        import asyncio
+
+        async def _add_msgs():
+            async with SessionLocal() as db:
+                db.add(MessageRow(conversation_id=conv_id, role="user", content="What should I focus on first?"))
+                db.add(MessageRow(conversation_id=conv_id, role="assistant", content="Focus on core architecture."))
+                await db.commit()
+
+        asyncio.run(_add_msgs())
+
+        # 6. Verify messages endpoint returns ordered messages
+        msg_res = client.get(f"/api/v1/conversations/{conv_id}/messages")
+        assert msg_res.status_code == 200
+        msg_items = msg_res.json()["items"]
+        assert len(msg_items) == 2
+        assert msg_items[0]["role"] == "user"
+        assert msg_items[0]["content"] == "What should I focus on first?"
+        assert msg_items[1]["role"] == "assistant"
+        assert msg_items[1]["content"] == "Focus on core architecture."
+
+        # 7. Delete conversation
+        del_res = client.delete(f"/api/v1/conversations/{conv_id}")
+        assert del_res.status_code == 204
+
+        # 8. Verify it is no longer found
+        assert client.get(f"/api/v1/conversations/{conv_id}").status_code == 404
+        assert client.get(f"/api/v1/conversations/{conv_id}/messages").status_code == 404
+

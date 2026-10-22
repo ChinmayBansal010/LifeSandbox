@@ -15,15 +15,29 @@ export default function App() {
     state,
     activeConversation,
     isPending,
+    conversationsLoading,
+    conversationsError,
+    messagesLoading,
+    messagesError,
+    deletingId,
+    deleteError,
+    loadConversations,
+    fetchMessages,
     createConversation,
     deleteConversation,
     setActiveConversation,
     renameConversation,
     sendMessage,
+    clearDeleteError,
     setTheme,
     saveCustomSkill,
     deleteCustomSkill,
   } = useStore();
+
+  // Load backend persisted conversations on mount
+  useEffect(() => {
+    loadConversations();
+  }, [loadConversations]);
 
   // Apply theme
   useThemeEffect(state.theme);
@@ -205,6 +219,12 @@ export default function App() {
               isLifeActive={lifeOpen}
               isPluginsActive={pluginsOpen}
               onSetTheme={setTheme}
+              isLoading={conversationsLoading}
+              error={conversationsError}
+              onRetryLoad={loadConversations}
+              deletingId={deletingId}
+              deleteError={deleteError}
+              onClearDeleteError={clearDeleteError}
             />
           </div>
         </>
@@ -228,6 +248,12 @@ export default function App() {
           isLifeActive={lifeOpen}
           isPluginsActive={pluginsOpen}
           onSetTheme={setTheme}
+          isLoading={conversationsLoading}
+          error={conversationsError}
+          onRetryLoad={loadConversations}
+          deletingId={deletingId}
+          deleteError={deleteError}
+          onClearDeleteError={clearDeleteError}
         />
       )}
 
@@ -281,6 +307,9 @@ export default function App() {
               ttsEnabled={ttsEnabled}
               imageUnderstandingEnabled={imageUnderstandingEnabled}
               theme={state.theme}
+              isMessagesLoading={Boolean(activeConversation && messagesLoading[activeConversation.id])}
+              messagesError={activeConversation ? messagesError[activeConversation.id] : null}
+              onRetryLoadMessages={() => activeConversation && fetchMessages(activeConversation.id, true)}
             />
           </div>
         ) : (

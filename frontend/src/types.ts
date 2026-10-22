@@ -52,6 +52,8 @@ export type Conversation = {
   messages: ChatMessage[];
   createdAt: number;
   updatedAt: number;
+  isLocalOnly?: boolean;
+  hasLoadedMessages?: boolean;
 };
 
 export type CustomSkill = {
