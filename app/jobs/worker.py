@@ -173,7 +173,8 @@ async def run_due_once(
                     retry = await retry_db.get(JobRow, job_id)
                     if retry:
                         retry.last_error = type(exc).__name__
-                        retry.status = "failed" if retry.attempts >= MAX_ATTEMPTS else "queued"
+                        is_permanent = isinstance(exc, (ValueError, PermissionError))
+                        retry.status = "failed" if (retry.attempts >= MAX_ATTEMPTS or is_permanent) else "queued"
                         if retry.status == "queued":
                             retry.scheduled_at = now + timedelta(seconds=30 * retry.attempts)
                         else:
@@ -196,7 +197,9 @@ async def run_due_once(
                                     if failed_file and failed_file.status != "ready":
                                         failed_file.status = "error"
                                         failed_file.error_message = (
-                                            f"Ingestion failed: {type(exc).__name__}"
+                                            str(exc)[:500]
+                                            if str(exc)
+                                            else f"Ingestion failed: {type(exc).__name__}"
                                         )
                         await retry_db.commit()
                 logger.exception("job execution failed job_id=%s", job_id)

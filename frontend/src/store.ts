@@ -625,7 +625,16 @@ export function useStore() {
             (response.status === 502 || response.status === 504
               ? 'Backend API server is not responding. Please make sure the FastAPI backend is running.'
               : `Server error (HTTP ${response.status} ${response.statusText || ''})`.trim());
-          throw new Error(serverError || 'The assistant request failed.');
+
+          const isAttachmentError =
+            response.status === 422 &&
+            (rawText.includes('invalid_attachment') ||
+              rawText.includes('unavailable') ||
+              rawText.includes('not ready'));
+
+          throw Object.assign(new Error(serverError || 'The assistant request failed.'), {
+            isAttachmentError,
+          });
         }
 
         if (!payload || typeof payload.reply !== 'string' || !payload.reply.trim()) {
@@ -683,6 +692,24 @@ export function useStore() {
       } catch (error) {
         const currentState = getState();
         const convToUpdate = currentState.conversations[conversationId];
+
+        if ((error as any)?.isAttachmentError) {
+          if (convToUpdate) {
+            setState({
+              ...currentState,
+              conversations: {
+                ...currentState.conversations,
+                [conversationId]: {
+                  ...convToUpdate,
+                  messages: convToUpdate.messages.filter((m) => m.id !== messageId),
+                  updatedAt: Date.now(),
+                },
+              },
+            });
+          }
+          throw error;
+        }
+
         const errorCode = error instanceof Error && error.name === 'AbortError'
           ? 'CHAT_CLIENT_TIMEOUT'
           : (error as Error & { failureDetail?: { provider?: string; stage?: string; code?: string } }).failureDetail?.stage === 'llm_generate'

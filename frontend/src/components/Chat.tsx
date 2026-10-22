@@ -1,6 +1,6 @@
 /* ─── Chat interface: Clean Linear Conversation + Composer ──────────── */
 
-import { useState, useRef, useEffect, useMemo, lazy, Suspense, type KeyboardEvent } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback, lazy, Suspense, type KeyboardEvent } from 'react';
 import {
   Send,
   Copy,
@@ -530,35 +530,272 @@ export default function Chat({
     textareaRef.current?.focus();
   };
 
+  const activePollersRef = useRef<
+    Map<
+      string,
+      {
+        timerId?: number;
+        abortController?: AbortController;
+        attempts: number;
+        networkFailures: number;
+      }
+    >
+  >(new Map());
+
+  const stopPolling = useCallback((fileId: string) => {
+    const poller = activePollersRef.current.get(fileId);
+    if (poller) {
+      if (poller.timerId) window.clearTimeout(poller.timerId);
+      if (poller.abortController) poller.abortController.abort();
+      activePollersRef.current.delete(fileId);
+    }
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      activePollersRef.current.forEach((poller) => {
+        if (poller.timerId) window.clearTimeout(poller.timerId);
+        if (poller.abortController) poller.abortController.abort();
+      });
+      activePollersRef.current.clear();
+    };
+  }, []);
+
+  const pollFileStatus = useCallback(
+    (fileId: string, filename: string) => {
+      if (activePollersRef.current.has(fileId)) return;
+
+      const pollerState = {
+        attempts: 0,
+        networkFailures: 0,
+        timerId: undefined as number | undefined,
+        abortController: undefined as AbortController | undefined,
+      };
+      activePollersRef.current.set(fileId, pollerState);
+
+      const executePoll = async () => {
+        if (!activePollersRef.current.has(fileId)) return;
+
+        const controller = new AbortController();
+        pollerState.abortController = controller;
+
+        try {
+          const response = await fetch(`/api/v1/files/${encodeURIComponent(fileId)}`, {
+            signal: controller.signal,
+          });
+
+          if (!activePollersRef.current.has(fileId)) return;
+
+          if (response.ok) {
+            pollerState.networkFailures = 0;
+            const data = await response.json();
+            const serverStatus = data.status;
+            const errorMsg = data.error_message || null;
+
+            if (serverStatus === 'ready') {
+              setAttachments((prev) =>
+                prev.map((item) =>
+                  item.id === fileId ? { ...item, status: 'ready', error_message: null } : item
+                )
+              );
+              stopPolling(fileId);
+              setFileStatus(`“${filename}” ready`);
+              return;
+            }
+
+            if (serverStatus === 'error' || serverStatus === 'failed') {
+              setAttachments((prev) =>
+                prev.map((item) =>
+                  item.id === fileId
+                    ? { ...item, status: 'error', error_message: errorMsg || 'Processing failed' }
+                    : item
+                )
+              );
+              stopPolling(fileId);
+              setFileStatus(`“${filename}” failed: ${errorMsg || 'Processing failed'}`);
+              return;
+            }
+
+            setAttachments((prev) =>
+              prev.map((item) => (item.id === fileId ? { ...item, status: serverStatus } : item))
+            );
+
+            pollerState.attempts += 1;
+            if (pollerState.attempts >= 30) {
+              stopPolling(fileId);
+              setAttachments((prev) =>
+                prev.map((item) =>
+                  item.id === fileId
+                    ? {
+                        ...item,
+                        status: 'error',
+                        error_message: 'Processing timed out. Please retry.',
+                      }
+                    : item
+                )
+              );
+              setFileStatus(`“${filename}” processing timed out.`);
+              return;
+            }
+
+            pollerState.timerId = window.setTimeout(executePoll, 2000);
+          } else if (response.status === 404) {
+            stopPolling(fileId);
+            setAttachments((prev) =>
+              prev.map((item) =>
+                item.id === fileId
+                  ? { ...item, status: 'error', error_message: 'File not found on server' }
+                  : item
+              )
+            );
+            setFileStatus(`“${filename}” not found on server`);
+          } else {
+            handlePollFailure();
+          }
+        } catch (err: any) {
+          if (err?.name === 'AbortError') return;
+          handlePollFailure();
+        }
+
+        function handlePollFailure() {
+          if (!activePollersRef.current.has(fileId)) return;
+          pollerState.networkFailures += 1;
+          if (pollerState.networkFailures >= 5) {
+            stopPolling(fileId);
+            setAttachments((prev) =>
+              prev.map((item) =>
+                item.id === fileId
+                  ? {
+                      ...item,
+                      error_message:
+                        'Network error checking file status. Click retry to resume.',
+                    }
+                  : item
+              )
+            );
+            setFileStatus(`Network error checking status for “${filename}”.`);
+            return;
+          }
+          pollerState.attempts += 1;
+          if (pollerState.attempts >= 30) {
+            stopPolling(fileId);
+            setAttachments((prev) =>
+              prev.map((item) =>
+                item.id === fileId
+                  ? {
+                      ...item,
+                      status: 'error',
+                      error_message: 'Processing timed out. Please retry.',
+                    }
+                  : item
+              )
+            );
+            return;
+          }
+          pollerState.timerId = window.setTimeout(executePoll, 2000);
+        }
+      };
+
+      pollerState.timerId = window.setTimeout(executePoll, 2000);
+    },
+    [stopPolling]
+  );
+
   const uploadAttachment = async (file: File) => {
-    setFileStatus(`Uploading ${file.name}…`);
+    const isImage = file.type.startsWith('image/') || /\.(png|jpe?g)$/i.test(file.name);
+    if (isImage && !imageUnderstandingEnabled) {
+      setFileStatus(
+        `${file.name} stored. Configure a vision-capable model and VISION_ENABLED to ask questions about it.`
+      );
+    }
+
+    const tempId = `upload-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+    setAttachments((prev) => [
+      ...prev,
+      {
+        id: tempId,
+        filename: file.name,
+        status: 'uploading',
+        mime_type: file.type,
+        size_bytes: file.size,
+      },
+    ]);
+    setFileStatus(`Uploading “${file.name}”…`);
+
     const form = new FormData();
     form.append('file', file);
     try {
       const response = await fetch('/api/v1/files', { method: 'POST', body: form });
       const result = await response.json();
       if (!response.ok) throw new Error(result.detail?.message || 'Upload failed');
-      const isImage = result.mime_type?.startsWith('image/');
-      if (!isImage || imageUnderstandingEnabled) {
-        setAttachments((items) => [
-          ...items,
-          {
-            id: result.id,
-            filename: result.filename,
-            status: result.status,
-            mime_type: result.mime_type,
-            size_bytes: result.size_bytes,
-          },
-        ]);
-      }
-      setFileStatus(
-        isImage && !imageUnderstandingEnabled
-          ? `${file.name} stored. Configure a vision-capable model and VISION_ENABLED to ask questions about it.`
-          : `${file.name} ready`
+
+      setAttachments((prev) =>
+        prev.map((item) =>
+          item.id === tempId
+            ? {
+                id: result.id,
+                filename: result.filename,
+                status: result.status,
+                mime_type: result.mime_type,
+                size_bytes: result.size_bytes,
+                error_message: result.error_message || null,
+              }
+            : item
+        )
       );
+
+      if (result.status === 'ready') {
+        setFileStatus(`“${file.name}” ready`);
+      } else if (result.status === 'processing') {
+        setFileStatus(`Processing “${file.name}”… Text extraction in progress.`);
+        pollFileStatus(result.id, result.filename);
+      } else {
+        setFileStatus(`“${file.name}” ${result.status}`);
+      }
     } catch (error) {
-      setFileStatus(error instanceof Error ? error.message : 'Upload failed');
+      const msg = error instanceof Error ? error.message : 'Upload failed';
+      setAttachments((prev) =>
+        prev.map((item) =>
+          item.id === tempId ? { ...item, status: 'error', error_message: msg } : item
+        )
+      );
+      setFileStatus(`Upload failed: ${msg}`);
     }
+  };
+
+  const removeAttachment = (fileId: string) => {
+    stopPolling(fileId);
+    setAttachments((prev) => prev.filter((item) => item.id !== fileId));
+  };
+
+  const retryAttachment = async (file: FileAttachment) => {
+    if (file.status === 'uploading') return;
+    setFileStatus(`Retrying “${file.filename}”…`);
+    setAttachments((prev) =>
+      prev.map((item) =>
+        item.id === file.id ? { ...item, status: 'processing', error_message: null } : item
+      )
+    );
+
+    try {
+      const response = await fetch(`/api/v1/files/${encodeURIComponent(file.id)}/retry`, {
+        method: 'POST',
+      });
+      if (response.ok) {
+        const result = await response.json();
+        if (result.status === 'ready') {
+          setAttachments((prev) =>
+            prev.map((item) => (item.id === file.id ? { ...item, status: 'ready' } : item))
+          );
+          setFileStatus(`“${file.filename}” ready`);
+          return;
+        }
+      }
+    } catch {
+      // Backend retry call failed or network issue; fall back to status polling
+    }
+
+    pollFileStatus(file.id, file.filename);
   };
 
   const startRecording = async () => {
@@ -610,19 +847,46 @@ export default function Chat({
     streamRef.current?.getTracks().forEach((track) => track.stop());
   }, []);
 
+  const unreadyAttachment = attachments.find((file) => file.status !== 'ready');
+  const hasUnreadyAttachments = Boolean(unreadyAttachment);
+
   const handleSend = async () => {
     const msg = input.trim();
     if (!msg || isPending) return;
+
+    if (unreadyAttachment) {
+      if (unreadyAttachment.status === 'uploading') {
+        setFileStatus(`Uploading “${unreadyAttachment.filename}”… Please wait before sending.`);
+      } else if (unreadyAttachment.status === 'processing') {
+        setFileStatus(`Processing “${unreadyAttachment.filename}”… Text extraction in progress. Please wait before sending.`);
+      } else if (unreadyAttachment.status === 'error' || unreadyAttachment.status === 'failed') {
+        setFileStatus(`“${unreadyAttachment.filename}” failed processing. Please remove or retry the attachment before sending.`);
+      } else {
+        setFileStatus(`“${unreadyAttachment.filename}” is not ready yet.`);
+      }
+      return;
+    }
+
+    const savedInput = input;
+    const savedAttachments = [...attachments];
+    const useHostedMemory = rememberThisExchange;
+
     setInput('');
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
     setShowSlashPopup(false);
     setSlashTrigger(null);
     setShowToolsMenu(false);
-    const messageAttachments = attachments;
     setAttachments([]);
-    const useHostedMemory = rememberThisExchange;
     setRememberThisExchange(false);
-    await onSendMessage(msg, useHostedMemory, false, messageAttachments);
+
+    try {
+      await onSendMessage(msg, useHostedMemory, false, savedAttachments);
+    } catch (error: any) {
+      setInput(savedInput);
+      setAttachments(savedAttachments);
+      const errMsg = error?.message || 'Submission failed';
+      setFileStatus(`Submission failed: ${errMsg}. Your draft has been restored.`);
+    }
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -1182,9 +1446,16 @@ export default function Chat({
             {/* Send Button */}
             <button
               onClick={handleSend}
-              disabled={!input.trim() || isPending}
+              disabled={!input.trim() || isPending || hasUnreadyAttachments}
               className="p-2 rounded-lg bg-accent text-accent-fg hover:bg-accent-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0 shadow-xs active:scale-95"
               aria-label="Send message"
+              title={
+                hasUnreadyAttachments
+                  ? `Waiting for “${unreadyAttachment?.filename}” to finish ${
+                      unreadyAttachment?.status === 'uploading' ? 'uploading' : 'processing'
+                    }…`
+                  : 'Send message'
+              }
             >
               {isPending ? (
                 <Loader2 size={16} className="animate-spin" />
@@ -1202,7 +1473,9 @@ export default function Chat({
             >
               <div className="mb-1.5 flex items-center justify-between gap-2">
                 <h2 className="text-[11px] font-semibold text-fg">Attached for this message</h2>
-                <span className="text-[10px] text-fg-muted">Clears after sending</span>
+                <span className="text-[10px] text-fg-muted">
+                  {hasUnreadyAttachments ? 'Waiting for attachments to be ready…' : 'Ready to send'}
+                </span>
               </div>
               <div className="space-y-1.5">
                 {attachments.map((file) => (
@@ -1221,13 +1494,54 @@ export default function Chat({
                     >
                       {file.filename}
                     </span>
-                    <span className="text-[10px] text-fg-muted">{file.status}</span>
+
+                    {/* Status indicator badge */}
+                    {file.status === 'uploading' && (
+                      <span className="inline-flex items-center gap-1 text-[11px] text-accent font-medium">
+                        <Loader2 size={11} className="animate-spin" />
+                        Uploading…
+                      </span>
+                    )}
+                    {file.status === 'processing' && (
+                      <span className="inline-flex items-center gap-1 text-[11px] text-amber-600 dark:text-amber-400 font-medium">
+                        <Loader2 size={11} className="animate-spin" />
+                        Processing…
+                      </span>
+                    )}
+                    {file.status === 'ready' && (
+                      <span className="inline-flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400 font-medium">
+                        <Check size={11} />
+                        Ready
+                      </span>
+                    )}
+                    {(file.status === 'error' || file.status === 'failed') && (
+                      <div className="inline-flex items-center gap-1.5">
+                        <span
+                          className="inline-flex items-center gap-1 text-[11px] text-error font-medium"
+                          title={file.error_message || 'Processing failed'}
+                        >
+                          <AlertCircle size={11} />
+                          Failed
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => void retryAttachment(file)}
+                          className="inline-flex items-center gap-1 rounded border border-accent/40 bg-accent/10 px-1.5 py-0.5 text-[10px] font-medium text-accent hover:bg-accent/20 transition-colors cursor-pointer"
+                          aria-label={`Retry ${file.filename}`}
+                        >
+                          <RefreshCw size={9} />
+                          Retry
+                        </button>
+                      </div>
+                    )}
+                    {!['uploading', 'processing', 'ready', 'error', 'failed'].includes(file.status) && (
+                      <span className="text-[10px] text-fg-muted">{file.status}</span>
+                    )}
+
                     <button
                       type="button"
-                      className="ml-1 text-fg-muted hover:text-error transition-colors p-0.5"
-                      onClick={() =>
-                        setAttachments((items) => items.filter((item) => item.id !== file.id))
-                      }
+                      className="ml-1 text-fg-muted hover:text-error transition-colors p-0.5 cursor-pointer"
+                      onClick={() => removeAttachment(file.id)}
                       aria-label={`Remove ${file.filename} from this message`}
                     >
                       ×

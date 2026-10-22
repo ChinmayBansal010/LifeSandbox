@@ -29,12 +29,23 @@ export type ChatMessage = {
   mem0SaveStatus?: 'not_requested' | 'saved' | 'not_attempted' | 'failed' | 'timed_out' | 'cancelled' | 'disabled';
 };
 
+export type FileAttachmentStatus =
+  | 'uploading'
+  | 'processing'
+  | 'ready'
+  | 'error'
+  | 'failed'
+  | 'uploaded_unprocessed'
+  | 'pending_upload'
+  | string;
+
 export type FileAttachment = {
   id: string;
   filename: string;
-  status: string;
+  status: FileAttachmentStatus;
   mime_type?: string;
   size_bytes?: number;
+  error_message?: string | null;
 };
 
 export type StageFailureDetail = {

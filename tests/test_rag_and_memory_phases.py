@@ -189,8 +189,14 @@ async def test_document_ingestion_via_job_row(tmp_path, monkeypatch):
         db.add_all([file, job])
         await db.commit()
 
-    processed = await run_due_jobs()
-    assert processed >= 1
+    for _ in range(10):
+        processed = await run_due_jobs(limit=100)
+        async with SessionLocal() as db:
+            updated_file = await db.get(FileRow, file_id)
+            if updated_file and updated_file.status == "ready":
+                break
+        if processed == 0:
+            break
 
     async with SessionLocal() as db:
         updated_file = await db.get(FileRow, file_id)

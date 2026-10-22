@@ -1009,6 +1009,54 @@ async def get_file(
     }
 
 
+@app.post("/api/v1/files/{file_id}/retry")
+async def retry_file_ingestion(
+    file_id: str,
+    background_tasks: BackgroundTasks,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(get_session),
+):
+    from app.jobs.worker import run_due_once
+    from app.persistence.models import JobRow
+    from app.services.files import storage_path
+
+    row = await db.scalar(
+        select(FileRow).where(FileRow.id == file_id, FileRow.user_id == principal.user_id)
+    )
+    if row is None:
+        raise HTTPException(404, detail={"code": "not_found", "message": "File not found"})
+
+    if row.mime_type in {"image/png", "image/jpeg"}:
+        row.status = "ready"
+        row.error_message = None
+        await db.commit()
+        return file_view(row)
+
+    path = storage_path(row.storage_key)
+    if not path.is_file():
+        row.status = "error"
+        row.error_message = "File content is missing from storage"
+        await db.commit()
+        raise HTTPException(400, detail={"code": "file_missing", "message": row.error_message})
+
+    row.status = "processing"
+    row.error_message = None
+
+    job = JobRow(
+        user_id=principal.user_id,
+        job_type="document_ingestion",
+        payload=json.dumps({"file_id": row.id}),
+        scheduled_at=datetime.now(UTC),
+        idempotency_key=f"doc_ingest:{row.id}:{uuid.uuid4().hex[:8]}",
+        status="queued",
+    )
+    db.add(job)
+    await db.commit()
+
+    background_tasks.add_task(run_due_once, None, 25, "document_ingestion")
+    return file_view(row)
+
+
 @app.delete("/api/v1/files/{file_id}", status_code=204)
 async def delete_file(
     file_id: str,

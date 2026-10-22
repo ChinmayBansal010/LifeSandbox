@@ -225,42 +225,43 @@ async def process_document_ingestion(
         ext = Path(file_row.filename).suffix.lower()
         pages = extract_pages(ext, data)
         extracted = chunks(pages)
+
+        existing_chunks = list(
+            (await db.scalars(select(FileChunkRow).where(FileChunkRow.file_id == file_id))).all()
+        )
+        for c in existing_chunks:
+            await db.delete(c)
+        await db.flush()
+
+        if not extracted:
+            file_row.status = "ready"
+            file_row.error_message = None
+            await db.commit()
+            return 0
+
+        texts = [c[2] for c in extracted]
+        vectors = embed_many(texts)
+
+        for (index, page, text_content), vector in zip(extracted, vectors, strict=True):
+            db.add(
+                FileChunkRow(
+                    file_id=file_row.id,
+                    user_id=file_row.user_id,
+                    chunk_index=index,
+                    page_number=page,
+                    content=text_content,
+                    embedding=vector,
+                )
+            )
+        file_row.status = "ready"
+        file_row.error_message = None
+        await db.commit()
+        return len(extracted)
     except Exception as exc:
         file_row.status = "error"
         file_row.error_message = str(exc)[:500]
         await db.commit()
         raise
-
-    existing_chunks = list(
-        (await db.scalars(select(FileChunkRow).where(FileChunkRow.file_id == file_id))).all()
-    )
-    for c in existing_chunks:
-        await db.delete(c)
-    await db.flush()
-
-    if not extracted:
-        file_row.status = "ready"
-        await db.commit()
-        return 0
-
-    texts = [c[2] for c in extracted]
-    vectors = embed_many(texts)
-
-    for (index, page, text_content), vector in zip(extracted, vectors, strict=True):
-        db.add(
-            FileChunkRow(
-                file_id=file_row.id,
-                user_id=file_row.user_id,
-                chunk_index=index,
-                page_number=page,
-                content=text_content,
-                embedding=vector,
-            )
-        )
-    file_row.status = "ready"
-    file_row.error_message = None
-    await db.commit()
-    return len(extracted)
 
 
 def make_key() -> str:
