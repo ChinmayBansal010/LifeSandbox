@@ -22,6 +22,7 @@ import {
   ChevronRight,
   RefreshCw,
   AlertCircle,
+  Globe,
 } from 'lucide-react';
 import type { Conversation, ChatMessage, CustomSkill, FileAttachment } from '../types';
 import type { ThemePreference } from '../types';
@@ -34,6 +35,82 @@ function AssistantContent({ content, themeMode }: { content: string; themeMode: 
   const program = fenced?.[1] ?? ( /(^|\n)root\s*=/.test(content) ? content : null );
   if (program) return <Suspense fallback={<div className="text-xs text-fg-muted">Loading interactive view…</div>}><OpenUIMessage response={program} mode={themeMode} /></Suspense>;
   return <FormattedMessage content={content} />;
+}
+
+function IntegrationOption({
+  id,
+  icon: Icon,
+  title,
+  description,
+  setupHint,
+  configured,
+  checked,
+  disabled,
+  onChange,
+}: {
+  id: string;
+  icon: typeof Sparkles;
+  title: string;
+  description: string;
+  setupHint: string;
+  configured: boolean;
+  checked: boolean;
+  disabled: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  const status = checked ? 'On for this reply' : configured ? 'Ready' : 'Setup required';
+
+  return (
+    <label
+      htmlFor={id}
+      className={`flex items-start gap-3 p-3 rounded-2xl border transition-all cursor-pointer ${
+        checked
+          ? 'bg-accent/10 border-accent/40 ring-1 ring-accent/30 shadow-2xs'
+          : 'bg-surface border-border hover:border-accent/40 shadow-2xs'
+      } ${!configured || disabled ? 'opacity-70 cursor-not-allowed' : ''}`}
+    >
+      <span
+        className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl transition-colors ${
+          checked ? 'bg-accent text-accent-fg shadow-xs' : 'bg-bg-secondary text-fg-secondary border border-border'
+        }`}
+      >
+        <Icon size={16} />
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center justify-between gap-2">
+          <span className="text-xs font-semibold text-fg">{title}</span>
+          <span
+            className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-mono font-medium ${
+              checked
+                ? 'bg-accent text-accent-fg'
+                : configured
+                ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+                : 'bg-bg-secondary text-fg-muted border border-border'
+            }`}
+          >
+            {status}
+          </span>
+        </span>
+        <span className="mt-1 block text-[10px] leading-relaxed text-fg-muted">
+          {configured ? description : setupHint}
+        </span>
+      </span>
+      <span className="relative mt-1 inline-flex h-5 w-9 shrink-0 items-center">
+        <input
+          id={id}
+          type="checkbox"
+          role="switch"
+          checked={checked}
+          disabled={!configured || disabled}
+          onChange={(event) => onChange(event.target.checked)}
+          className="peer sr-only"
+          aria-label={title}
+        />
+        <span className="absolute inset-0 rounded-full bg-bg-secondary border border-border transition-colors peer-checked:bg-accent peer-checked:border-accent peer-disabled:cursor-not-allowed peer-focus-visible:ring-2 peer-focus-visible:ring-accent" />
+        <span className="pointer-events-none absolute left-0.5 h-3.5 w-3.5 rounded-full bg-fg-muted shadow-xs transition-transform peer-checked:translate-x-4 peer-checked:bg-accent-fg" />
+      </span>
+    </label>
+  );
 }
 
 type ChatProps = {
@@ -325,6 +402,7 @@ export default function Chat({
   isPending,
   mem0Enabled,
   hostedMemoryAllowed,
+  browserUseEnabled,
   sttEnabled,
   ttsEnabled,
   imageUnderstandingEnabled,
@@ -351,7 +429,16 @@ export default function Chat({
   const [fileStatus, setFileStatus] = useState('');
   const [recording, setRecording] = useState(false);
   const [autoRead, setAutoRead] = useState(() => localStorage.getItem('life-sandbox-auto-read') === 'true');
-  const [rememberThisExchange, setRememberThisExchange] = useState(false);
+  const [rememberWithMem0, setRememberWithMem0] = useState(false);
+  const [allowBrowserUse, setAllowBrowserUse] = useState(false);
+  const [memoryStatus, setMemoryStatus] = useState('');
+
+  useEffect(() => {
+    setRememberWithMem0(false);
+    setAllowBrowserUse(false);
+    setMemoryStatus('');
+  }, [conversation.id]);
+
   const themeMode = theme === 'system'
     ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
     : theme;
@@ -394,7 +481,7 @@ export default function Chat({
   const lastMessage = messages[messages.length - 1];
   const lastAssistantMessage = lastMessage?.assistantMessage;
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    messagesEndRef.current?.scrollIntoView?.({ behavior: 'smooth' });
   }, [messages.length, lastAssistantMessage]);
 
   // Auto-resize textarea
@@ -869,7 +956,8 @@ export default function Chat({
 
     const savedInput = input;
     const savedAttachments = [...attachments];
-    const useHostedMemory = rememberThisExchange;
+    const useHostedMemory = rememberWithMem0;
+    const useBrowser = allowBrowserUse;
 
     setInput('');
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
@@ -877,10 +965,22 @@ export default function Chat({
     setSlashTrigger(null);
     setShowToolsMenu(false);
     setAttachments([]);
-    setRememberThisExchange(false);
+    setRememberWithMem0(false);
+    setAllowBrowserUse(false);
+    setMemoryStatus('');
 
     try {
-      await onSendMessage(msg, useHostedMemory, false, savedAttachments);
+      const resultJson = await onSendMessage(msg, useHostedMemory, useBrowser, savedAttachments);
+      if (useHostedMemory) {
+        try {
+          const res = JSON.parse(resultJson);
+          if (res && res.saved === false) {
+            setMemoryStatus('Mem0 did not confirm saving this exchange.');
+          }
+        } catch {
+          // ignore parsing error
+        }
+      }
     } catch (error: any) {
       setInput(savedInput);
       setAttachments(savedAttachments);
@@ -1570,19 +1670,58 @@ export default function Chat({
               Read replies aloud
             </label>
           </div>
-          {mem0Enabled && (
-            <label className="mt-2 inline-flex items-center gap-1.5 px-1 text-[10px] text-fg-muted">
-              <input
-                type="checkbox"
-                checked={rememberThisExchange}
-                onChange={(event) => setRememberThisExchange(event.target.checked)}
-                disabled={isPending || !hostedMemoryAllowed}
-                className="rounded border-border text-accent focus:ring-accent"
+          {/* Tools for this reply */}
+          <section
+            className="mt-3 rounded-2xl border border-border bg-bg-secondary/70 p-3"
+            aria-label="Optional integrations for this reply"
+          >
+            <div className="mb-2.5 flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-[11px] font-semibold text-fg">Tools for this reply</h2>
+                <p className="mt-0.5 text-[10px] text-fg-muted">Optional · resets after you send</p>
+              </div>
+              {(rememberWithMem0 || allowBrowserUse) && (
+                <span className="rounded-full bg-accent-muted px-2 py-0.5 text-[9px] font-medium text-accent">
+                  {Number(rememberWithMem0) + Number(allowBrowserUse)} enabled
+                </span>
+              )}
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <IntegrationOption
+                id="remember-with-mem0"
+                icon={Sparkles}
+                title="Mem0 hosted memory"
+                description="Search and save this exchange in your Mem0 account. This message is sent to Mem0."
+                setupHint={
+                  !mem0Enabled
+                    ? 'Add MEM0_API_KEY to the backend environment to enable hosted memory.'
+                    : !hostedMemoryAllowed
+                    ? 'Enable hosted memory in Memory & tasks → Memory policy.'
+                    : 'Add MEM0_API_KEY to the backend environment to enable hosted memory.'
+                }
+                configured={mem0Enabled && hostedMemoryAllowed}
+                checked={rememberWithMem0}
+                disabled={isPending || (!hostedMemoryAllowed && mem0Enabled)}
+                onChange={setRememberWithMem0}
               />
-              {hostedMemoryAllowed
-                ? 'Use hosted memory for this exchange (search and save)'
-                : 'Enable hosted memory in Memory & tasks → Memory policy'}
-            </label>
+              <IntegrationOption
+                id="allow-browser-use"
+                icon={Globe}
+                title="Browser Use research"
+                description="Use a local browser to check public GitHub pages for this reply."
+                setupHint="Install Browser Use and Chromium, configure a real model provider, then enable BROWSER_USE_ENABLED."
+                configured={browserUseEnabled}
+                checked={allowBrowserUse}
+                disabled={isPending}
+                onChange={setAllowBrowserUse}
+              />
+            </div>
+          </section>
+
+          {memoryStatus && (
+            <p className="text-[10px] text-error mt-1.5 text-center animate-fade-in font-medium">
+              {memoryStatus}
+            </p>
           )}
 
           {fileStatus && (
