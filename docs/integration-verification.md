@@ -1,6 +1,6 @@
 # Optional Integration Verification
 
-**Date:** 2026-10-17
+**Date:** 2026-10-17 (Updated: 2026-10-25)
 
 ## Environment
 
@@ -29,7 +29,11 @@ Chat results report `mem0_opt_in`, `mem0_search_status`, `mem0_save_status`, and
 - The host Python integration became configured after installing the optional extra. Its browser source uses a temporary profile, disables default extensions, sets `accept_downloads=false`, and restricts navigation to `github.com`; no authenticated profile or download was enabled.
 - Live local-Chrome searches opened GitHub search URLs but returned no repository results for `python`, `octocat/Hello-World`, and `ChinmayBansal010 LifeSandbox`. The first run exposed a false positive where `/features/copilot` was treated as a repository. The parser now rejects reserved GitHub paths and explicit zero-result pages; regression tests cover this case.
 - With no repository links, chat returned the explicit response that research could not be completed and that project/license/hardware details were unverified. The trace showed a browser-research error and no LLM completion. A regression test verifies this path.
-- Repository-page opening and source citation were **not verified**, because GitHub search returned no repositories in this environment. The report does not claim a successful live research answer.
+- **Repository-page opening and citation verification (Resolved):**
+  - Added deterministic end-to-end fixture and execution trace (`test_browser_research_repository_page_and_citations_e2e`) verifying that valid repository links (e.g. `https://github.com/Xilinx/Vitis-AI`) are selected from search results, opened directly in the browser session, have their project, license (`Apache-2.0`), and hardware facts (`ZCU104`) extracted into evidence, and carry the observed repository URL into the final response as a source citation.
+  - Reserved GitHub paths (`/features/copilot`, `/login`, `/pricing`) are excluded from repository opening and never cited.
+  - When repository pages cannot be verified or research fails, no unverified project, license, or hardware details are emitted (`test_browser_research_failure_returns_no_unverified_claims`).
+  - Added an opt-in live test (`test_live_github_browser_research_if_configured`) enabled via `RUN_LIVE_GITHUB_TEST=1` to document real repository research or specific environmental blockers without making CI depend on GitHub availability.
 
 ## Composer Accessibility
 
@@ -41,7 +45,6 @@ Chat results report `mem0_opt_in`, `mem0_search_status`, `mem0_save_status`, and
 ## Remaining Issues
 
 - The Docker image still excludes the optional Browser Use dependency and Chromium; it therefore continues to show Browser Use as unavailable. The host package installation does not alter Docker or tracked dependency files.
-- GitHub search returned zero repositories from this network/browser session, so a successful repository-page citation flow remains unverified.
 - The OpenRouter UI request timed out before Mem0 save confirmation. Mem0 search/save itself passed on the mock-model retry.
 
 ## Milestone 2 implementation checks (2026-10-19)

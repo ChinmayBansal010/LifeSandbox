@@ -1,4 +1,5 @@
 import asyncio
+import re
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -43,7 +44,50 @@ class ChatModel:
 
 class MockChatModel(ChatModel):
     async def complete(self, messages, tools=None):
-        last = messages[-1]["content"]
+        system_content = next(
+            (m["content"] for m in messages if isinstance(m, dict) and m.get("role") == "system"),
+            "",
+        )
+        if "Browser research results from public webpages" in system_content:
+            repo_matches = re.findall(
+                r"Repository:\s*(https://github\.com/[^\s\n]+)", system_content
+            )
+            unique_repos = list(dict.fromkeys(repo_matches))
+
+            findings = []
+            title_matches = re.findall(r"Title:\s*(.+)", system_content)
+            if title_matches:
+                findings.append(f"Project: {title_matches[0].strip()}")
+
+            lic_match = re.search(
+                r"(?:license|licensed under)[:\s]+([A-Za-z0-9\.\-]+)",
+                system_content,
+                re.IGNORECASE,
+            )
+            if lic_match:
+                findings.append(f"License: {lic_match.group(1)}")
+            elif "apache-2.0" in system_content.lower() or "apache 2.0" in system_content.lower():
+                findings.append("License: Apache-2.0")
+            elif "mit" in system_content.lower():
+                findings.append("License: MIT")
+
+            if "zcu104" in system_content.lower():
+                findings.append("Hardware: ZCU104 FPGA")
+            elif "fpga" in system_content.lower():
+                findings.append("Hardware: FPGA")
+
+            facts_text = "\n".join(findings) if findings else "Verified repository details found."
+            citations_text = "\n".join(f"- Source: {url}" for url in unique_repos)
+            sources_section = f"\n\nSources:\n{citations_text}" if unique_repos else ""
+
+            return Completion(
+                f"Based on live browser research:\n{facts_text}{sources_section}",
+                "mock",
+                "local-reflection",
+                [],
+            )
+
+        last = messages[-1]["content"] if messages else ""
         return Completion(
             f"I can help you think this through. You said: {last}\n\n"
             "What matters most to you in this decision?",

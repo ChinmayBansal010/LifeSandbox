@@ -17,6 +17,7 @@ os.environ["DATABASE_URL"] = os.environ.get(
     "LIFESANDBOX_TEST_DATABASE_URL", f"sqlite+aiosqlite:///{_test_database_path}"
 )
 os.environ["LLM_PROVIDER"] = "mock"
+os.environ["EMBEDDING_PROVIDER"] = "local_hash"
 
 
 import pytest  # noqa: E402

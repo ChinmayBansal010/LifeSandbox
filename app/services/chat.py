@@ -286,16 +286,21 @@ async def run_chat(
                 )
             )
             if is_disconnected is not None:
-                while not model_task.done():
-                    if await is_disconnected():
-                        model_task.cancel()
-                        await asyncio.gather(model_task, return_exceptions=True)
-                        logging.getLogger("life_sandbox.chat").info(
-                            "chat_turn_cancelled provider=openrouter "
-                            "stage=client_disconnect outcome=cancelled"
-                        )
-                        raise asyncio.CancelledError
-                    await asyncio.sleep(0.2)
+                disconnect_task = asyncio.create_task(is_disconnected())
+                done, _ = await asyncio.wait(
+                    [model_task, disconnect_task],
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                if disconnect_task in done and not disconnect_task.cancelled() and disconnect_task.result():
+                    model_task.cancel()
+                    await asyncio.gather(model_task, return_exceptions=True)
+                    logging.getLogger("life_sandbox.chat").info(
+                        "chat_turn_cancelled provider=openrouter "
+                        "stage=client_disconnect outcome=cancelled"
+                    )
+                    raise asyncio.CancelledError
+                if not disconnect_task.done():
+                    disconnect_task.cancel()
             state = await model_task
         except Exception:
             await db.rollback()
