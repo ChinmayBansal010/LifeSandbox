@@ -2,8 +2,10 @@ import asyncio
 import html
 import json
 import logging
+import re
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import parse_qs, unquote, urlparse
 from uuid import uuid4
 
 import httpx
@@ -13,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.security import Principal, current_principal
-from app.integrations.google import create_google_authorization_url
+from app.integrations.google import complete_google_callback, create_google_authorization_url
 from app.persistence.models import (
     ApprovalRow,
     AuditRow,
@@ -88,6 +90,30 @@ def chunk_message(text: str, max_length: int = 4000) -> list[str]:
     if current:
         chunks.append("\n".join(current))
     return chunks
+
+
+def extract_oauth_code_and_state(text: str) -> tuple[str | None, str | None]:
+    """Extract code and state parameters from a URL or callback command string."""
+    clean = text.strip()
+    if clean.lower().startswith("/callback"):
+        clean = clean[len("/callback"):].strip()
+    clean = clean.strip("<>\"'")
+
+    if "code=" in clean and "state=" in clean:
+        parsed = urlparse(clean)
+        qs = parsed.query if parsed.query else clean
+        params = parse_qs(qs)
+        code = params.get("code", [None])[0]
+        state = params.get("state", [None])[0]
+        if code and state:
+            return code, state
+
+        code_match = re.search(r"(?:[?&]|\b)code=([^&\s]+)", clean)
+        state_match = re.search(r"(?:[?&]|\b)state=([^&\s]+)", clean)
+        if code_match and state_match:
+            return unquote(code_match.group(1)), unquote(state_match.group(1))
+
+    return None, None
 
 
 async def send_telegram_action(chat_id: str | int, action: str = "typing") -> bool:
@@ -411,7 +437,9 @@ async def process_telegram_update(
                 "🔗 <b>Connect Your Google Account</b>\n\n"
                 "Click the link below to grant Life Sandbox access to your Gmail, Calendar, and Drive:\n\n"
                 f"👉 <a href=\"{auth_url}\"><b>Authorize Google Account</b></a>\n\n"
-                "<i>This link is valid for 10 minutes. Once authorized, you can perform all your operations right here from Telegram!</i>"
+                "<i>This link is valid for 10 minutes. Once authorized, you can perform all your operations right here from Telegram!</i>\n\n"
+                "💡 <b>Tip if running locally:</b>\n"
+                "If your browser shows <i>\"Site can't be reached\"</i> after you approve permissions (because <code>localhost:8000</code> is running on your computer and not reachable from your phone), simply <b>copy the full URL from your browser's address bar and paste it directly into this chat</b>! I will finish connecting your account automatically."
             )
             await send_telegram_message(message=connect_msg, chat_id=chat_id)
             return {"status": "command_handled", "command": lowered}
@@ -419,6 +447,46 @@ async def process_telegram_update(
             err_msg = f"⚠️ Could not generate authorization link: {html.escape(str(exc))}"
             await send_telegram_message(message=err_msg, chat_id=chat_id)
             return {"status": "error", "error": str(exc)}
+
+    # Google OAuth Callback via Telegram (pasted redirect URL or /callback)
+    oauth_code, oauth_state = extract_oauth_code_and_state(text)
+    if oauth_code and oauth_state:
+        try:
+            result = await complete_google_callback(code=oauth_code, state=oauth_state, db=db)
+            account_email = result.get("account_email") or "Connected Account"
+            token_scopes = result.get("token_scopes", [])
+            success_msg = (
+                "🎉 <b>Google Account Connected Successfully!</b>\n\n"
+                f"• <b>Account:</b> <code>{html.escape(account_email)}</code>\n"
+                f"• <b>Capabilities:</b> {len(token_scopes)} permissions active\n\n"
+                "You can now manage your <b>Calendar, Gmail, and Google Drive</b> directly from Telegram!\n\n"
+                "<b>Try asking me:</b>\n"
+                "• <i>\"What's on my schedule today?\"</i>\n"
+                "• <i>\"Check my latest unread emails\"</i>\n"
+                "• <i>\"List files in my Google Drive\"</i>"
+            )
+            await send_telegram_message(message=success_msg, chat_id=chat_id)
+            return {"status": "google_connected", "account_email": account_email}
+        except HTTPException as exc:
+            detail = exc.detail
+            msg = detail.get("message", str(detail)) if isinstance(detail, dict) else str(detail)
+            err_msg = f"⚠️ <b>Google Connection Failed:</b> {html.escape(msg)}\n\nPlease run <code>/connect_google</code> to get a fresh link and try again."
+            await send_telegram_message(message=err_msg, chat_id=chat_id)
+            return {"status": "error", "error": msg}
+        except Exception as exc:
+            err_msg = f"⚠️ <b>Google Connection Error:</b> {html.escape(str(exc))}\n\nPlease run <code>/connect_google</code> to try again."
+            await send_telegram_message(message=err_msg, chat_id=chat_id)
+            return {"status": "error", "error": str(exc)}
+
+    if lowered == "/callback":
+        help_cb_msg = (
+            "ℹ️ <b>How to Complete Connection:</b>\n\n"
+            "If your browser showed <i>\"Site can't be reached\"</i> after signing into Google, "
+            "copy the full URL from your browser's address bar and paste it here directly, or type:\n"
+            "<code>/callback &lt;paste URL here&gt;</code>"
+        )
+        await send_telegram_message(message=help_cb_msg, chat_id=chat_id)
+        return {"status": "command_handled", "command": "/callback"}
 
     if lowered == "/google_status":
         rows = (

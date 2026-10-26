@@ -2,6 +2,7 @@ import hashlib
 import json
 import secrets
 from datetime import UTC, datetime, timedelta
+from typing import Any
 from urllib.parse import urlencode
 
 import httpx
@@ -183,13 +184,11 @@ async def authorize_google(
     return {"authorization_url": url}
 
 
-@router.get("/google/callback")
-async def google_callback(
-    request: Request,
-    code: str = Query(min_length=1),
-    state: str = Query(min_length=20),
-    db: AsyncSession = Depends(get_session),
-):
+async def complete_google_callback(
+    code: str,
+    state: str,
+    db: AsyncSession,
+) -> dict[str, Any]:
     config = _settings()
     state_hash = hashlib.sha256(state.encode()).hexdigest()
     now = datetime.now(UTC)
@@ -209,10 +208,9 @@ async def google_callback(
             400,
             detail={
                 "code": "oauth_state_invalid",
-                "message": "Authorization state expired or used. Start a new connection.",
+                "message": "Authorization state expired or used. Start a new connection with /connect_google.",
             },
         )
-    # Consume and commit before network exchange so a replay cannot race the callback.
     owner, scopes = owner_scopes.user_id, owner_scopes.scopes
     await db.commit()
     try:
@@ -277,6 +275,24 @@ async def google_callback(
         )
         db.add(row)
     await db.commit()
+    return {
+        "connected": True,
+        "connection": public_connection(row),
+        "account_email": row.account_email,
+        "token_scopes": token_scopes,
+        "message": "Google account connected. You can close this page.",
+    }
+
+
+@router.get("/google/callback")
+async def google_callback(
+    request: Request,
+    code: str = Query(min_length=1),
+    state: str = Query(min_length=20),
+    db: AsyncSession = Depends(get_session),
+):
+    result = await complete_google_callback(code=code, state=state, db=db)
+    config = _settings()
     if "text/html" in request.headers.get("accept", ""):
         frontend_url = config.google_auth_frontend_url.rstrip("/")
         html = f"""<!DOCTYPE html>
@@ -308,11 +324,7 @@ async def google_callback(
 </html>"""
         return HTMLResponse(content=html)
 
-    return {
-        "connected": True,
-        "connection": public_connection(row),
-        "message": "Google account connected. You can close this page.",
-    }
+    return result
 
 
 @router.delete("/{connection_id}")

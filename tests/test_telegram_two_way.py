@@ -376,3 +376,79 @@ async def test_telegram_approvals_and_approve_reject_flow(monkeypatch):
         assert res_approve["status"] == "approval_executed"
         assert "Action Approved and Executed" in sent[-1]
 
+
+def test_extract_oauth_code_and_state():
+    # Full callback URL
+    url = "http://localhost:8000/api/v1/integrations/google/callback?code=test-code-123&state=test-state-456&scope=openid"
+    code, state = telegram.extract_oauth_code_and_state(url)
+    assert code == "test-code-123"
+    assert state == "test-state-456"
+
+    # Command prefix /callback
+    cmd = f"/callback {url}"
+    code, state = telegram.extract_oauth_code_and_state(cmd)
+    assert code == "test-code-123"
+    assert state == "test-state-456"
+
+    # Encoded parameters
+    url_enc = "http://localhost:8000/callback?state=my%20state&code=my%2Fcode"
+    code, state = telegram.extract_oauth_code_and_state(url_enc)
+    assert code == "my/code"
+    assert state == "my state"
+
+    # Plain query string
+    code, state = telegram.extract_oauth_code_and_state("code=abc&state=xyz")
+    assert code == "abc"
+    assert state == "xyz"
+
+    # Invalid / unrelated text
+    assert telegram.extract_oauth_code_and_state("hello world") == (None, None)
+    assert telegram.extract_oauth_code_and_state("/callback") == (None, None)
+
+
+@pytest.mark.asyncio
+async def test_telegram_google_callback_pasted_url(monkeypatch):
+    monkeypatch.setattr(
+        telegram,
+        "get_settings",
+        lambda: SimpleNamespace(
+            telegram_bot_token="mock_token",
+            telegram_chat_id="11111",
+            telegram_allowed_chat_ids=None,
+            telegram_default_user_id="local-user",
+        ),
+    )
+
+    sent = []
+
+    async def mock_send(message, chat_id=None, parse_mode="HTML"):
+        sent.append(message)
+        return {"status": "sent"}
+
+    monkeypatch.setattr(telegram, "send_telegram_message", mock_send)
+
+    # 1. Bare /callback command
+    update_bare = {"update_id": 8, "message": {"message_id": 24, "chat": {"id": 11111}, "text": "/callback"}}
+    res_bare = await telegram.process_telegram_update(update_bare)
+    assert res_bare["status"] == "command_handled"
+    assert "How to Complete Connection" in sent[-1]
+
+    # 2. Pasted callback URL succeeds
+    async def mock_complete_callback(code, state, db):
+        return {
+            "connected": True,
+            "account_email": "user@example.com",
+            "token_scopes": ["https://www.googleapis.com/auth/calendar"],
+            "message": "Connected",
+        }
+
+    monkeypatch.setattr(telegram, "complete_google_callback", mock_complete_callback)
+
+    callback_url = "http://localhost:8000/api/v1/integrations/google/callback?state=my_state&code=my_code"
+    update_pasted = {"update_id": 9, "message": {"message_id": 25, "chat": {"id": 11111}, "text": callback_url}}
+    res_pasted = await telegram.process_telegram_update(update_pasted)
+    assert res_pasted["status"] == "google_connected"
+    assert res_pasted["account_email"] == "user@example.com"
+    assert "Google Account Connected Successfully" in sent[-1]
+    assert "user@example.com" in sent[-1]
+

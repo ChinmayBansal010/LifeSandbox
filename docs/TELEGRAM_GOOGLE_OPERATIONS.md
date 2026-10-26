@@ -74,3 +74,31 @@ To run the backend with Telegram long-polling enabled:
 cd LifeSandbox
 .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
+
+---
+
+## 5. Localhost / Mobile OAuth ("Site Can't Be Reached" Mitigation)
+
+When self-hosting LifeSandbox locally on your machine, opening the `/connect_google` link on your phone will redirect to `http://localhost:8000/...` after you approve Google permissions. Because your phone resolves `localhost` to itself rather than your computer, your browser may display **"Site can't be reached"**.
+
+We provide two solutions for this:
+
+### Option 1: Direct Copy-Paste in Telegram (Zero Configuration - Recommended)
+1. In your browser (where "Site can't be reached" is displayed), tap the address bar and **copy the full URL**.
+   * It looks like: `http://localhost:8000/api/v1/integrations/google/callback?state=...&code=...`
+2. **Paste that URL directly into your Telegram chat** with your bot (or send `/callback <pasted_url>`).
+3. The bot extracts the credentials, exchanges the OAuth token, and links your Google account automatically.
+
+### Option 2: Expose with a Free Tunnel (Cloudflare Tunnel or ngrok)
+If you prefer standard in-browser redirects:
+1. Run a tunnel on your machine:
+   ```bash
+   cloudflared tunnel --url http://localhost:8000
+   # or
+   ngrok http 8000
+   ```
+2. Update your `.env`:
+   ```env
+   GOOGLE_OAUTH_CALLBACK_URL=https://<your-tunnel-subdomain>.trycloudflare.com/api/v1/integrations/google/callback
+   ```
+3. Add that HTTPS callback URL to your **Authorized redirect URIs** in Google Cloud Console.
