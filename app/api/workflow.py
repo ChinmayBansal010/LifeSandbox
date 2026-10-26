@@ -310,9 +310,26 @@ async def execute_approved_action(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(get_session),
 ):
+    correlation_id = getattr(getattr(request, "state", None), "request_id", None)
+    return await execute_approval_action(
+        db=db,
+        user_id=principal.user_id,
+        approval_id=approval_id,
+        correlation_id=correlation_id,
+        allow_pending=False,
+    )
+
+
+async def execute_approval_action(
+    db: AsyncSession,
+    user_id: str,
+    approval_id: str,
+    correlation_id: str | None = None,
+    allow_pending: bool = False,
+) -> dict:
     approval = await db.scalar(
         select(ApprovalRow).where(
-            ApprovalRow.id == approval_id, ApprovalRow.user_id == principal.user_id
+            ApprovalRow.id == approval_id, ApprovalRow.user_id == user_id
         )
     )
     if approval is None:
@@ -329,6 +346,10 @@ async def execute_approved_action(
             "resource_type": approval.result_resource_type,
             "resource_id": approval.result_resource_id,
         }
+    if approval.status == "pending" and allow_pending:
+        approval.status = "approved"
+        approval.decided_at = datetime.now(UTC)
+        await db.commit()
     if approval.status != "approved":
         raise HTTPException(
             409,
@@ -345,11 +366,11 @@ async def execute_approved_action(
         approval.decided_at = datetime.now(UTC)
         db.add(
             AuditRow(
-                user_id=principal.user_id,
+                user_id=user_id,
                 action="approval.expire",
                 resource_id=approval.id,
                 outcome="expired",
-                correlation_id=request.state.request_id,
+                correlation_id=correlation_id,
             )
         )
         await db.commit()
@@ -377,7 +398,7 @@ async def execute_approved_action(
         connection = await db.scalar(
             select(IntegrationConnectionRow).where(
                 IntegrationConnectionRow.id == connection_id,
-                IntegrationConnectionRow.user_id == principal.user_id,
+                IntegrationConnectionRow.user_id == user_id,
                 IntegrationConnectionRow.provider == "google",
                 IntegrationConnectionRow.status == "connected",
             )
@@ -392,7 +413,7 @@ async def execute_approved_action(
                     "message": "Reconnect Gmail before sending this draft.",
                 },
             )
-        current_draft = await read_draft(db, principal.user_id, connection_id, draft_id)
+        current_draft = await read_draft(db, user_id, connection_id, draft_id)
         if current_draft.get("content_hash") != expected_hash:
             approval.status = "failed"
             await db.commit()
@@ -409,7 +430,7 @@ async def execute_approved_action(
             update(ApprovalRow)
             .where(
                 ApprovalRow.id == approval.id,
-                ApprovalRow.user_id == principal.user_id,
+                ApprovalRow.user_id == user_id,
                 ApprovalRow.status == "approved",
             )
             .values(status="running")
@@ -425,16 +446,16 @@ async def execute_approved_action(
             )
         await db.commit()
         try:
-            sent = await send_draft(db, principal.user_id, connection_id, draft_id)
+            sent = await send_draft(db, user_id, connection_id, draft_id)
         except GoogleActionUncertain as exc:
             approval.status = "uncertain"
             db.add(
                 AuditRow(
-                    user_id=principal.user_id,
+                    user_id=user_id,
                     action="approval.execute.gmail.send_draft",
                     resource_id=approval.id,
                     outcome="uncertain",
-                    correlation_id=request.state.request_id,
+                    correlation_id=correlation_id,
                 )
             )
             await db.commit()
@@ -455,15 +476,15 @@ async def execute_approved_action(
         approval.status = "succeeded"
         approval.result_resource_type = "google_message"
         approval.result_resource_id = sent["message_id"][:36]
-        approval.correlation_id = request.state.request_id
+        approval.correlation_id = correlation_id
         approval.decided_at = datetime.now(UTC)
         db.add(
             AuditRow(
-                user_id=principal.user_id,
+                user_id=user_id,
                 action="approval.execute.gmail.send_draft",
                 resource_id=approval.id,
                 outcome="succeeded",
-                correlation_id=request.state.request_id,
+                correlation_id=correlation_id,
             )
         )
         await db.commit()
@@ -491,7 +512,7 @@ async def execute_approved_action(
     key = f"approval:{approval.id}"
     existing = await db.scalar(
         select(IdempotencyRow).where(
-            IdempotencyRow.user_id == principal.user_id, IdempotencyRow.key == key
+            IdempotencyRow.user_id == user_id, IdempotencyRow.key == key
         )
     )
     if existing:
@@ -514,7 +535,7 @@ async def execute_approved_action(
         update(ApprovalRow)
         .where(
             ApprovalRow.id == approval.id,
-            ApprovalRow.user_id == principal.user_id,
+            ApprovalRow.user_id == user_id,
             ApprovalRow.status == "approved",
         )
         .values(status="executing")
@@ -528,21 +549,21 @@ async def execute_approved_action(
 
     if approval.action == "task.create":
         task_data = action_payload.model_dump()
-        await validate_project(db, principal.user_id, task_data["project_id"])
-        task = TaskRow(user_id=principal.user_id, **task_data)
+        await validate_project(db, user_id, task_data["project_id"])
+        task = TaskRow(user_id=user_id, **task_data)
         db.add(task)
         await db.flush()
         resource_id = task.id
         resource_type = "task"
     else:
         reminder_data = action_payload.model_dump()
-        await validate_task(db, principal.user_id, reminder_data["task_id"])
-        reminder = ReminderRow(user_id=principal.user_id, **reminder_data)
+        await validate_task(db, user_id, reminder_data["task_id"])
+        reminder = ReminderRow(user_id=user_id, **reminder_data)
         db.add(reminder)
         await db.flush()
         db.add(
             JobRow(
-                user_id=principal.user_id,
+                user_id=user_id,
                 reminder_id=reminder.id,
                 scheduled_at=reminder.scheduled_at,
                 idempotency_key=f"reminder:{reminder.id}:{reminder.scheduled_at.isoformat()}",
@@ -552,7 +573,7 @@ async def execute_approved_action(
         resource_type = "reminder"
     db.add(
         IdempotencyRow(
-            user_id=principal.user_id,
+            user_id=user_id,
             key=key,
             resource_id=resource_id,
             resource_type=resource_type,
@@ -562,15 +583,15 @@ async def execute_approved_action(
     approval.status = "executed"
     approval.result_resource_type = resource_type
     approval.result_resource_id = resource_id
-    approval.correlation_id = request.state.request_id
+    approval.correlation_id = correlation_id
     approval.decided_at = datetime.now(UTC)
     db.add(
         AuditRow(
-            user_id=principal.user_id,
+            user_id=user_id,
             action=f"approval.execute.{approval.action}",
             resource_id=approval.id,
             outcome="succeeded",
-            correlation_id=request.state.request_id,
+            correlation_id=correlation_id,
         )
     )
     await db.commit()

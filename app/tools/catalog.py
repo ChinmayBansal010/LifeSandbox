@@ -82,6 +82,78 @@ register_tool(
     connection_requirement="Google Calendar",
     required_permissions=("https://www.googleapis.com/auth/calendar.readonly",),
 )
+
+register_tool(
+    "calendar.create_event",
+    "Schedule and create a new event in Google Calendar.",
+    {
+        "type": "object",
+        "properties": {
+            "summary": {"type": "string", "description": "Title or summary of the event"},
+            "start": {"type": "string", "description": "Start time in ISO format or YYYY-MM-DDTHH:MM:SS"},
+            "end": {"type": "string", "description": "End time in ISO format or YYYY-MM-DDTHH:MM:SS"},
+            "timezone": {"type": "string", "description": "Timezone string, e.g. UTC or America/New_York"},
+            "description": {"type": "string", "description": "Optional event details or agenda"},
+            "location": {"type": "string", "description": "Optional meeting location or video call link"},
+            "attendees": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional email addresses of attendees to invite",
+            },
+            "calendar_id": {"type": "string", "description": "Calendar ID (defaults to 'primary')"},
+        },
+        "required": ["summary", "start", "end"],
+    },
+    "google_calendar",
+    read_only=False,
+    connection_requirement="Google Calendar",
+    required_permissions=("https://www.googleapis.com/auth/calendar.events",),
+)
+
+register_tool(
+    "calendar.update_event",
+    "Update, edit, or reschedule an existing event in Google Calendar.",
+    {
+        "type": "object",
+        "properties": {
+            "event_id": {"type": "string", "description": "The Google Calendar event ID to update"},
+            "calendar_id": {"type": "string", "description": "Calendar ID (defaults to 'primary')"},
+            "summary": {"type": "string", "description": "New title for the event"},
+            "start": {"type": "string", "description": "New start time in ISO format"},
+            "end": {"type": "string", "description": "New end time in ISO format"},
+            "timezone": {"type": "string", "description": "Timezone string"},
+            "description": {"type": "string", "description": "Updated event description"},
+            "location": {"type": "string", "description": "Updated location"},
+            "attendees": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Updated attendee email list",
+            },
+        },
+        "required": ["event_id"],
+    },
+    "google_calendar",
+    read_only=False,
+    connection_requirement="Google Calendar",
+    required_permissions=("https://www.googleapis.com/auth/calendar.events",),
+)
+
+register_tool(
+    "calendar.delete_event",
+    "Delete or cancel an existing event from Google Calendar.",
+    {
+        "type": "object",
+        "properties": {
+            "event_id": {"type": "string", "description": "The event ID to delete"},
+            "calendar_id": {"type": "string", "description": "Calendar ID (defaults to 'primary')"},
+        },
+        "required": ["event_id"],
+    },
+    "google_calendar",
+    read_only=False,
+    connection_requirement="Google Calendar",
+    required_permissions=("https://www.googleapis.com/auth/calendar.events",),
+)
 register_tool(
     "gmail.search_messages",
     "Search Gmail with a bounded query; return snippets and metadata only.",
@@ -146,6 +218,107 @@ register_tool(
 )
 
 register_tool(
+    "gmail.send_message",
+    "Compose and send an email message directly via Gmail.",
+    {
+        "type": "object",
+        "properties": {
+            "to": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Recipient email address(es)",
+            },
+            "subject": {"type": "string", "description": "Subject of the email"},
+            "body": {"type": "string", "description": "Body content of the email"},
+            "thread_id": {"type": ["string", "null"], "description": "Optional thread ID to reply to"},
+            "cc": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional CC recipient email address(es)",
+            },
+            "bcc": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional BCC recipient email address(es)",
+            },
+        },
+        "required": ["to", "subject", "body"],
+    },
+    "google_gmail",
+    read_only=False,
+    connection_requirement="Gmail",
+    required_permissions=("https://www.googleapis.com/auth/gmail.send",),
+)
+
+register_tool(
+    "gmail.reply_to_thread",
+    "Send a reply to an existing email conversation thread in Gmail.",
+    {
+        "type": "object",
+        "properties": {
+            "thread_id": {"type": "string", "description": "The Gmail thread ID to reply to"},
+            "body": {"type": "string", "description": "Reply content"},
+            "to": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional recipient list (auto-detected if omitted)",
+            },
+            "subject": {
+                "type": "string",
+                "description": "Optional reply subject (defaults to 'Re: <original subject>')",
+            },
+        },
+        "required": ["thread_id", "body"],
+    },
+    "google_gmail",
+    read_only=False,
+    connection_requirement="Gmail",
+    required_permissions=("https://www.googleapis.com/auth/gmail.send",),
+)
+
+register_tool(
+    "gmail.trash_message",
+    "Move an email message to trash in Gmail.",
+    {
+        "type": "object",
+        "properties": {
+            "message_id": {"type": "string", "description": "The Gmail message ID to move to trash"},
+        },
+        "required": ["message_id"],
+    },
+    "google_gmail",
+    read_only=False,
+    connection_requirement="Gmail",
+    required_permissions=("https://www.googleapis.com/auth/gmail.modify",),
+)
+
+register_tool(
+    "gmail.modify_labels",
+    "Add or remove labels on a Gmail message (e.g., mark as read/unread, star, archive).",
+    {
+        "type": "object",
+        "properties": {
+            "message_id": {"type": "string", "description": "The Gmail message ID"},
+            "add_labels": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Label IDs to add, e.g. ['STARRED', 'UNREAD']",
+            },
+            "remove_labels": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Label IDs to remove, e.g. ['UNREAD'] to mark read or ['INBOX'] to archive",
+            },
+        },
+        "required": ["message_id"],
+    },
+    "google_gmail",
+    read_only=False,
+    connection_requirement="Gmail",
+    required_permissions=("https://www.googleapis.com/auth/gmail.modify",),
+)
+
+register_tool(
     "drive.search_files",
     "Search the connected user's Google Drive files by name, type, or query. Returns file metadata and links.",
     {
@@ -177,6 +350,83 @@ register_tool(
     "google_drive",
     connection_requirement="Google Drive",
     required_permissions=("https://www.googleapis.com/auth/drive.readonly",),
+)
+
+register_tool(
+    "drive.create_file",
+    "Create a new document, spreadsheet, or text/markdown file on Google Drive.",
+    {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "Name of the file or document"},
+            "content": {"type": "string", "description": "Text content of the file"},
+            "mime_type": {
+                "type": "string",
+                "description": "File format: document (Google Doc), spreadsheet (Google Sheet), text/plain, or markdown",
+            },
+            "folder_id": {"type": "string", "description": "Optional parent folder ID on Google Drive"},
+        },
+        "required": ["name", "content"],
+    },
+    "google_drive",
+    read_only=False,
+    connection_requirement="Google Drive",
+    required_permissions=("https://www.googleapis.com/auth/drive.file",),
+)
+
+register_tool(
+    "drive.update_file_content",
+    "Update or overwrite the content of an existing Google Drive file.",
+    {
+        "type": "object",
+        "properties": {
+            "file_id": {"type": "string", "description": "The Google Drive file ID to update"},
+            "content": {"type": "string", "description": "New file content to write"},
+            "mime_type": {"type": "string", "description": "MIME type, defaults to text/plain"},
+        },
+        "required": ["file_id", "content"],
+    },
+    "google_drive",
+    read_only=False,
+    connection_requirement="Google Drive",
+    required_permissions=("https://www.googleapis.com/auth/drive.file",),
+)
+
+register_tool(
+    "drive.delete_file",
+    "Move a Google Drive file to trash or permanently delete it.",
+    {
+        "type": "object",
+        "properties": {
+            "file_id": {"type": "string", "description": "The Google Drive file ID to delete"},
+            "permanent": {
+                "type": "boolean",
+                "description": "True to permanently delete, false to move to trash (default false)",
+            },
+        },
+        "required": ["file_id"],
+    },
+    "google_drive",
+    read_only=False,
+    connection_requirement="Google Drive",
+    required_permissions=("https://www.googleapis.com/auth/drive.file",),
+)
+
+register_tool(
+    "drive.create_folder",
+    "Create a new folder in Google Drive.",
+    {
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "Folder name"},
+            "parent_folder_id": {"type": "string", "description": "Optional parent folder ID"},
+        },
+        "required": ["name"],
+    },
+    "google_drive",
+    read_only=False,
+    connection_requirement="Google Drive",
+    required_permissions=("https://www.googleapis.com/auth/drive.file",),
 )
 
 register_tool(

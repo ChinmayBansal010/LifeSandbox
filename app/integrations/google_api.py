@@ -16,6 +16,53 @@ from app.integrations.google import decrypt_credentials, encrypt_credentials
 from app.persistence.models import IntegrationConnectionRow
 
 
+SCOPE_COMPATIBILITY: dict[str, set[str]] = {
+    "https://www.googleapis.com/auth/calendar.readonly": {
+        "https://www.googleapis.com/auth/calendar.readonly",
+        "https://www.googleapis.com/auth/calendar.events",
+        "https://www.googleapis.com/auth/calendar",
+    },
+    "https://www.googleapis.com/auth/calendar.events": {
+        "https://www.googleapis.com/auth/calendar.events",
+        "https://www.googleapis.com/auth/calendar",
+    },
+    "https://www.googleapis.com/auth/calendar": {
+        "https://www.googleapis.com/auth/calendar",
+    },
+    "https://www.googleapis.com/auth/gmail.readonly": {
+        "https://www.googleapis.com/auth/gmail.readonly",
+        "https://www.googleapis.com/auth/gmail.modify",
+        "https://mail.google.com/",
+    },
+    "https://www.googleapis.com/auth/gmail.compose": {
+        "https://www.googleapis.com/auth/gmail.compose",
+        "https://www.googleapis.com/auth/gmail.modify",
+        "https://mail.google.com/",
+    },
+    "https://www.googleapis.com/auth/gmail.send": {
+        "https://www.googleapis.com/auth/gmail.send",
+        "https://www.googleapis.com/auth/gmail.modify",
+        "https://mail.google.com/",
+    },
+    "https://www.googleapis.com/auth/gmail.modify": {
+        "https://www.googleapis.com/auth/gmail.modify",
+        "https://mail.google.com/",
+    },
+    "https://www.googleapis.com/auth/drive.readonly": {
+        "https://www.googleapis.com/auth/drive.readonly",
+        "https://www.googleapis.com/auth/drive.file",
+        "https://www.googleapis.com/auth/drive",
+    },
+    "https://www.googleapis.com/auth/drive.file": {
+        "https://www.googleapis.com/auth/drive.file",
+        "https://www.googleapis.com/auth/drive",
+    },
+    "https://www.googleapis.com/auth/drive": {
+        "https://www.googleapis.com/auth/drive",
+    },
+}
+
+
 async def _connection(
     db: AsyncSession, user_id: str, scope: str, connection_id: str | None = None
 ) -> tuple[IntegrationConnectionRow, str]:
@@ -27,8 +74,10 @@ async def _connection(
     if connection_id:
         query = query.where(IntegrationConnectionRow.id == connection_id)
     rows = (await db.scalars(query)).all()
+    compatible_scopes = SCOPE_COMPATIBILITY.get(scope, {scope})
     for row in rows:
-        if scope in json.loads(row.scopes):
+        granted = set(json.loads(row.scopes))
+        if granted.intersection(compatible_scopes):
             credentials = decrypt_credentials(row.encrypted_credentials)
             token = credentials.get("access_token")
             if not token:
@@ -98,14 +147,19 @@ async def _request(
     **kwargs,
 ):
     row, token = await _connection(db, user_id, scope, connection_id)
+    headers = {"Authorization": f"Bearer {token}"}
+    if "headers" in kwargs:
+        headers.update(kwargs.pop("headers"))
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
+        async with httpx.AsyncClient(timeout=20) as client:
             response = await client.request(
-                method, url, headers={"Authorization": f"Bearer {token}"}, **kwargs
+                method, url, headers=headers, **kwargs
             )
             response.raise_for_status()
             if as_text:
                 return response.text
+            if response.status_code == 204 or not response.text.strip():
+                return {}
             return response.json()
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 401:
@@ -267,6 +321,144 @@ async def find_free_time(
             cursor += timedelta(minutes=duration_minutes)
         day += timedelta(days=1)
     return {"slots": candidates[:20], "source": "Google Calendar freeBusy"}
+
+
+def _format_datetime(dt_or_str: str | datetime, timezone_str: str = "UTC") -> str:
+    if isinstance(dt_or_str, datetime):
+        if dt_or_str.tzinfo is None:
+            tz = ZoneInfo(timezone_str)
+            dt_or_str = dt_or_str.replace(tzinfo=tz)
+        return dt_or_str.isoformat()
+    try:
+        parsed = datetime.fromisoformat(dt_or_str)
+        if parsed.tzinfo is None:
+            tz = ZoneInfo(timezone_str)
+            parsed = parsed.replace(tzinfo=tz)
+        return parsed.isoformat()
+    except Exception:
+        return str(dt_or_str)
+
+
+async def create_event(
+    db: AsyncSession,
+    user_id: str,
+    summary: str,
+    start: str | datetime,
+    end: str | datetime,
+    timezone: str = "UTC",
+    description: str | None = None,
+    location: str | None = None,
+    attendees: list[str] | None = None,
+    calendar_id: str = "primary",
+    connection_id: str | None = None,
+) -> dict:
+    if not summary or len(summary) > 500:
+        raise ValueError("Event summary is required and must be under 500 characters")
+    ZoneInfo(timezone)
+    start_iso = _format_datetime(start, timezone)
+    end_iso = _format_datetime(end, timezone)
+
+    payload: dict[str, Any] = {
+        "summary": summary,
+        "start": {"dateTime": start_iso, "timeZone": timezone},
+        "end": {"dateTime": end_iso, "timeZone": timezone},
+    }
+    if description:
+        payload["description"] = description[:5000]
+    if location:
+        payload["location"] = location[:500]
+    if attendees:
+        payload["attendees"] = [{"email": a.strip()} for a in attendees if "@" in a]
+
+    body = await _request(
+        db,
+        user_id,
+        "https://www.googleapis.com/auth/calendar.events",
+        "POST",
+        f"https://www.googleapis.com/calendar/v3/calendars/{calendar_id}/events",
+        connection_id=connection_id,
+        json=payload,
+    )
+    return {
+        "status": "created",
+        "id": body.get("id"),
+        "calendar_id": calendar_id,
+        "summary": body.get("summary", summary),
+        "start": body.get("start", {}).get("dateTime", start_iso),
+        "end": body.get("end", {}).get("dateTime", end_iso),
+        "link": body.get("htmlLink"),
+    }
+
+
+async def update_event(
+    db: AsyncSession,
+    user_id: str,
+    event_id: str,
+    calendar_id: str = "primary",
+    summary: str | None = None,
+    start: str | datetime | None = None,
+    end: str | datetime | None = None,
+    timezone: str = "UTC",
+    description: str | None = None,
+    location: str | None = None,
+    attendees: list[str] | None = None,
+    connection_id: str | None = None,
+) -> dict:
+    if not event_id or len(event_id) > 200:
+        raise ValueError("Invalid event ID")
+    ZoneInfo(timezone)
+    payload: dict[str, Any] = {}
+    if summary:
+        payload["summary"] = summary[:500]
+    if description is not None:
+        payload["description"] = description[:5000]
+    if location is not None:
+        payload["location"] = location[:500]
+    if start:
+        payload["start"] = {"dateTime": _format_datetime(start, timezone), "timeZone": timezone}
+    if end:
+        payload["end"] = {"dateTime": _format_datetime(end, timezone), "timeZone": timezone}
+    if attendees is not None:
+        payload["attendees"] = [{"email": a.strip()} for a in attendees if "@" in a]
+
+    body = await _request(
+        db,
+        user_id,
+        "https://www.googleapis.com/auth/calendar.events",
+        "PATCH",
+        f"https://www.googleapis.com/calendar/v3/calendars/{calendar_id}/events/{event_id}",
+        connection_id=connection_id,
+        json=payload,
+    )
+    return {
+        "status": "updated",
+        "id": body.get("id", event_id),
+        "calendar_id": calendar_id,
+        "summary": body.get("summary", summary),
+        "start": body.get("start", {}).get("dateTime"),
+        "end": body.get("end", {}).get("dateTime"),
+        "link": body.get("htmlLink"),
+    }
+
+
+async def delete_event(
+    db: AsyncSession,
+    user_id: str,
+    event_id: str,
+    calendar_id: str = "primary",
+    connection_id: str | None = None,
+) -> dict:
+    if not event_id or len(event_id) > 200:
+        raise ValueError("Invalid event ID")
+    await _request(
+        db,
+        user_id,
+        "https://www.googleapis.com/auth/calendar.events",
+        "DELETE",
+        f"https://www.googleapis.com/calendar/v3/calendars/{calendar_id}/events/{event_id}",
+        connection_id=connection_id,
+    )
+    return {"status": "deleted", "id": event_id, "calendar_id": calendar_id}
 
 
 async def search_messages(db: AsyncSession, user_id: str, query: str, limit: int = 10):
@@ -500,6 +692,152 @@ async def send_draft(db: AsyncSession, user_id: str, connection_id: str, draft_i
     return {"message_id": result["id"], "thread_id": result.get("threadId"), "status": "sent"}
 
 
+async def send_message(
+    db: AsyncSession,
+    user_id: str,
+    to: list[str],
+    subject: str,
+    body: str,
+    thread_id: str | None = None,
+    cc: list[str] | None = None,
+    bcc: list[str] | None = None,
+    connection_id: str | None = None,
+) -> dict:
+    if (
+        not to
+        or any("\n" in recipient or "\r" in recipient or "@" not in recipient for recipient in to)
+        or "\n" in subject
+        or "\r" in subject
+        or len(subject) > 500
+        or len(body) > 30000
+    ):
+        raise ValueError("Invalid recipients, subject, or email body")
+
+    msg = EmailMessage()
+    msg["To"] = ", ".join(to)
+    if cc:
+        msg["Cc"] = ", ".join(cc)
+    if bcc:
+        msg["Bcc"] = ", ".join(bcc)
+    msg["Subject"] = subject
+    msg.set_content(body)
+
+    raw_bytes = msg.as_bytes()
+    raw_str = base64.urlsafe_b64encode(raw_bytes).decode().rstrip("=")
+    req_body: dict[str, Any] = {"raw": raw_str}
+    if thread_id:
+        req_body["threadId"] = thread_id
+
+    res = await _request(
+        db,
+        user_id,
+        "https://www.googleapis.com/auth/gmail.send",
+        "POST",
+        "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
+        connection_id=connection_id,
+        json=req_body,
+    )
+    return {
+        "status": "sent",
+        "message_id": res.get("id"),
+        "thread_id": res.get("threadId"),
+        "to": to,
+        "subject": subject,
+    }
+
+
+async def reply_to_thread(
+    db: AsyncSession,
+    user_id: str,
+    thread_id: str,
+    body: str,
+    to: list[str] | None = None,
+    subject: str | None = None,
+    connection_id: str | None = None,
+) -> dict:
+    recipients = list(to or [])
+    reply_subject = subject
+    if not recipients or not reply_subject:
+        thread_info = await get_thread(db, user_id, thread_id, limit=5)
+        messages = thread_info.get("messages", [])
+        if messages:
+            last_msg = messages[-1]
+            if not recipients:
+                sender = last_msg.get("from", "")
+                if "<" in sender and ">" in sender:
+                    sender = sender.split("<")[1].split(">")[0]
+                recipients = [sender] if sender else []
+            if not reply_subject:
+                orig_subj = last_msg.get("subject", "")
+                reply_subject = (
+                    orig_subj
+                    if orig_subj.lower().startswith("re:")
+                    else f"Re: {orig_subj}"
+                )
+    if not recipients:
+        raise ValueError("Could not determine reply recipient. Please specify 'to' explicitly.")
+    if not reply_subject:
+        reply_subject = "Re: (no subject)"
+    return await send_message(
+        db,
+        user_id,
+        to=recipients,
+        subject=reply_subject,
+        body=body,
+        thread_id=thread_id,
+        connection_id=connection_id,
+    )
+
+
+async def trash_message(
+    db: AsyncSession,
+    user_id: str,
+    message_id: str,
+    connection_id: str | None = None,
+) -> dict:
+    if not message_id or len(message_id) > 200:
+        raise ValueError("Invalid message ID")
+    res = await _request(
+        db,
+        user_id,
+        "https://www.googleapis.com/auth/gmail.modify",
+        "POST",
+        f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{message_id}/trash",
+        connection_id=connection_id,
+    )
+    return {"status": "trashed", "message_id": res.get("id", message_id)}
+
+
+async def modify_labels(
+    db: AsyncSession,
+    user_id: str,
+    message_id: str,
+    add_labels: list[str] | None = None,
+    remove_labels: list[str] | None = None,
+    connection_id: str | None = None,
+) -> dict:
+    if not message_id or len(message_id) > 200:
+        raise ValueError("Invalid message ID")
+    body_data = {
+        "addLabelIds": add_labels or [],
+        "removeLabelIds": remove_labels or [],
+    }
+    res = await _request(
+        db,
+        user_id,
+        "https://www.googleapis.com/auth/gmail.modify",
+        "POST",
+        f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{message_id}/modify",
+        connection_id=connection_id,
+        json=body_data,
+    )
+    return {
+        "status": "updated",
+        "message_id": res.get("id", message_id),
+        "labels": res.get("labelIds", []),
+    }
+
+
 async def search_drive_files(
     db: AsyncSession,
     user_id: str,
@@ -627,4 +965,154 @@ async def get_drive_file_content(
         "content": content,
         "truncated": len(text_content) > 25000,
         "link": meta.get("webViewLink"),
+    }
+
+
+async def create_drive_file(
+    db: AsyncSession,
+    user_id: str,
+    name: str,
+    content: str,
+    mime_type: str = "text/plain",
+    folder_id: str | None = None,
+    connection_id: str | None = None,
+) -> dict:
+    if not name or len(name) > 250:
+        raise ValueError("File name is required and must be under 250 characters")
+
+    type_mapping = {
+        "document": "application/vnd.google-apps.document",
+        "doc": "application/vnd.google-apps.document",
+        "spreadsheet": "application/vnd.google-apps.spreadsheet",
+        "sheet": "application/vnd.google-apps.spreadsheet",
+        "text": "text/plain",
+        "markdown": "text/markdown",
+        "md": "text/markdown",
+    }
+    target_mime = type_mapping.get(mime_type.strip().lower(), mime_type.strip())
+    upload_mime = "text/csv" if "spreadsheet" in target_mime else "text/plain"
+
+    metadata: dict[str, Any] = {"name": name, "mimeType": target_mime}
+    if folder_id:
+        metadata["parents"] = [folder_id]
+
+    boundary = "===drive_multipart_boundary_life_sandbox==="
+    multipart_body = (
+        f"--{boundary}\r\n"
+        f"Content-Type: application/json; charset=UTF-8\r\n\r\n"
+        f"{json.dumps(metadata)}\r\n"
+        f"--{boundary}\r\n"
+        f"Content-Type: {upload_mime}; charset=UTF-8\r\n\r\n"
+        f"{content}\r\n"
+        f"--{boundary}--\r\n"
+    )
+
+    res = await _request(
+        db,
+        user_id,
+        "https://www.googleapis.com/auth/drive.file",
+        "POST",
+        "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,mimeType,webViewLink",
+        connection_id=connection_id,
+        content=multipart_body.encode("utf-8"),
+        headers={"Content-Type": f"multipart/related; boundary={boundary}"},
+    )
+    return {
+        "status": "created",
+        "file_id": res.get("id"),
+        "name": res.get("name", name),
+        "mime_type": res.get("mimeType", target_mime),
+        "link": res.get("webViewLink"),
+    }
+
+
+async def update_drive_file_content(
+    db: AsyncSession,
+    user_id: str,
+    file_id: str,
+    content: str,
+    mime_type: str = "text/plain",
+    connection_id: str | None = None,
+) -> dict:
+    if not file_id or len(file_id) > 250:
+        raise ValueError("Invalid Google Drive file ID")
+    res = await _request(
+        db,
+        user_id,
+        "https://www.googleapis.com/auth/drive.file",
+        "PATCH",
+        f"https://www.googleapis.com/upload/drive/v3/files/{file_id}?uploadType=media&fields=id,name,mimeType,webViewLink",
+        connection_id=connection_id,
+        content=content.encode("utf-8"),
+        headers={"Content-Type": f"{mime_type}; charset=UTF-8"},
+    )
+    return {
+        "status": "updated",
+        "file_id": res.get("id", file_id),
+        "name": res.get("name"),
+        "link": res.get("webViewLink"),
+    }
+
+
+async def delete_drive_file(
+    db: AsyncSession,
+    user_id: str,
+    file_id: str,
+    permanent: bool = False,
+    connection_id: str | None = None,
+) -> dict:
+    if not file_id or len(file_id) > 250:
+        raise ValueError("Invalid Google Drive file ID")
+    if permanent:
+        await _request(
+            db,
+            user_id,
+            "https://www.googleapis.com/auth/drive.file",
+            "DELETE",
+            f"https://www.googleapis.com/drive/v3/files/{file_id}",
+            connection_id=connection_id,
+        )
+        return {"status": "deleted", "file_id": file_id}
+    else:
+        res = await _request(
+            db,
+            user_id,
+            "https://www.googleapis.com/auth/drive.file",
+            "PATCH",
+            f"https://www.googleapis.com/drive/v3/files/{file_id}",
+            connection_id=connection_id,
+            json={"trashed": True},
+        )
+        return {"status": "trashed", "file_id": res.get("id", file_id)}
+
+
+async def create_drive_folder(
+    db: AsyncSession,
+    user_id: str,
+    name: str,
+    parent_folder_id: str | None = None,
+    connection_id: str | None = None,
+) -> dict:
+    if not name or len(name) > 250:
+        raise ValueError("Invalid folder name")
+    payload: dict[str, Any] = {
+        "name": name,
+        "mimeType": "application/vnd.google-apps.folder",
+    }
+    if parent_folder_id:
+        payload["parents"] = [parent_folder_id]
+    res = await _request(
+        db,
+        user_id,
+        "https://www.googleapis.com/auth/drive.file",
+        "POST",
+        "https://www.googleapis.com/drive/v3/files?fields=id,name,mimeType,webViewLink",
+        connection_id=connection_id,
+        json=payload,
+    )
+    return {
+        "status": "created",
+        "folder_id": res.get("id"),
+        "name": res.get("name", name),
+        "link": res.get("webViewLink"),
     }

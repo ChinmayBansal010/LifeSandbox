@@ -1,5 +1,6 @@
 import asyncio
 import html
+import json
 import logging
 from datetime import UTC, datetime
 from typing import Any
@@ -12,7 +13,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.security import Principal, current_principal
-from app.persistence.models import ConversationRow
+from app.integrations.google import create_google_authorization_url
+from app.persistence.models import (
+    ApprovalRow,
+    AuditRow,
+    ConversationRow,
+    IntegrationConnectionRow,
+)
 from app.persistence.session import SessionLocal, get_session
 
 logger = logging.getLogger("life_sandbox.telegram")
@@ -365,12 +372,17 @@ async def process_telegram_update(
         welcome_text = (
             "👋 <b>Welcome to Life Sandbox!</b>\n\n"
             "I am your personal AI assistant. You can chat with me naturally from Telegram to:\n"
-            "• 📅 Check calendar schedules & free time\n"
-            "• ✉️ Search, read, and draft Gmail emails\n"
-            "• 📁 Search and explore your Google Drive documents\n"
-            "• 🌐 Perform live web research & verification\n"
-            "• ⚡ Track decisions, projects, tasks, and reminders\n\n"
-            "<b>Commands:</b>\n"
+            "• 📅 <b>Calendar:</b> View schedules, find free slots, create, reschedule & delete events\n"
+            "• ✉️ <b>Gmail:</b> Search, read, compose & send emails, reply to threads, archive, star & trash\n"
+            "• 📁 <b>Google Drive:</b> Search, read, create Docs/Sheets/files, edit content, create folders & delete\n"
+            "• 🌐 <b>Research:</b> Perform live web research & verification\n"
+            "• ⚡ <b>Productivity:</b> Track decisions, projects, tasks, and reminders\n\n"
+            "<b>Management Commands:</b>\n"
+            "• <code>/connect_google</code> — Link your Google account\n"
+            "• <code>/google_status</code> — Check connected Google account and capabilities\n"
+            "• <code>/approvals</code> or <code>/pending</code> — View actions awaiting your approval\n"
+            "• <code>/approve &lt;id&gt;</code> — Approve and execute a pending action\n"
+            "• <code>/reject &lt;id&gt;</code> — Reject a pending action\n"
             "• <code>/new</code> or <code>/reset</code> — Start a fresh conversation thread\n"
             "• <code>/status</code> — View agent connection status\n"
             "• <code>/help</code> — Show this guide\n\n"
@@ -378,6 +390,160 @@ async def process_telegram_update(
         )
         await send_telegram_message(message=welcome_text, chat_id=chat_id)
         return {"status": "command_handled", "command": lowered}
+
+    if lowered in {"/connect_google", "/auth_google", "/auth"}:
+        config = get_settings()
+        if not all((config.google_oauth_client_id, config.google_oauth_client_secret, config.google_oauth_callback_url)):
+            missing_msg = (
+                "⚠️ <b>Google OAuth Not Configured</b>\n\n"
+                "To enable Google integrations (Gmail, Calendar, Drive), ensure these are set in your <code>.env</code> file:\n"
+                "• <code>GOOGLE_OAUTH_CLIENT_ID</code>\n"
+                "• <code>GOOGLE_OAUTH_CLIENT_SECRET</code>\n"
+                "• <code>GOOGLE_OAUTH_CALLBACK_URL</code>\n"
+                "• <code>GOOGLE_TOKEN_ENCRYPTION_KEY</code>"
+            )
+            await send_telegram_message(message=missing_msg, chat_id=chat_id)
+            return {"status": "command_handled", "command": lowered}
+
+        try:
+            auth_url = await create_google_authorization_url(user_id=user_id, db=db)
+            connect_msg = (
+                "🔗 <b>Connect Your Google Account</b>\n\n"
+                "Click the link below to grant Life Sandbox access to your Gmail, Calendar, and Drive:\n\n"
+                f"👉 <a href=\"{auth_url}\"><b>Authorize Google Account</b></a>\n\n"
+                "<i>This link is valid for 10 minutes. Once authorized, you can perform all your operations right here from Telegram!</i>"
+            )
+            await send_telegram_message(message=connect_msg, chat_id=chat_id)
+            return {"status": "command_handled", "command": lowered}
+        except Exception as exc:
+            err_msg = f"⚠️ Could not generate authorization link: {html.escape(str(exc))}"
+            await send_telegram_message(message=err_msg, chat_id=chat_id)
+            return {"status": "error", "error": str(exc)}
+
+    if lowered == "/google_status":
+        rows = (
+            await db.scalars(
+                select(IntegrationConnectionRow).where(
+                    IntegrationConnectionRow.user_id == user_id,
+                    IntegrationConnectionRow.provider == "google",
+                )
+            )
+        ).all()
+        if not rows:
+            not_conn_msg = (
+                "ℹ️ <b>Google Status: Not Connected</b>\n\n"
+                "You haven't connected a Google account yet.\n"
+                "Send <code>/connect_google</code> to link your account and unlock Gmail, Calendar, and Drive operations!"
+            )
+            await send_telegram_message(message=not_conn_msg, chat_id=chat_id)
+            return {"status": "command_handled", "command": "/google_status"}
+
+        status_lines = ["📊 <b>Google Connections:</b>\n"]
+        for row in rows:
+            scopes = json.loads(row.scopes)
+            status_lines.append(f"• <b>Account:</b> {row.account_email or 'Connected'}")
+            status_lines.append(f"  <b>Status:</b> <code>{row.status}</code>")
+            status_lines.append(f"  <b>Authorized Scopes:</b> {len(scopes)} granted")
+        await send_telegram_message(message="\n".join(status_lines), chat_id=chat_id)
+        return {"status": "command_handled", "command": "/google_status"}
+
+    if lowered in {"/approvals", "/pending"}:
+        stmt = (
+            select(ApprovalRow)
+            .where(
+                ApprovalRow.user_id == user_id,
+                ApprovalRow.status == "pending",
+            )
+            .order_by(ApprovalRow.created_at.desc())
+            .limit(10)
+        )
+        pending_rows = (await db.scalars(stmt)).all()
+        if not pending_rows:
+            await send_telegram_message(
+                message="✅ <b>No pending approvals.</b> Everything is clear!",
+                chat_id=chat_id,
+            )
+            return {"status": "command_handled", "command": lowered}
+
+        lines = ["⏳ <b>Pending Actions Awaiting Approval:</b>\n"]
+        for p in pending_rows:
+            lines.append(f"• <b>Action:</b> <code>{html.escape(p.action)}</code>")
+            lines.append(f"  <b>Details:</b> {html.escape(p.description or 'No description')}")
+            lines.append(f"  <b>ID:</b> <code>{p.id}</code>")
+            lines.append(f"  👉 To approve: <code>/approve {p.id}</code>\n")
+        await send_telegram_message(message="\n".join(lines), chat_id=chat_id)
+        return {"status": "command_handled", "command": lowered}
+
+    if lowered.startswith("/approve"):
+        parts = text.strip().split()
+        if len(parts) < 2:
+            await send_telegram_message(
+                message="ℹ️ Please provide the approval ID: <code>/approve &lt;approval_id&gt;</code>",
+                chat_id=chat_id,
+            )
+            return {"status": "command_handled", "command": "/approve"}
+        approval_id = parts[1].strip()
+        try:
+            from app.api.workflow import execute_approval_action
+
+            result = await execute_approval_action(
+                db=db,
+                user_id=user_id,
+                approval_id=approval_id,
+                correlation_id=f"telegram-{uuid4().hex[:8]}",
+                allow_pending=True,
+            )
+            resource_ref = result.get("resource_id") or result.get("message_id") or ""
+            res_type = result.get("resource_type") or ""
+            success_msg = (
+                f"✅ <b>Action Approved and Executed!</b>\n\n"
+                f"• <b>Status:</b> <code>{result.get('status', 'executed')}</code>\n"
+                f"• <b>Resource:</b> <code>{res_type} {resource_ref}</code>".strip()
+            )
+            await send_telegram_message(message=success_msg, chat_id=chat_id)
+            return {"status": "approval_executed", "result": result}
+        except Exception as exc:
+            detail = exc.detail if isinstance(exc, HTTPException) else str(exc)
+            err_msg = f"⚠️ <b>Approval Failed:</b> {html.escape(str(detail))}"
+            await send_telegram_message(message=err_msg, chat_id=chat_id)
+            return {"status": "error", "error": str(exc)}
+
+    if lowered.startswith("/reject"):
+        parts = text.strip().split()
+        if len(parts) < 2:
+            await send_telegram_message(
+                message="ℹ️ Please provide the approval ID: <code>/reject &lt;approval_id&gt;</code>",
+                chat_id=chat_id,
+            )
+            return {"status": "command_handled", "command": "/reject"}
+        approval_id = parts[1].strip()
+        approval = await db.scalar(
+            select(ApprovalRow).where(
+                ApprovalRow.id == approval_id, ApprovalRow.user_id == user_id
+            )
+        )
+        if approval is None:
+            await send_telegram_message(message="⚠️ Approval not found.", chat_id=chat_id)
+            return {"status": "not_found"}
+        if approval.status != "pending":
+            await send_telegram_message(
+                message=f"ℹ️ Approval is already <code>{approval.status}</code>.", chat_id=chat_id
+            )
+            return {"status": "already_resolved"}
+        approval.status = "rejected"
+        approval.decided_at = datetime.now(UTC)
+        db.add(
+            AuditRow(
+                user_id=user_id,
+                action="approval.reject",
+                resource_id=approval.id,
+                outcome="rejected",
+                correlation_id=f"telegram-{uuid4().hex[:8]}",
+            )
+        )
+        await db.commit()
+        await send_telegram_message(message="❌ <b>Action rejected.</b>", chat_id=chat_id)
+        return {"status": "rejected", "approval_id": approval_id}
 
     if lowered == "/status":
         bot_info = await get_telegram_bot_info()

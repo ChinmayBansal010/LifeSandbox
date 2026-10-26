@@ -225,3 +225,135 @@ def test_drive_tools_registered_in_catalog():
     assert content_tool.provider_id == "google"
     assert content_tool.category == "drive"
     assert "https://www.googleapis.com/auth/drive.readonly" in content_tool.required_permissions
+
+
+@pytest.mark.asyncio
+async def test_calendar_create_update_delete_events(monkeypatch):
+    captured = []
+
+    async def fake_request(_db, _user, scope, method, url, **kwargs):
+        captured.append({"scope": scope, "method": method, "url": url, "json": kwargs.get("json")})
+        if method == "POST":
+            return {"id": "event_123", "summary": "Project Sync", "start": {"dateTime": "2026-10-30T10:00:00Z"}, "end": {"dateTime": "2026-10-30T11:00:00Z"}, "htmlLink": "https://calendar.google.com/event_123"}
+        elif method == "PATCH":
+            return {"id": "event_123", "summary": "Updated Sync", "start": {"dateTime": "2026-10-30T11:00:00Z"}, "end": {"dateTime": "2026-10-30T12:00:00Z"}, "htmlLink": "https://calendar.google.com/event_123"}
+        return {}
+
+    monkeypatch.setattr(google_api, "_request", fake_request)
+
+    created = await google_api.create_event(
+        None, "owner", "Project Sync", "2026-10-30T10:00:00Z", "2026-10-30T11:00:00Z", attendees=["team@example.com"]
+    )
+    assert created["status"] == "created"
+    assert created["id"] == "event_123"
+
+    updated = await google_api.update_event(
+        None, "owner", "event_123", summary="Updated Sync", start="2026-10-30T11:00:00Z", end="2026-10-30T12:00:00Z"
+    )
+    assert updated["status"] == "updated"
+    assert updated["summary"] == "Updated Sync"
+
+    deleted = await google_api.delete_event(None, "owner", "event_123")
+    assert deleted["status"] == "deleted"
+    assert deleted["id"] == "event_123"
+    assert len(captured) == 3
+
+
+@pytest.mark.asyncio
+async def test_gmail_send_reply_trash_modify(monkeypatch):
+    captured = []
+
+    async def fake_request(_db, _user, scope, method, url, **kwargs):
+        captured.append({"scope": scope, "method": method, "url": url, "json": kwargs.get("json")})
+        if "messages/send" in url:
+            return {"id": "msg_999", "threadId": kwargs.get("json", {}).get("threadId", "thread_111")}
+        elif "trash" in url:
+            return {"id": "msg_999"}
+        elif "modify" in url:
+            return {"id": "msg_999", "labelIds": ["INBOX"]}
+        return {}
+
+    monkeypatch.setattr(google_api, "_request", fake_request)
+
+    sent = await google_api.send_message(
+        None, "owner", to=["user@example.com"], subject="Hello", body="Test message content"
+    )
+    assert sent["status"] == "sent"
+    assert sent["message_id"] == "msg_999"
+
+    replied = await google_api.reply_to_thread(
+        None, "owner", thread_id="thread_111", body="Reply content", to=["user@example.com"], subject="Re: Hello"
+    )
+    assert replied["status"] == "sent"
+    assert replied["thread_id"] == "thread_111"
+
+    trashed = await google_api.trash_message(None, "owner", "msg_999")
+    assert trashed["status"] == "trashed"
+
+    modified = await google_api.modify_labels(None, "owner", "msg_999", remove_labels=["UNREAD"])
+    assert modified["status"] == "updated"
+    assert modified["labels"] == ["INBOX"]
+
+
+@pytest.mark.asyncio
+async def test_drive_create_update_delete_folder(monkeypatch):
+    captured = []
+
+    async def fake_request(_db, _user, scope, method, url, **kwargs):
+        captured.append({"scope": scope, "method": method, "url": url, "json": kwargs.get("json")})
+        if method == "POST" and "multipart" in url:
+            return {"id": "file_456", "name": "Notes.txt", "mimeType": "text/plain", "webViewLink": "https://drive.google.com/file_456"}
+        elif method == "POST":
+            return {"id": "folder_789", "name": "Projects", "webViewLink": "https://drive.google.com/folder_789"}
+        elif method == "PATCH" and "media" in url:
+            return {"id": "file_456", "name": "Notes.txt", "webViewLink": "https://drive.google.com/file_456"}
+        elif method == "PATCH":
+            return {"id": "file_456", "trashed": True}
+        return {}
+
+    monkeypatch.setattr(google_api, "_request", fake_request)
+
+    created_file = await google_api.create_drive_file(None, "owner", "Notes.txt", "Initial notes", mime_type="text/plain")
+    assert created_file["status"] == "created"
+    assert created_file["file_id"] == "file_456"
+
+    updated_file = await google_api.update_drive_file_content(None, "owner", "file_456", "Updated notes")
+    assert updated_file["status"] == "updated"
+
+    created_folder = await google_api.create_drive_folder(None, "owner", "Projects")
+    assert created_folder["status"] == "created"
+    assert created_folder["folder_id"] == "folder_789"
+
+    trashed_file = await google_api.delete_drive_file(None, "owner", "file_456")
+    assert trashed_file["status"] == "trashed"
+
+
+def test_new_google_tools_registered_in_catalog():
+    from app.tools.registry import registry
+
+    expected_tools = [
+        "calendar.list_events",
+        "calendar.find_free_time",
+        "calendar.create_event",
+        "calendar.update_event",
+        "calendar.delete_event",
+        "gmail.search_messages",
+        "gmail.get_thread",
+        "gmail.create_draft",
+        "gmail.send_draft",
+        "gmail.send_message",
+        "gmail.reply_to_thread",
+        "gmail.trash_message",
+        "gmail.modify_labels",
+        "drive.search_files",
+        "drive.get_file_content",
+        "drive.create_file",
+        "drive.update_file_content",
+        "drive.delete_file",
+        "drive.create_folder",
+    ]
+    for tool_name in expected_tools:
+        tool = registry.get(tool_name)
+        assert tool is not None, f"Expected {tool_name} to be registered"
+        assert tool.provider_id == "google"
+

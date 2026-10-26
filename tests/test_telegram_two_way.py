@@ -270,3 +270,109 @@ def test_telegram_webhook_route(monkeypatch):
         )
         assert res_good.status_code == 200
         assert res_good.json()["ok"] is True
+
+
+@pytest.mark.asyncio
+async def test_telegram_connect_google_command(monkeypatch):
+    monkeypatch.setattr(
+        telegram,
+        "get_settings",
+        lambda: SimpleNamespace(
+            telegram_bot_token="mock_token",
+            telegram_chat_id="11111",
+            telegram_allowed_chat_ids=None,
+            telegram_default_user_id="local-user",
+            google_oauth_client_id="client_id",
+            google_oauth_client_secret="client_secret",
+            google_oauth_callback_url="http://localhost:8000/callback",
+            google_token_encryption_key="mock_key",
+        ),
+    )
+
+    sent = []
+
+    async def mock_send(message, chat_id=None, parse_mode="HTML"):
+        sent.append(message)
+        return {"status": "sent"}
+
+    monkeypatch.setattr(telegram, "send_telegram_message", mock_send)
+
+    async def mock_auth_url(user_id, db):
+        return "https://accounts.google.com/o/oauth2/v2/auth?state=mock"
+
+    monkeypatch.setattr(telegram, "create_google_authorization_url", mock_auth_url)
+
+    update = {"update_id": 4, "message": {"message_id": 20, "chat": {"id": 11111}, "text": "/connect_google"}}
+    res = await telegram.process_telegram_update(update)
+    assert res["status"] == "command_handled"
+    assert len(sent) == 1
+    assert "accounts.google.com" in sent[0]
+
+
+@pytest.mark.asyncio
+async def test_telegram_approvals_and_approve_reject_flow(monkeypatch):
+    monkeypatch.setattr(
+        telegram,
+        "get_settings",
+        lambda: SimpleNamespace(
+            telegram_bot_token="mock_token",
+            telegram_chat_id="11111",
+            telegram_allowed_chat_ids=None,
+            telegram_default_user_id="local-user",
+        ),
+    )
+
+    sent = []
+
+    async def mock_send(message, chat_id=None, parse_mode="HTML"):
+        sent.append(message)
+        return {"status": "sent"}
+
+    monkeypatch.setattr(telegram, "send_telegram_message", mock_send)
+
+    # 1. Check /approvals when empty
+    update_empty = {"update_id": 5, "message": {"message_id": 21, "chat": {"id": 11111}, "text": "/approvals"}}
+    res = await telegram.process_telegram_update(update_empty)
+    assert res["status"] == "command_handled"
+    assert "No pending approvals" in sent[-1]
+
+    # 2. Add a pending approval to DB
+    from app.persistence.session import SessionLocal
+    from app.persistence.models import ApprovalRow
+    import hashlib
+
+    args = '{"test": "arg"}'
+    approval_id = "test-appr-123"
+    async with SessionLocal() as db:
+        db.add(
+            ApprovalRow(
+                id=approval_id,
+                user_id="local-user",
+                action="gmail.send_draft",
+                description="Send email to user@test.com",
+                arguments=args,
+                payload_hash=hashlib.sha256(args.encode()).hexdigest(),
+                status="pending",
+            )
+        )
+        await db.commit()
+
+    # 3. Check /approvals lists the pending approval
+    update_list = {"update_id": 6, "message": {"message_id": 22, "chat": {"id": 11111}, "text": "/pending"}}
+    res = await telegram.process_telegram_update(update_list)
+    assert res["status"] == "command_handled"
+    assert approval_id in sent[-1]
+
+    # 4. Mock approval execution
+    async def mock_exec_approval(db, user_id, approval_id, correlation_id=None, allow_pending=False):
+        return {"status": "succeeded", "resource_type": "google_message", "message_id": "sent-msg-1"}
+
+    with patch("app.api.workflow.execute_approval_action", side_effect=mock_exec_approval):
+        update_approve = {
+            "update_id": 7,
+            "message": {"message_id": 23, "chat": {"id": 11111}, "text": f"/approve {approval_id}"},
+        }
+        res_approve = await telegram.process_telegram_update(update_approve)
+        assert res_approve["status"] == "approval_executed"
+        assert "Action Approved and Executed" in sent[-1]
+

@@ -14,13 +14,25 @@ from app.core.config import get_settings
 from app.domain.decision_tools import DECISION_TOOLS, execute_decision_tool
 from app.domain.followthrough_tools import FOLLOWTHROUGH_TOOL_NAMES
 from app.integrations.google_api import (
+    SCOPE_COMPATIBILITY,
     create_draft,
+    create_drive_file,
+    create_drive_folder,
+    create_event,
+    delete_drive_file,
+    delete_event,
     find_free_time,
     get_drive_file_content,
     get_thread,
     list_events,
+    modify_labels,
+    reply_to_thread,
     search_drive_files,
     search_messages,
+    send_message,
+    trash_message,
+    update_drive_file_content,
+    update_event,
 )
 from app.persistence.models import ApprovalRow, AuditRow, IntegrationConnectionRow
 from app.providers.browser_use import research_with_browser
@@ -394,18 +406,39 @@ async def agent(state: ConversationState):
             granted = {
                 scope for connection in connections for scope in json.loads(connection.scopes)
             }
-            if "https://www.googleapis.com/auth/calendar.readonly" not in granted:
+
+            def _has_permission(required_scope: str) -> bool:
+                compatible = SCOPE_COMPATIBILITY.get(required_scope, {required_scope})
+                return bool(granted.intersection(compatible))
+
+            if not _has_permission("https://www.googleapis.com/auth/calendar.readonly"):
                 allowed_tools.difference_update({"calendar.list_events", "calendar.find_free_time"})
-            if "https://www.googleapis.com/auth/gmail.readonly" not in granted:
+            if not _has_permission("https://www.googleapis.com/auth/calendar.events"):
+                allowed_tools.difference_update({
+                    "calendar.create_event",
+                    "calendar.update_event",
+                    "calendar.delete_event",
+                })
+            if not _has_permission("https://www.googleapis.com/auth/gmail.readonly"):
                 allowed_tools.difference_update({"gmail.search_messages", "gmail.get_thread"})
-            if "https://www.googleapis.com/auth/gmail.compose" not in granted:
+            if not _has_permission("https://www.googleapis.com/auth/gmail.compose"):
                 allowed_tools.discard("gmail.create_draft")
-            if "https://www.googleapis.com/auth/drive.readonly" not in granted:
+            if not _has_permission("https://www.googleapis.com/auth/gmail.send"):
+                allowed_tools.difference_update({"gmail.send_message", "gmail.reply_to_thread"})
+            if not _has_permission("https://www.googleapis.com/auth/gmail.modify"):
+                allowed_tools.difference_update({"gmail.trash_message", "gmail.modify_labels"})
+            if not _has_permission("https://www.googleapis.com/auth/drive.readonly"):
                 allowed_tools.difference_update({"drive.search_files", "drive.get_file_content"})
-            if {
-                "https://www.googleapis.com/auth/gmail.compose",
-                "https://www.googleapis.com/auth/gmail.send",
-            }.issubset(granted):
+            if not _has_permission("https://www.googleapis.com/auth/drive.file"):
+                allowed_tools.difference_update({
+                    "drive.create_file",
+                    "drive.update_file_content",
+                    "drive.delete_file",
+                    "drive.create_folder",
+                })
+            if _has_permission("https://www.googleapis.com/auth/gmail.compose") and _has_permission(
+                "https://www.googleapis.com/auth/gmail.send"
+            ):
                 if "gmail.create_draft" in allowed_tools:
                     allowed_tools.add("gmail.send_draft")
     available_tools = registry.discover(allowed_tools)
@@ -645,6 +678,49 @@ async def execute_tools(state: ConversationState):
                             int(arguments.get("working_start", 9)),
                             int(arguments.get("working_end", 17)),
                         ), definition.timeout_seconds)
+                    elif name == "calendar.create_event":
+                        result = await _bounded(
+                            create_event(
+                                tool_db,
+                                user_id,
+                                summary=arguments["summary"],
+                                start=arguments["start"],
+                                end=arguments["end"],
+                                timezone=arguments.get("timezone", "UTC"),
+                                description=arguments.get("description"),
+                                location=arguments.get("location"),
+                                attendees=arguments.get("attendees"),
+                                calendar_id=arguments.get("calendar_id", "primary"),
+                            ),
+                            definition.timeout_seconds,
+                        )
+                    elif name == "calendar.update_event":
+                        result = await _bounded(
+                            update_event(
+                                tool_db,
+                                user_id,
+                                event_id=arguments["event_id"],
+                                calendar_id=arguments.get("calendar_id", "primary"),
+                                summary=arguments.get("summary"),
+                                start=arguments.get("start"),
+                                end=arguments.get("end"),
+                                timezone=arguments.get("timezone", "UTC"),
+                                description=arguments.get("description"),
+                                location=arguments.get("location"),
+                                attendees=arguments.get("attendees"),
+                            ),
+                            definition.timeout_seconds,
+                        )
+                    elif name == "calendar.delete_event":
+                        result = await _bounded(
+                            delete_event(
+                                tool_db,
+                                user_id,
+                                event_id=arguments["event_id"],
+                                calendar_id=arguments.get("calendar_id", "primary"),
+                            ),
+                            definition.timeout_seconds,
+                        )
                     elif name == "gmail.search_messages":
                         result = await _bounded(
                             search_messages(
@@ -659,23 +735,61 @@ async def execute_tools(state: ConversationState):
                             ),
                             definition.timeout_seconds,
                         )
-                    elif name == "drive.search_files":
+                    elif name == "gmail.create_draft":
                         result = await _bounded(
-                            search_drive_files(
+                            create_draft(
                                 tool_db,
                                 user_id,
-                                arguments.get("query"),
-                                arguments.get("mime_type"),
-                                arguments.get("limit", 15),
+                                arguments["to"],
+                                arguments["subject"],
+                                arguments["body"],
+                                arguments.get("thread_id"),
                             ),
                             definition.timeout_seconds,
                         )
-                    elif name == "drive.get_file_content":
+                    elif name == "gmail.send_message":
                         result = await _bounded(
-                            get_drive_file_content(
+                            send_message(
                                 tool_db,
                                 user_id,
-                                arguments["file_id"],
+                                to=arguments["to"],
+                                subject=arguments["subject"],
+                                body=arguments["body"],
+                                thread_id=arguments.get("thread_id"),
+                                cc=arguments.get("cc"),
+                                bcc=arguments.get("bcc"),
+                            ),
+                            definition.timeout_seconds,
+                        )
+                    elif name == "gmail.reply_to_thread":
+                        result = await _bounded(
+                            reply_to_thread(
+                                tool_db,
+                                user_id,
+                                thread_id=arguments["thread_id"],
+                                body=arguments["body"],
+                                to=arguments.get("to"),
+                                subject=arguments.get("subject"),
+                            ),
+                            definition.timeout_seconds,
+                        )
+                    elif name == "gmail.trash_message":
+                        result = await _bounded(
+                            trash_message(
+                                tool_db,
+                                user_id,
+                                message_id=arguments["message_id"],
+                            ),
+                            definition.timeout_seconds,
+                        )
+                    elif name == "gmail.modify_labels":
+                        result = await _bounded(
+                            modify_labels(
+                                tool_db,
+                                user_id,
+                                message_id=arguments["message_id"],
+                                add_labels=arguments.get("add_labels"),
+                                remove_labels=arguments.get("remove_labels"),
                             ),
                             definition.timeout_seconds,
                         )
@@ -699,7 +813,13 @@ async def execute_tools(state: ConversationState):
                             (
                                 item
                                 for item in connection_rows
-                                if required_scopes.issubset(json.loads(item.scopes))
+                                if all(
+                                    any(
+                                        g in SCOPE_COMPATIBILITY.get(req, {req})
+                                        for g in json.loads(item.scopes)
+                                    )
+                                    for req in required_scopes
+                                )
                             ),
                             None,
                         )
@@ -739,19 +859,73 @@ async def execute_tools(state: ConversationState):
                             "recipients": draft["recipients"],
                             "subject": draft["subject"],
                             "body": draft["body"],
+                            "instruction": f"To approve and send from Telegram, reply: /approve {proposal.id}",
                         }
-                    else:
+                    elif name == "drive.search_files":
                         result = await _bounded(
-                            create_draft(
+                            search_drive_files(
                                 tool_db,
                                 user_id,
-                                arguments["to"],
-                                arguments["subject"],
-                                arguments["body"],
-                                arguments.get("thread_id"),
+                                arguments.get("query"),
+                                arguments.get("mime_type"),
+                                arguments.get("limit", 15),
                             ),
                             definition.timeout_seconds,
                         )
+                    elif name == "drive.get_file_content":
+                        result = await _bounded(
+                            get_drive_file_content(
+                                tool_db,
+                                user_id,
+                                arguments["file_id"],
+                            ),
+                            definition.timeout_seconds,
+                        )
+                    elif name == "drive.create_file":
+                        result = await _bounded(
+                            create_drive_file(
+                                tool_db,
+                                user_id,
+                                name=arguments["name"],
+                                content=arguments["content"],
+                                mime_type=arguments.get("mime_type", "text/plain"),
+                                folder_id=arguments.get("folder_id"),
+                            ),
+                            definition.timeout_seconds,
+                        )
+                    elif name == "drive.update_file_content":
+                        result = await _bounded(
+                            update_drive_file_content(
+                                tool_db,
+                                user_id,
+                                file_id=arguments["file_id"],
+                                content=arguments["content"],
+                                mime_type=arguments.get("mime_type", "text/plain"),
+                            ),
+                            definition.timeout_seconds,
+                        )
+                    elif name == "drive.delete_file":
+                        result = await _bounded(
+                            delete_drive_file(
+                                tool_db,
+                                user_id,
+                                file_id=arguments["file_id"],
+                                permanent=arguments.get("permanent", False),
+                            ),
+                            definition.timeout_seconds,
+                        )
+                    elif name == "drive.create_folder":
+                        result = await _bounded(
+                            create_drive_folder(
+                                tool_db,
+                                user_id,
+                                name=arguments["name"],
+                                parent_folder_id=arguments.get("parent_folder_id"),
+                            ),
+                            definition.timeout_seconds,
+                        )
+                    else:
+                        raise ValueError(f"Unknown Google tool: {name}")
                 elif name.startswith("telegram."):
                     from app.integrations.telegram import send_telegram_message
 

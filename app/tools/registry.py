@@ -63,10 +63,15 @@ class ToolDefinition:
             "https://www.googleapis.com/auth/calendar.readonly": (
                 "Read calendar events and availability"
             ),
+            "https://www.googleapis.com/auth/calendar.events": "Create, edit, and delete calendar events",
+            "https://www.googleapis.com/auth/calendar": "Full access to Google Calendar",
             "https://www.googleapis.com/auth/gmail.readonly": "Search and read email",
             "https://www.googleapis.com/auth/gmail.compose": "Create and manage unsent drafts",
-            "https://www.googleapis.com/auth/gmail.send": "Send email after explicit approval",
+            "https://www.googleapis.com/auth/gmail.send": "Send email directly or after approval",
+            "https://www.googleapis.com/auth/gmail.modify": "Modify email labels, trash, and read/write messages",
             "https://www.googleapis.com/auth/drive.readonly": "Search and read Google Drive files & Docs",
+            "https://www.googleapis.com/auth/drive.file": "Create, edit, and delete files managed by this app",
+            "https://www.googleapis.com/auth/drive": "Full access to Google Drive",
         }
         return {
             "id": self.name,

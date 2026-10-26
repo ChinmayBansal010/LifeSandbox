@@ -20,10 +20,15 @@ from app.persistence.session import get_session
 router = APIRouter(prefix="/api/v1/integrations", tags=["integrations"])
 GOOGLE_SCOPE = {
     "calendar.read": "https://www.googleapis.com/auth/calendar.readonly",
+    "calendar.events": "https://www.googleapis.com/auth/calendar.events",
+    "calendar.write": "https://www.googleapis.com/auth/calendar",
     "gmail.read": "https://www.googleapis.com/auth/gmail.readonly",
     "gmail.draft": "https://www.googleapis.com/auth/gmail.compose",
     "gmail.send": "https://www.googleapis.com/auth/gmail.send",
+    "gmail.modify": "https://www.googleapis.com/auth/gmail.modify",
     "drive.read": "https://www.googleapis.com/auth/drive.readonly",
+    "drive.file": "https://www.googleapis.com/auth/drive.file",
+    "drive.write": "https://www.googleapis.com/auth/drive",
 }
 
 
@@ -67,7 +72,7 @@ def decrypt_credentials(value: str) -> dict:
 
 
 class ConnectRequest(BaseModel):
-    capabilities: list[str] = Field(min_length=1, max_length=5)
+    capabilities: list[str] = Field(min_length=1, max_length=20)
 
 
 def public_connection(row: IntegrationConnectionRow):
@@ -127,14 +132,14 @@ async def connections(
     }
 
 
-@router.post("/google/authorize")
-async def authorize_google(
-    payload: ConnectRequest,
-    principal: Principal = Depends(current_principal),
-    db: AsyncSession = Depends(get_session),
-):
+async def create_google_authorization_url(
+    user_id: str,
+    db: AsyncSession,
+    capabilities: list[str] | None = None,
+) -> str:
     config = _settings()
-    if any(cap not in GOOGLE_SCOPE for cap in payload.capabilities):
+    caps = capabilities if capabilities is not None else list(GOOGLE_SCOPE.keys())
+    if any(cap not in GOOGLE_SCOPE for cap in caps):
         raise HTTPException(
             422,
             detail={
@@ -142,12 +147,12 @@ async def authorize_google(
                 "message": "One or more Google capabilities are unsupported.",
             },
         )
-    scopes = sorted({GOOGLE_SCOPE[cap] for cap in payload.capabilities})
+    scopes = sorted({GOOGLE_SCOPE[cap] for cap in caps})
     raw_state = secrets.token_urlsafe(40)
     db.add(
         OAuthStateRow(
             state_hash=hashlib.sha256(raw_state.encode()).hexdigest(),
-            user_id=principal.user_id,
+            user_id=user_id,
             scopes=json.dumps(scopes),
             expires_at=datetime.now(UTC) + timedelta(minutes=10),
         )
@@ -163,9 +168,19 @@ async def authorize_google(
         "include_granted_scopes": "true",
         "prompt": "consent",
     }
-    return {
-        "authorization_url": "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params)
-    }
+    return "https://accounts.google.com/o/oauth2/v2/auth?" + urlencode(params)
+
+
+@router.post("/google/authorize")
+async def authorize_google(
+    payload: ConnectRequest,
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(get_session),
+):
+    url = await create_google_authorization_url(
+        user_id=principal.user_id, db=db, capabilities=payload.capabilities
+    )
+    return {"authorization_url": url}
 
 
 @router.get("/google/callback")
