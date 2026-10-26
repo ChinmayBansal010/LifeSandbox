@@ -34,6 +34,7 @@ services:
     ports: ["8000:8000"]
     volumes:
       - uploads:/srv/life-sandbox/data/uploads
+    shm_size: '1gb'
     depends_on:
       migrate:
         condition: service_completed_successfully

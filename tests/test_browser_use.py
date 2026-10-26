@@ -157,3 +157,39 @@ async def test_live_github_browser_research_if_configured():
     except Exception as exc:
         # Document the exact environmental blocker (e.g. anti-bot captcha, network isolation)
         pytest.fail(f"Live GitHub verification blocked by environment: {exc}")
+
+
+def test_capabilities_and_chat_explicit_behavior_when_browser_unconfigured(monkeypatch):
+    """When Browser Use is unconfigured, capabilities report false and chat returns 503."""
+    monkeypatch.setattr(main_module, "browser_use_is_configured", lambda: False)
+    with TestClient(main_module.app) as client:
+        cap_resp = client.get("/api/v1/capabilities")
+        assert cap_resp.status_code == 200
+        assert cap_resp.json()["browser_use_enabled"] is False
+
+        chat_resp = client.post(
+            "/api/v1/chat",
+            json={"message": "Research GitHub projects", "browse": True},
+        )
+        assert chat_resp.status_code == 503
+        error = chat_resp.json().get("detail", {})
+        assert error.get("code") == "browser_use_not_configured"
+        assert "disabled or not configured" in error.get("message", "").lower()
+
+
+def test_capabilities_reports_true_when_browser_use_configured(monkeypatch):
+    """When Browser Use is configured, capabilities endpoint accurately reports true."""
+    monkeypatch.setattr(main_module, "browser_use_is_configured", lambda: True)
+    with TestClient(main_module.app) as client:
+        cap_resp = client.get("/api/v1/capabilities")
+        assert cap_resp.status_code == 200
+        assert cap_resp.json()["browser_use_enabled"] is True
+
+
+@pytest.mark.asyncio
+async def test_browser_research_raises_when_executable_missing(monkeypatch):
+    """research_with_browser must fail fast when no browser binary exists."""
+    monkeypatch.setattr(browser_use_module, "is_configured", lambda: True)
+    monkeypatch.setattr(browser_use_module, "find_browser_executable", lambda: None)
+    with pytest.raises(RuntimeError, match="No supported Chromium or Chrome executable found"):
+        await research_with_browser("ZCU104 FPGA AI accelerator")

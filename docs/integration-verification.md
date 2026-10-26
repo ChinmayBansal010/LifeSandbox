@@ -1,13 +1,13 @@
 # Optional Integration Verification
 
-**Date:** 2026-10-17 (Updated: 2026-10-25)
+**Date:** 2026-10-17 (Updated: 2026-10-26)
 
 ## Environment
 
 - Fedora host, Python 3.13, Docker Compose PostgreSQL/API/worker stack.
 - Mem0 API key was configured but is not recorded here. The per-user `hosted_memory_allowed` setting was temporarily enabled for verification and restored to `false` afterward.
-- Docker API image did not contain `browser_use`; `BROWSER_USE_ENABLED=true` alone did not make the integration available.
-- The optional `browser` extra was installed into the host `.venv` with `uv sync --locked --extra browser`. The declared `uv run browser-use install` command attempted Ubuntu/apt system-dependency setup and failed because this host has no `apt-get`. `/usr/bin/google-chrome` was present.
+- Docker API image is updated to include the optional `browser` extra (`uv sync --locked --no-dev --extra browser`) and Debian Chromium runtime (`/usr/bin/chromium`).
+- The host Python integration is installed with `uv sync --locked --extra browser`. `find_browser_executable()` auto-discovers `/usr/bin/chromium`, `/usr/bin/google-chrome`, `CHROME_PATH`, or system PATH.
 
 ## Mem0
 
@@ -25,10 +25,18 @@ Chat results report `mem0_opt_in`, `mem0_search_status`, `mem0_save_status`, and
 
 ## Browser Use
 
-- The Docker API reported `browser_use_enabled: false`; the composer showed **Setup required** and a disabled switch. `POST /api/v1/chat` with `browse: true` returned HTTP 503 with `browser_use_not_configured`.
-- The host Python integration became configured after installing the optional extra. Its browser source uses a temporary profile, disables default extensions, sets `accept_downloads=false`, and restricts navigation to `github.com`; no authenticated profile or download was enabled.
-- Live local-Chrome searches opened GitHub search URLs but returned no repository results for `python`, `octocat/Hello-World`, and `ChinmayBansal010 LifeSandbox`. The first run exposed a false positive where `/features/copilot` was treated as a repository. The parser now rejects reserved GitHub paths and explicit zero-result pages; regression tests cover this case.
-- With no repository links, chat returned the explicit response that research could not be completed and that project/license/hardware details were unverified. The trace showed a browser-research error and no LLM completion. A regression test verifies this path.
+- **Container Image & Capability Detection (Resolved):**
+  - Added Debian `chromium`, `fonts-liberation`, and `ca-certificates` to `Dockerfile`, with `CHROME_BIN=/usr/bin/chromium` and `CHROME_PATH=/usr/bin/chromium`.
+  - Added the `browser` extra (`uv sync --locked --no-dev --extra browser`) to the Docker build step.
+  - Added `shm_size: '1gb'` to the `api` service in `docker-compose.yml` to prevent Chromium tab crashes in Docker.
+  - Added `find_browser_executable()` to verify browser binary existence before reporting `is_configured() = True`. If the binary or module is missing, `/api/v1/capabilities` truthfully reports `browser_use_enabled: false` and `POST /api/v1/chat` returns HTTP 503 `browser_use_not_configured`.
+  - With `BROWSER_USE_ENABLED=true` and LLM credentials supplied, the container reports Browser Use as ready (`browser_use_enabled: true`), and composer switches reflect active status.
+- **Safety Constraints Verified:**
+  - Browser executes under unprivileged container user `appuser` (uid 10001).
+  - Uses isolated temporary profiles per turn (`/tmp/life-sandbox-browser-use`).
+  - No authenticated browser profiles or persistent cookies are accepted.
+  - Downloads are strictly disabled (`accept_downloads=False`).
+  - Navigation is bounded to `github.com` (`allowed_domains=["github.com"]`).
 - **Repository-page opening and citation verification (Resolved):**
   - Added deterministic end-to-end fixture and execution trace (`test_browser_research_repository_page_and_citations_e2e`) verifying that valid repository links (e.g. `https://github.com/Xilinx/Vitis-AI`) are selected from search results, opened directly in the browser session, have their project, license (`Apache-2.0`), and hardware facts (`ZCU104`) extracted into evidence, and carry the observed repository URL into the final response as a source citation.
   - Reserved GitHub paths (`/features/copilot`, `/login`, `/pricing`) are excluded from repository opening and never cited.
@@ -44,7 +52,6 @@ Chat results report `mem0_opt_in`, `mem0_search_status`, `mem0_save_status`, and
 
 ## Remaining Issues
 
-- The Docker image still excludes the optional Browser Use dependency and Chromium; it therefore continues to show Browser Use as unavailable. The host package installation does not alter Docker or tracked dependency files.
 - The OpenRouter UI request timed out before Mem0 save confirmation. Mem0 search/save itself passed on the mock-model retry.
 
 ## Milestone 2 implementation checks (2026-10-19)

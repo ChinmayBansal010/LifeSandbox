@@ -15,6 +15,7 @@ import pytest
 from app.core.config import get_settings
 from app.providers.browser_use import (
     _github_search_terms,
+    find_browser_executable,
     has_no_repository_results,
     is_configured,
     is_repository_url,
@@ -38,7 +39,7 @@ async def test_browser_agent_query_boundaries():
 
 
 def test_browser_agent_is_configured_logic(monkeypatch):
-    """Harness: is_configured requires browser_use_enabled, dependency, and LLM provider."""
+    """Harness: is_configured requires browser_use_enabled, dependency, executable, and LLM provider."""
     # When disabled
     monkeypatch.setenv("BROWSER_USE_ENABLED", "false")
     get_settings.cache_clear()
@@ -50,18 +51,52 @@ def test_browser_agent_is_configured_logic(monkeypatch):
     get_settings.cache_clear()
     assert is_configured() is False
 
-    # When enabled with nebius and module present
+    # When enabled with nebius, module present, and browser executable present
     monkeypatch.setenv("LLM_PROVIDER", "nebius")
     monkeypatch.setenv("NEBIUS_API_KEY", "mock-nebius-key")
     monkeypatch.setenv("NEBIUS_MODEL", "mock-model")
     get_settings.cache_clear()
 
-    with patch("importlib.util.find_spec", return_value=MagicMock()):
+    with (
+        patch("importlib.util.find_spec", return_value=MagicMock()),
+        patch("app.providers.browser_use.find_browser_executable", return_value="/usr/bin/chromium"),
+    ):
         assert is_configured() is True
 
     # When package browser_use is not installed in environment
     with patch("importlib.util.find_spec", return_value=None):
         assert is_configured() is False
+
+    # When browser executable (Chromium/Chrome) is missing from system/container
+    with (
+        patch("importlib.util.find_spec", return_value=MagicMock()),
+        patch("app.providers.browser_use.find_browser_executable", return_value=None),
+    ):
+        assert is_configured() is False
+
+
+def test_find_browser_executable_resolution(monkeypatch, tmp_path):
+    """Verify executable resolution from environment variables, PATH, and missing state."""
+    # 1. Custom CHROME_BIN / CHROME_PATH environment variable
+    fake_chrome = tmp_path / "mock-chrome"
+    fake_chrome.write_text("#!/bin/sh\nexit 0")
+    monkeypatch.setenv("CHROME_PATH", str(fake_chrome))
+    assert find_browser_executable() == str(fake_chrome)
+
+    # 2. When environment variable is unset and system has no browsers
+    monkeypatch.delenv("CHROME_PATH", raising=False)
+    monkeypatch.delenv("CHROME_BIN", raising=False)
+    monkeypatch.delenv("BROWSER_PATH", raising=False)
+    monkeypatch.delenv("CHROMIUM_PATH", raising=False)
+    with (
+        patch("shutil.which", return_value=None),
+        patch("os.path.isfile", return_value=False),
+    ):
+        assert find_browser_executable() is None
+
+    # 3. Discovered from PATH
+    with patch("shutil.which", side_effect=lambda name: f"/usr/bin/{name}" if name == "chromium" else None):
+        assert find_browser_executable() == "/usr/bin/chromium"
 
 
 # ─── 2. URL and Search Term Heuristics Harness ───────────────────────────────

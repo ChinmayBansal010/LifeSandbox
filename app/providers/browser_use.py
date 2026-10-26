@@ -4,6 +4,7 @@ import asyncio
 import importlib.util
 import json
 import os
+import shutil
 import re
 import tempfile
 from urllib.parse import quote_plus
@@ -29,9 +30,41 @@ GITHUB_RESERVED_PATHS = {
 }
 
 
+def find_browser_executable() -> str | None:
+    for env_var in ("CHROME_PATH", "BROWSER_PATH", "CHROME_BIN", "CHROMIUM_PATH"):
+        custom = os.environ.get(env_var)
+        if custom and (os.path.isfile(custom) or shutil.which(custom)):
+            return custom
+
+    for name in ("chromium", "chromium-browser", "google-chrome", "google-chrome-stable", "chrome"):
+        found = shutil.which(name)
+        if found:
+            return found
+
+    common_paths = [
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser",
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+        "/snap/bin/chromium",
+        os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
+        os.path.expandvars(r"%ProgramFiles(x86)%\Google\Chrome\Application\chrome.exe"),
+        os.path.expandvars(r"%LocalAppData%\Google\Chrome\Application\chrome.exe"),
+        "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    ]
+    for path in common_paths:
+        if path and os.path.isfile(path):
+            return path
+
+    return None
+
+
 def is_configured() -> bool:
     settings = get_settings()
     if not settings.browser_use_enabled or importlib.util.find_spec("browser_use") is None:
+        return False
+    if not find_browser_executable():
         return False
     if settings.llm_provider == "openrouter":
         return bool(settings.openrouter_api_key and settings.openrouter_model)
@@ -75,16 +108,23 @@ async def research_with_browser(query: str) -> dict[str, str]:
     os.environ.setdefault("BROWSER_USE_CLOUD_SYNC", "false")
     os.environ.setdefault("BROWSER_USE_DISABLE_EXTENSIONS", "1")
 
+    executable = find_browser_executable()
+    if not executable:
+        raise RuntimeError("No supported Chromium or Chrome executable found on the system")
+
     from browser_use import Browser
 
     with tempfile.TemporaryDirectory(prefix="life-sandbox-browser-") as profile_dir:
-        browser = Browser(
-            headless=True,
-            user_data_dir=profile_dir,
-            enable_default_extensions=False,
-            accept_downloads=False,
-            allowed_domains=["github.com"],
-        )
+        browser_kwargs = {
+            "headless": True,
+            "user_data_dir": profile_dir,
+            "enable_default_extensions": False,
+            "accept_downloads": False,
+            "allowed_domains": ["github.com"],
+        }
+        if executable:
+            browser_kwargs["executable_path"] = executable
+        browser = Browser(**browser_kwargs)
         try:
             await browser.start()
             page = await browser.new_page()
