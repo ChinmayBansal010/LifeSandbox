@@ -1,0 +1,16 @@
+# Keep Cloud Build source uploads small and prevent local credentials from leaving this machine.
+.gcloudignore
+.git
+.gitignore
+.env
+.venv
+__pycache__/
+**/__pycache__/
+.pytest_cache/
+.ruff_cache/
+*.db
+data/
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.*.local

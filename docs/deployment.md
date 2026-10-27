@@ -12,25 +12,42 @@ The Pages proxy is deliberate: it makes the browser see a single origin, so secu
 
 ## One-time setup
 
-1. Create a Neon Postgres project and copy its **pooled** connection string. Replace `postgresql://` with `postgresql+asyncpg://` for `DATABASE_URL`.
-2. In Google Cloud, enable Cloud Run, Cloud Build, Artifact Registry, Secret Manager, and Cloud Scheduler APIs. Billing must be attached even when usage remains within free allowances.
-3. Create the three deployment secrets; values are never stored in Git:
+1. Enable billing for the Google Cloud project. Cloud Run cannot deploy until billing is enabled, even if the workload remains within the free tier.
+2. Create a Neon Postgres project and copy its **pooled** connection string. Replace `postgresql://` with `postgresql+asyncpg://` for `DATABASE_URL`.
+3. Create a Google OAuth **Web application** client. This is required because production uses JWT authentication. Add this authorized redirect URI after the Pages project is created:
+
+   ```text
+   https://<your-pages-domain>/api/v1/auth/google/callback
+   ```
+
+4. Create the four deployment secrets; values are never stored in Git:
 
    ```bash
+   export DATABASE_URL="postgresql+asyncpg://..."
+   export NEBIUS_API_KEY="..."
+   export GOOGLE_OAUTH_CLIENT_SECRET="..."
    printf '%s' "$DATABASE_URL" | gcloud secrets create life-sandbox-database-url --data-file=-
    printf '%s' "$NEBIUS_API_KEY" | gcloud secrets create life-sandbox-nebius-api-key --data-file=-
    openssl rand -hex 32 | gcloud secrets create life-sandbox-auth-secret --data-file=-
+   printf '%s' "$GOOGLE_OAUTH_CLIENT_SECRET" | gcloud secrets create life-sandbox-google-oauth-client-secret --data-file=-
    ```
 
-4. In Cloudflare Pages, import this repository with `frontend` as the project root, `npm run build` as the build command, and `dist` as the output directory. Set the encrypted Pages secret `API_ORIGIN` to the deployed Cloud Run URL, for example `https://life-sandbox-api-<hash>-uc.a.run.app`.
-5. Add your Pages address to Google OAuth authorized redirect URIs when Google sign-in is enabled:
+5. In Cloudflare Pages, import this GitHub repository with `frontend` as the project root, `npm run build` as the build command, and `dist` as the output directory. Deploy once to reserve the `https://<your-pages-domain>` URL. In **Settings → Variables and Secrets**, add:
+
+   ```text
+   API_ORIGIN=https://placeholder.invalid
+   VITE_SUPPORT_EMAIL=your-support-email@example.com
+   ```
+
+   `API_ORIGIN` is used at runtime by the Pages Function and will be replaced after the Cloud Run URL exists. `VITE_SUPPORT_EMAIL` is public build configuration for the legal pages, not a secret.
+6. Add your Pages address to Google OAuth authorized redirect URIs:
 
    ```text
    https://<your-pages-domain>/api/v1/auth/google/callback
    https://<your-pages-domain>/api/v1/integrations/google/callback
    ```
 
-   Configure the matching `GOOGLE_AUTH_CALLBACK_URL`, `GOOGLE_OAUTH_CALLBACK_URL`, and `GOOGLE_AUTH_FRONTEND_URL` as Cloud Run secrets/environment values before enabling those features.
+   The deploy script configures `GOOGLE_AUTH_CALLBACK_URL` and `GOOGLE_AUTH_FRONTEND_URL`. Google Calendar/Gmail plugin OAuth is optional and needs its own `GOOGLE_OAUTH_CALLBACK_URL` and token-encryption secret.
 
 ## Deploy API and worker
 
@@ -39,10 +56,12 @@ From the repository root, after creating the secrets above:
 ```bash
 export GOOGLE_CLOUD_PROJECT="your-project-id"
 export FRONTEND_ORIGIN="https://<your-pages-domain>"
+export GOOGLE_OAUTH_CLIENT_ID="your-google-client-id.apps.googleusercontent.com"
 ./deploy/cloudrun/deploy.sh
+./deploy/cloudrun/schedule-worker.sh
 ```
 
-The script builds an immutable image, runs Alembic before serving traffic, deploys the API with `APP_ENV=production` and JWT-only authentication, and creates the `life-sandbox-worker` Cloud Run Job. It does not create a schedule because the scheduler service account is organization-specific. In Cloud Scheduler, create an authenticated HTTP job every minute that calls the Cloud Run Jobs `:run` endpoint for `life-sandbox-worker`. Grant that service account only the permission to run this job. The worker runs `python -m app.jobs.worker --once`, claims due work atomically, and exits.
+The deploy script enables the required APIs, builds an immutable image, runs Alembic before serving traffic, deploys the API with `APP_ENV=production` and Google sign-in, and creates the `life-sandbox-worker` Cloud Run Job. The scheduler script grants its service account only `roles/run.invoker` on that job and creates (or updates) the one-minute trigger. The worker runs `python -m app.jobs.worker --once`, claims due work atomically, and exits.
 
 After the first deployment, update the Cloudflare Pages `API_ORIGIN` secret with the printed URL and redeploy Pages. Verify:
 
