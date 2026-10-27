@@ -1,3 +1,4 @@
+import argparse
 import asyncio
 import json
 import logging
@@ -174,7 +175,11 @@ async def run_due_once(
                     if retry:
                         retry.last_error = type(exc).__name__
                         is_permanent = isinstance(exc, (ValueError, PermissionError))
-                        retry.status = "failed" if (retry.attempts >= MAX_ATTEMPTS or is_permanent) else "queued"
+                        retry.status = (
+                            "failed"
+                            if (retry.attempts >= MAX_ATTEMPTS or is_permanent)
+                            else "queued"
+                        )
                         if retry.status == "queued":
                             retry.scheduled_at = now + timedelta(seconds=30 * retry.attempts)
                         else:
@@ -220,6 +225,29 @@ async def run_worker(poll_seconds: float = 2.0):
         await asyncio.sleep(poll_seconds)
 
 
-if __name__ == "__main__":
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Process Life Sandbox background jobs")
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="Process currently due jobs once, then exit (for Cloud Run Jobs).",
+    )
+    parser.add_argument(
+        "--poll-seconds",
+        type=float,
+        default=2.0,
+        help="Polling interval for the long-running worker.",
+    )
+    args = parser.parse_args()
     logging.basicConfig(level=logging.INFO)
-    asyncio.run(run_worker())
+    if args.once:
+        processed = asyncio.run(run_due_jobs())
+        logger.info("one-shot worker completed processed=%s", processed)
+        return
+    if args.poll_seconds <= 0:
+        parser.error("--poll-seconds must be greater than zero")
+    asyncio.run(run_worker(args.poll_seconds))
+
+
+if __name__ == "__main__":
+    main()

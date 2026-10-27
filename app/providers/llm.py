@@ -255,7 +255,7 @@ def model_for(provider: str | None = None, model: str | None = None) -> ChatMode
             s.nebius_base_url,
             s.nebius_api_key or "",
             model or s.nebius_model,
-            s.openrouter_timeout_seconds,
+            s.llm_timeout_seconds,
             s.llm_max_tokens,
         )
     if provider == "openrouter":

@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     llm_fallback_provider: Literal["", "nebius", "openrouter"] = ""
     nebius_api_key: str | None = None
     nebius_base_url: str = "https://api.tokenfactory.nebius.com/v1"
-    nebius_model: str = ""
+    nebius_model: str = "nvidia/Nemotron-3_5-Lightning"
     openrouter_api_key: str | None = None
     openrouter_model: str = ""
     openrouter_fallback_model: str = ""
@@ -34,7 +34,8 @@ class Settings(BaseSettings):
     mem0_search_timeout_seconds: float = Field(default=10.0, gt=0, le=120)
     mem0_add_timeout_seconds: float = Field(default=10.0, gt=0, le=120)
     # Keep each model completion short enough that multi-step tool turns finish
-    # before the browser's 105-second safety timeout.
+    # before the browser's 105-second safety timeout. This applies to both
+    # OpenAI-compatible providers (Nebius and OpenRouter).
     openrouter_timeout_seconds: float = Field(default=75.0, gt=0, le=300)
     chat_request_timeout_seconds: float = Field(default=95.0, gt=0, le=600)
     llm_max_tokens: int = Field(default=1000, ge=1, le=32768)
