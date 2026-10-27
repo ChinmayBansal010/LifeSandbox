@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import type { Conversation, ThemePreference } from '../types';
 import { truncate } from '../graph-utils';
+import { navigate } from '../router';
 import ProfileMenu from './ProfileMenu';
 
 type SidebarProps = {
@@ -347,6 +348,10 @@ export default function Sidebar({
           onSetTheme={onSetTheme}
           onOpenLifePanel={onOpenLifePanel}
         />
+        <div className="mt-2 flex items-center gap-3 px-1 text-[10px] font-medium text-fg-muted">
+          <button type="button" onClick={() => navigate('/privacy')} className="hover:text-fg hover:underline">Privacy</button>
+          <button type="button" onClick={() => navigate('/terms')} className="hover:text-fg hover:underline">Terms</button>
+        </div>
       </div>
     </aside>
   );

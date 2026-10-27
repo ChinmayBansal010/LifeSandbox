@@ -9,6 +9,7 @@ import LifePanel from './components/LifePanel';
 import PluginsPanel from './components/PluginsPanel';
 import { Menu, X, MessageSquare, Activity, Plus, Blocks } from 'lucide-react';
 import type { FileAttachment } from './types';
+import { navigate } from './router';
 
 export default function App() {
   const {
@@ -369,6 +370,12 @@ export default function App() {
                 </p>
               </div>
             </div>
+            <p className="mt-7 text-xs text-fg-muted">
+              By using Life Sandbox, you agree to our{' '}
+              <button type="button" onClick={() => navigate('/terms')} className="font-semibold text-accent hover:underline">Terms</button>{' '}
+              and acknowledge our{' '}
+              <button type="button" onClick={() => navigate('/privacy')} className="font-semibold text-accent hover:underline">Privacy Policy</button>.
+            </p>
           </div>
         )}
       </main>
