@@ -15,8 +15,10 @@ RUN pip install --no-cache-dir uv && uv sync --locked --no-dev --extra browser
 COPY app ./app
 COPY migrations ./migrations
 COPY alembic.ini ./
+COPY deploy/render-start.sh ./deploy/render-start.sh
 RUN useradd --create-home --uid 10001 appuser \
     && mkdir -p /srv/life-sandbox/data/uploads /tmp/life-sandbox-browser-use \
+    && chmod 755 /srv/life-sandbox/deploy/render-start.sh \
     && chown -R appuser:appuser /srv/life-sandbox /tmp/life-sandbox-browser-use
 USER appuser
 EXPOSE 8000

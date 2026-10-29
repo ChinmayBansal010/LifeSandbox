@@ -4,7 +4,7 @@ This deployment uses Render for the FastAPI API, Neon for the existing database,
 
 ## Before you start
 
-Keep `.env` private. The values are entered in Render's secret form and are never committed. The `render.yaml` Blueprint is intentionally limited to the API: Render's free web services can sleep after inactivity, so the scheduled worker is not deployed on this plan.
+Keep `.env` private. The values are entered in Render's secret form and are never committed. The `render.yaml` Blueprint is intentionally limited to the API: Render's free web services can sleep after inactivity, so the scheduled worker is not deployed on this plan. The image startup script runs Alembic migrations and then binds FastAPI to Render's `PORT`.
 
 ## Deploy the API
 
