@@ -52,3 +52,111 @@ services:
         sync: false
       - key: CORS_ORIGINS
         sync: false
+      - key: APP_HOST
+        sync: false
+      - key: LOG_LEVEL
+        sync: false
+      - key: LLM_FALLBACK_PROVIDER
+        sync: false
+      - key: LLM_TIMEOUT_SECONDS
+        sync: false
+      - key: LLM_MAX_TOKENS
+        sync: false
+      - key: CHAT_REQUEST_TIMEOUT_SECONDS
+        sync: false
+      - key: MEM0_API_KEY
+        sync: false
+      - key: MEM0_HOST
+        sync: false
+      - key: MEM0_SEARCH_TIMEOUT_SECONDS
+        sync: false
+      - key: MEM0_ADD_TIMEOUT_SECONDS
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: NEBIUS_API_KEY
+        sync: false
+      - key: NEBIUS_BASE_URL
+        sync: false
+      - key: NEBIUS_MODEL
+        sync: false
+      - key: GOOGLE_OAUTH_CALLBACK_URL
+        sync: false
+      - key: GOOGLE_TOKEN_ENCRYPTION_KEY
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_CHAT_ID
+        sync: false
+      - key: TELEGRAM_ALLOWED_CHAT_IDS
+        sync: false
+      - key: TELEGRAM_DEFAULT_USER_ID
+        sync: false
+      - key: TELEGRAM_WEBHOOK_SECRET
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_REGION
+        sync: false
+      - key: AWS_ENDPOINT_URL_S3
+        sync: false
+      - key: NEON_STORAGE_BUCKET
+        sync: false
+      - key: EMBEDDING_PROVIDER
+        sync: false
+      - key: EMBEDDING_DIMENSIONS
+        sync: false
+      - key: UPLOAD_MAX_BYTES
+        sync: false
+      - key: FILE_STORAGE_DIR
+        sync: false
+      - key: EXTRACTED_TEXT_MAX_CHARS
+        sync: false
+      - key: STT_PROVIDER
+        sync: false
+      - key: STT_MODEL
+        sync: false
+      - key: STT_DEVICE
+        sync: false
+      - key: STT_COMPUTE_TYPE
+        sync: false
+      - key: STT_MAX_BYTES
+        sync: false
+      - key: STT_MAX_DURATION_SECONDS
+        sync: false
+      - key: STT_TIMEOUT_SECONDS
+        sync: false
+      - key: TTS_PROVIDER
+        sync: false
+      - key: TTS_MAX_CHARS
+        sync: false
+      - key: TTS_VOICE
+        sync: false
+      - key: VISION_ENABLED
+        sync: false
+      - key: IMAGE_MAX_BYTES
+        sync: false
+      - key: RATE_LIMIT_PER_MINUTE
+        sync: false
+      - key: LANGSMITH_TRACING
+        sync: false
+      - key: LANGSMITH_API_KEY
+        sync: false
+      - key: LANGSMITH_PROJECT
+        sync: false
+      - key: LANGFUSE_PUBLIC_KEY
+        sync: false
+      - key: LANGFUSE_SECRET_KEY
+        sync: false
+      - key: LANGFUSE_HOST
+        sync: false
+      - key: SENTRY_DSN
+        sync: false
+      - key: QSTASH_TOKEN
+        sync: false
+      - key: UPSTASH_REDIS_REST_URL
+        sync: false
+      - key: UPSTASH_REDIS_REST_TOKEN
+        sync: false

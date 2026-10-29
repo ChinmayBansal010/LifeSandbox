@@ -10,7 +10,9 @@ Keep `.env` private. The values are entered in Render's secret form and are neve
 
 1. Sign in to Render with the GitHub account that can access `ChinmayBansal010/LifeSandbox`.
 2. Select **New** -> **Blueprint** and choose this repository and the `main` branch. Render detects `render.yaml`.
-3. Render prompts for the variables marked as secrets. Copy these values from your existing `.env` file:
+3. Render prompts for every variable marked as a private input. Copy the corresponding value from your existing `.env` file, including values that are intentionally blank. The Blueprint now declares every key in the local environment while keeping all values out of Git.
+
+   The most important startup values are:
 
    - `DATABASE_URL`
    - `OPENROUTER_API_KEY`
