@@ -1,10 +1,10 @@
 # Deployment
 
-The supported low-cost production topology is Cloudflare Pages for the React application, Cloud Run for the FastAPI API and background jobs, and Neon Postgres for durable application data. The configured Nebius Token Factory model is `nvidia/Nemotron-3_5-Lightning`.
+The supported low-cost production topology is Cloudflare Pages for the React application, Cloud Run for the FastAPI API and background jobs, Neon Postgres for durable application data, and OpenRouter for model inference. The production script defaults to `nvidia/nemotron-3.5-lightning:free`; set `OPENROUTER_MODEL` if you choose another OpenRouter model.
 
 ```
 Browser → Cloudflare Pages + /api proxy → Cloud Run API → Neon Postgres
-                                           └──────────→ Nebius Token Factory
+                                           └──────────→ OpenRouter
 Cloud Scheduler ─────────────────────────→ Cloud Run one-shot worker
 ```
 
@@ -24,10 +24,10 @@ The Pages proxy is deliberate: it makes the browser see a single origin, so secu
 
    ```bash
    export DATABASE_URL="postgresql+asyncpg://..."
-   export NEBIUS_API_KEY="..."
+   export OPENROUTER_API_KEY="sk-or-v1-..."
    export GOOGLE_OAUTH_CLIENT_SECRET="..."
    printf '%s' "$DATABASE_URL" | gcloud secrets create life-sandbox-database-url --data-file=-
-   printf '%s' "$NEBIUS_API_KEY" | gcloud secrets create life-sandbox-nebius-api-key --data-file=-
+   printf '%s' "$OPENROUTER_API_KEY" | gcloud secrets create life-sandbox-openrouter-api-key --data-file=-
    openssl rand -hex 32 | gcloud secrets create life-sandbox-auth-secret --data-file=-
    printf '%s' "$GOOGLE_OAUTH_CLIENT_SECRET" | gcloud secrets create life-sandbox-google-oauth-client-secret --data-file=-
    ```
@@ -57,6 +57,8 @@ From the repository root, after creating the secrets above:
 export GOOGLE_CLOUD_PROJECT="your-project-id"
 export FRONTEND_ORIGIN="https://<your-pages-domain>"
 export GOOGLE_OAUTH_CLIENT_ID="your-google-client-id.apps.googleusercontent.com"
+export OPENROUTER_API_KEY="sk-or-v1-..."
+# Optional: export OPENROUTER_MODEL="nvidia/nemotron-3.5-lightning:free"
 ./deploy/cloudrun/deploy.sh
 ./deploy/cloudrun/schedule-worker.sh
 ```
@@ -72,7 +74,7 @@ curl -fsS "https://<cloud-run-url>/ready"
 
 ## Production notes
 
-- `NEBIUS_API_KEY`, `DATABASE_URL`, and `AUTH_SECRET` must remain secret-manager values. The API uses the Nebius OpenAI-compatible endpoint `https://api.tokenfactory.nebius.com/v1` and never exposes the key to the browser.
+- `OPENROUTER_API_KEY`, `DATABASE_URL`, and `AUTH_SECRET` must remain secret-manager values. The API uses OpenRouter's OpenAI-compatible endpoint and never exposes the key to the browser.
 - The API container scales to zero. The recommended 1 GiB limit accommodates the API and optional document processing; keep `BROWSER_USE_ENABLED=false` until Chromium workloads are deliberately tested and budgeted.
 - The current interactive `/api/v1/files` endpoint writes to the container filesystem. Do not advertise durable production uploads until it has been migrated to the existing private Neon Object Storage flow; Cloud Run instance files are ephemeral. Application data, conversations, tasks, reminders, and memories are durable in Neon Postgres.
 - Run a restore test for the Neon project and check Cloud Run / Cloud Scheduler logs after the first reminder is due.
