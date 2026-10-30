@@ -2,3 +2,8 @@
 name = 'lifesandbox'
 compatibility_date = "2026-10-27"
 pages_build_output_dir = "./dist"
+
+# Public server-to-server origin used only by functions/api/[[path]].ts.
+# Browser requests stay on lifesandbox.pages.dev, preserving session cookies.
+[vars]
+API_ORIGIN = "https://lifesandbox-api.onrender.com"

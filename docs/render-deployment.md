@@ -30,14 +30,13 @@ Keep `.env` private. The values are entered in Render's secret form and are neve
 
 1. In Cloudflare Pages, import the same GitHub repository.
 2. Set **Root directory** to `frontend`, **Build command** to `npm run build`, and **Build output directory** to `dist`.
-3. In Pages -> Settings -> Variables and Secrets, add:
+3. The Pages runtime API proxy is configured in `frontend/wrangler.toml` with the public Render origin. If your Render service URL changes, update `API_ORIGIN` in that file and redeploy Pages. In Pages -> Settings -> Variables and Secrets, add only the public build-time support address:
 
    ```text
-   API_ORIGIN=https://lifesandbox-api.onrender.com
    VITE_SUPPORT_EMAIL=your-support-email@example.com
    ```
 
-   Replace the example API URL with the actual Render URL. Deploy Pages and copy its public URL.
+   Deploy Pages and copy its public URL.
 
 4. In Render -> `lifesandbox-api` -> Environment, replace the three temporary values with:
 
