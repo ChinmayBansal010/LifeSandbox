@@ -60,8 +60,8 @@ export default function App() {
   const [ttsEnabled, setTtsEnabled] = useState(false);
   const [imageUnderstandingEnabled, setImageUnderstandingEnabled] = useState(false);
 
-  useEffect(() => {
-    fetch('/api/v1/capabilities')
+  const refreshPolicy = useCallback(() => {
+    fetch('/api/v1/capabilities', { credentials: 'include', cache: 'no-store' })
       .then((response) => (response.ok ? response.json() : null))
       .then((capabilities) => {
         setMem0Enabled(capabilities?.mem0_enabled === true);
@@ -77,11 +77,17 @@ export default function App() {
         setTtsEnabled(false);
         setImageUnderstandingEnabled(false);
       });
-    fetch('/api/v1/memory-policy')
+    fetch('/api/v1/memory-policy', { credentials: 'include', cache: 'no-store' })
       .then((response) => (response.ok ? response.json() : null))
       .then((policy) => setHostedMemoryAllowed(policy?.enabled === true && policy?.hosted_memory_allowed === true))
       .catch(() => setHostedMemoryAllowed(false));
   }, []);
+
+  useEffect(() => {
+    refreshPolicy();
+    window.addEventListener('focus', refreshPolicy);
+    return () => window.removeEventListener('focus', refreshPolicy);
+  }, [refreshPolicy]);
 
   // Responsive: detect mobile
   const [isMobile, setIsMobile] = useState(() =>
@@ -274,10 +280,7 @@ export default function App() {
         ) : lifeOpen ? (
           <LifePanel onClose={() => {
             setLifeOpen(false);
-            fetch('/api/v1/memory-policy')
-              .then((response) => (response.ok ? response.json() : null))
-              .then((policy) => setHostedMemoryAllowed(policy?.enabled === true && policy?.hosted_memory_allowed === true))
-              .catch(() => setHostedMemoryAllowed(false));
+            refreshPolicy();
           }} />
         ) : adminOpen ? (
           <div className="flex-1 flex flex-col min-w-0">

@@ -95,9 +95,9 @@ async def search_conversation_history(
             .order_by(MessageRow.created_at.asc())
             .limit(1)
         )
-        date = created_at.isoformat() if created_at else "date unavailable"
+        date = created_at.strftime("%B %d, %Y") if created_at else "past"
         recalled.append(
-            f"[Earlier conversation: {title or 'Untitled'}; {date}]\n"
+            f"[Earlier context: {title or 'Earlier conversation'}; {date}]\n"
             f"User: {user_text}\nAssistant: {assistant_text or '(no saved reply)'}"
         )
     return recalled
