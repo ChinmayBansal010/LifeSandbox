@@ -28,8 +28,9 @@ Keep `.env` private. The values are entered in Render's secret form and are neve
 
 ## Deploy the frontend and connect it
 
-1. In Cloudflare Pages, import the same GitHub repository.
-2. Set **Root directory** to `frontend`, **Build command** to `npm run build`, and **Build output directory** to `dist`.
+1. Create the unique Pages project `life-sandbox-chinmay`. The generic `lifesandbox.pages.dev` domain is already owned by another account and is not this application.
+2. In Cloudflare Pages, import the same GitHub repository.
+3. Set **Root directory** to `frontend`, **Build command** to `npm run build`, and **Build output directory** to `dist`.
 3. The Pages runtime API proxy is configured in `frontend/wrangler.toml` with the public Render origin. If your Render service URL changes, update `API_ORIGIN` in that file and redeploy Pages. In Pages -> Settings -> Variables and Secrets, add only the public build-time support address:
 
    ```text
