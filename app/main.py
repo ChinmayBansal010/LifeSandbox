@@ -405,16 +405,21 @@ async def chat(
         )
     except LLMError as exc:
         timeout = exc.code == "timeout"
-        message = (
-            "Model response timed out (OpenRouter). Mem0 save was not attempted."
-            if timeout and exc.provider == "openrouter"
-            else "The model provider failed. Mem0 save was not attempted."
-        )
+        is_rate_limit = exc.code == "rate_limit" or exc.status_code == 429
+        if is_rate_limit:
+            message = f"Rate limit reached ({exc.provider}): {exc}. Mem0 save was not attempted."
+            status_code = 429
+        elif timeout and exc.provider == "openrouter":
+            message = "Model response timed out (OpenRouter). Mem0 save was not attempted."
+            status_code = 504
+        else:
+            message = f"The model provider failed: {exc}. Mem0 save was not attempted."
+            status_code = 502
         return JSONResponse(
-            status_code=504 if timeout else 502,
+            status_code=status_code,
             content={
                 "error": {
-                    "code": "llm_provider_error",
+                    "code": "llm_rate_limit" if is_rate_limit else "llm_provider_error",
                     "provider": exc.provider,
                     "upstream_status": exc.status_code,
                     "message": message,
@@ -426,7 +431,7 @@ async def chat(
                         "stage": "llm_generate",
                         "code": exc.code,
                         "message": message,
-                        "retriable": True,
+                        "retriable": not is_rate_limit,
                     },
                 }
             },

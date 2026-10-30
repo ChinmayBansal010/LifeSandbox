@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import re
 import time
 from dataclasses import dataclass
@@ -156,11 +157,10 @@ class OpenAICompatibleModel(ChatModel):
                         attempts.append(self.fallback_model)
                     deadline = started + timeout
                     for index, requested_model in enumerate(attempts):
-                        # Some OpenRouter reasoning models can return HTTP 200 with
-                        # reasoning but no user-facing content. Retry that case once
-                        # with reasoning disabled, instead of repeating the same call.
+                        # For OpenRouter models (especially free reasoning models like Nemotron),
+                        # disable reasoning effort first to avoid 50s+ generation delays and timeouts.
                         reasoning_variants = (
-                            [False, True] if self.provider == "openrouter" else [False]
+                            [True, False] if self.provider == "openrouter" else [False]
                         )
                         for reasoning_disabled in reasoning_variants:
                             remaining = deadline - time.monotonic()
@@ -189,7 +189,20 @@ class OpenAICompatibleModel(ChatModel):
                                 if index == len(attempts) - 1:
                                     raise
                                 break
-                            response.raise_for_status()
+                            if response.status_code >= 400:
+                                logging.getLogger("life_sandbox.llm").warning(
+                                    "LLM provider error: provider=%s model=%s reasoning_disabled=%s status=%s body=%s",
+                                    self.provider,
+                                    requested_model,
+                                    reasoning_disabled,
+                                    response.status_code,
+                                    getattr(response, "text", ""),
+                                )
+                                if reasoning_disabled:
+                                    continue
+                                if index < len(attempts) - 1:
+                                    break
+                                response.raise_for_status()
                             body = response.json()
                             message = body["choices"][0]["message"]
                             text = message.get("content")
@@ -200,6 +213,29 @@ class OpenAICompatibleModel(ChatModel):
                                     if isinstance(part, dict) and part.get("type") == "text"
                                 )
                             raw_tool_calls = message.get("tool_calls") or []
+                            if not (isinstance(text, str) and text.strip()) and not raw_tool_calls:
+                                # The model didn't return user-facing content (likely exhausted tokens in reasoning).
+                                if not reasoning_disabled:
+                                    continue
+                                # If there are more attempts, try the fallback model.
+                                if index < len(attempts) - 1:
+                                    break
+                                # If this was the last attempt, never dump internal thinking monologue
+                                reasoning_text = message.get("reasoning") or ""
+                                if not reasoning_text and "reasoning_details" in message:
+                                    reasoning_text = "".join(
+                                        d.get("text", "")
+                                        for d in message["reasoning_details"]
+                                        if isinstance(d, dict)
+                                    )
+                                if (
+                                    isinstance(reasoning_text, str)
+                                    and reasoning_text.strip()
+                                    and not reasoning_text.strip().lower().startswith(
+                                        ("here's a thinking process", "1. analyze", "thinking process:", "<think>")
+                                    )
+                                ):
+                                    text = reasoning_text.strip()
                             tool_calls = []
                             for call in raw_tool_calls:
                                 if isinstance(call, dict) and "function" in call:
@@ -225,10 +261,25 @@ class OpenAICompatibleModel(ChatModel):
                         provider=self.provider,
                     )
         except httpx.HTTPStatusError as exc:
+            upstream_msg = ""
+            try:
+                err_data = exc.response.json()
+                if isinstance(err_data, dict) and "error" in err_data:
+                    err_obj = err_data["error"]
+                    upstream_msg = (
+                        err_obj.get("message")
+                        if isinstance(err_obj, dict)
+                        else str(err_obj)
+                    )
+            except Exception:
+                upstream_msg = getattr(exc.response, "text", "")[:200]
+            code = "rate_limit" if exc.response.status_code == 429 else "upstream_error"
+            msg = upstream_msg or f"{self.provider} returned HTTP {exc.response.status_code}"
             raise LLMError(
-                f"{self.provider} returned HTTP {exc.response.status_code}",
+                msg,
                 provider=self.provider,
                 status_code=exc.response.status_code,
+                code=code,
                 duration_ms=(time.monotonic() - started) * 1000,
             ) from exc
         except (httpx.TimeoutException, TimeoutError) as exc:
