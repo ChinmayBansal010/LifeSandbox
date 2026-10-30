@@ -92,6 +92,112 @@ def chunk_message(text: str, max_length: int = 4000) -> list[str]:
     return chunks
 
 
+def sanitize_telegram_response(text: str) -> str:
+    """Strip reasoning monologues and convert any OpenUI DSL to clean markdown."""
+    clean = (text or "").strip()
+    if not clean:
+        return clean
+
+    has_openui = bool(
+        re.search(r"\broot\s*=\s*Card\b", clean)
+        or re.search(r"\bCardHeader\s*\(", clean)
+        or re.search(r"\bSnippetCardBlock\s*\(", clean)
+        or re.search(r"\bTextContent\s*\(", clean)
+    )
+
+    if has_openui:
+        header_title = ""
+        header_subtitle = ""
+        ch_m = re.search(r'CardHeader\(\s*"([^"]+)"(?:,\s*"([^"]+)")?\)', clean)
+        if ch_m:
+            header_title = ch_m.group(1).strip()
+            header_subtitle = (ch_m.group(2) or "").strip()
+
+        kpi_lines = []
+        for icon_m in re.finditer(r'IconText\([^,]+,[^,]+,[^,]+,\s*"([^"]+)",\s*"([^"]+)"', clean):
+            label, val = icon_m.group(1), icon_m.group(2)
+            kpi_lines.append(f"• **{label}:** {val}")
+
+        text_contents = []
+        for tc_m in re.finditer(r'TextContent\(\s*"((?:[^"\\]|\\.)*)"', clean):
+            raw_text = tc_m.group(1)
+            unescaped = raw_text.replace('\\"', '"').replace("\\n", "\n")
+            text_contents.append(unescaped.strip())
+
+        inline_headers = []
+        for ih_m in re.finditer(r'InlineHeader\(\s*"([^"]+)"(?:,\s*"([^"]+)")?\)', clean):
+            ih_title = ih_m.group(1)
+            ih_desc = ih_m.group(2) or ""
+            hdr_str = f"**{ih_title}**"
+            if ih_desc:
+                hdr_str += f": {ih_desc}"
+            inline_headers.append(hdr_str)
+
+        parts = []
+        if header_title:
+            title_block = f"📊 **{header_title}**"
+            if header_subtitle:
+                title_block += f"\n*{header_subtitle}*"
+            parts.append(title_block)
+
+        if kpi_lines:
+            parts.append("**Key Comparison Metrics:**\n" + "\n".join(kpi_lines))
+
+        if text_contents:
+            parts.append("\n\n".join(text_contents))
+
+        if inline_headers:
+            parts.append("\n".join(inline_headers))
+
+        if parts:
+            clean = "\n\n".join(parts)
+
+    lines = clean.split("\n")
+    start_idx = 0
+    while start_idx < len(lines):
+        line = lines[start_idx].strip()
+        lower = line.lower()
+        if (
+            lower.startswith("lifesandbox:")
+            or lower.startswith("let me first check")
+            or lower.startswith("actually, let me just build")
+            or lower.startswith("actually, let me")
+            or lower.startswith("let me structure this")
+            or lower.startswith("let me structure a comparison")
+            or lower.startswith("let me think")
+            or lower.startswith("i will structure")
+        ):
+            start_idx += 1
+        elif not line and start_idx > 0:
+            start_idx += 1
+        else:
+            break
+
+    if start_idx > 0 and start_idx < len(lines):
+        clean = "\n".join(lines[start_idx:]).strip()
+
+    return clean
+
+
+def format_markdown_for_telegram(text: str) -> str:
+    """Format markdown text into clean Telegram HTML."""
+    sanitized = sanitize_telegram_response(text)
+    if not sanitized:
+        return ""
+
+    if re.search(r"<(?:b|i|code|pre|a)\b", sanitized):
+        return sanitized
+
+    res = html.escape(sanitized)
+    res = re.sub(r"^#{1,6}\s+(.+)$", r"<b>\1</b>", res, flags=re.MULTILINE)
+    res = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", res)
+    res = re.sub(r"__(.+?)__", r"<b>\1</b>", res)
+    res = re.sub(r"`([^`]+)`", r"<code>\1</code>", res)
+    res = re.sub(r"\[([^\]]+)\]\((https?://[^\s)]+)\)", r'<a href="\2">\1</a>', res)
+
+    return res
+
+
 def extract_oauth_code_and_state(text: str) -> tuple[str | None, str | None]:
     """Extract code and state parameters from a URL or callback command string."""
     clean = text.strip()
@@ -675,12 +781,14 @@ async def process_telegram_update(
             user_id=user_id,
             message=text,
             conversation_id=conversation_id,
+            channel="telegram",
         )
         reply = (
             chat_result.get("reply", "No response generated.")
             if chat_result
             else "No response generated."
         )
+        reply = format_markdown_for_telegram(reply)
     except Exception as exc:
         logger.exception("Failed to run chat turn for Telegram message: %s", exc)
         reply = f"⚠️ I encountered an error while processing your request: {html.escape(str(exc))}"
