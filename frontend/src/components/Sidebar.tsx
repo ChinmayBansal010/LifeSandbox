@@ -146,7 +146,7 @@ export default function Sidebar({
         <div className="flex items-center gap-2">
           <img src="/lifesandbox-icon.svg" alt="" aria-hidden="true" className="w-7 h-7 rounded-lg shrink-0" />
           <span className="text-sm font-semibold text-fg tracking-tight">
-            Life Sandbox
+            LifeSandbox
           </span>
         </div>
         <button
