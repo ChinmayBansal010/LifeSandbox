@@ -189,7 +189,7 @@ export default function App() {
           >
             {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
-          <span className="text-sm font-semibold text-fg">Life Sandbox</span>
+          <span className="flex items-center gap-2 text-sm font-semibold text-fg"><img src="/lifesandbox-icon.svg" alt="" aria-hidden="true" className="h-6 w-6 rounded-md" />Life Sandbox</span>
           <button
             onClick={() => handleOpenAdmin()}
             className={`p-1.5 rounded-md transition-colors ${
