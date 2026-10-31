@@ -518,3 +518,30 @@ async def test_process_telegram_update_passes_channel(monkeypatch):
         }
         await telegram.process_telegram_update(update)
         assert passed_kwargs.get("channel") == "telegram"
+
+
+def test_telegram_chat_tenant_isolation(monkeypatch):
+    monkeypatch.setattr(
+        telegram,
+        "get_settings",
+        lambda: SimpleNamespace(
+            telegram_chat_id="11111",
+            telegram_allowed_chat_ids="22222,33333",
+            telegram_default_user_id="local-user",
+            telegram_user_id_map={},
+        ),
+    )
+    assert telegram.telegram_user_id_for_chat("22222") == "telegram:22222"
+    assert telegram.telegram_user_id_for_chat("33333") == "telegram:33333"
+
+    monkeypatch.setattr(
+        telegram,
+        "get_settings",
+        lambda: SimpleNamespace(
+            telegram_chat_id="11111",
+            telegram_allowed_chat_ids=None,
+            telegram_default_user_id="google:trusted-user",
+            telegram_user_id_map={"11111": "google:trusted-user"},
+        ),
+    )
+    assert telegram.telegram_user_id_for_chat("11111") == "google:trusted-user"
