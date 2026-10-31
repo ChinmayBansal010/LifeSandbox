@@ -28,6 +28,7 @@ jobs:
           node-version: "22.12"
       - name: Normalize Python formatting and imports
         run: |
+          uv lock
           uv sync --locked
           uv run ruff check --fix app scripts tests || true
           uv run ruff format app scripts tests
