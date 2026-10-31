@@ -110,6 +110,7 @@ async def lifespan(_: FastAPI):
         "application_startup",
         extra={
             "environment": settings.app_env,
+            "log_level": settings.log_level.upper(),
             "provider": settings.llm_provider,
             "model": startup_model,
             "auth_mode": settings.auth_mode,
@@ -225,7 +226,7 @@ async def request_id(request: Request, call_next):
         raise
     finally:
         duration_ms = round((asyncio.get_running_loop().time() - started) * 1000, 2)
-        log_method = logger.warning if status_code >= 500 else logger.info
+        log_method = logger.error if status_code >= 500 else logger.warning if status_code >= 400 else logger.info
         log_method(
             "http_request_completed",
             extra={"request_id": rid, "method": method, "path": path,
