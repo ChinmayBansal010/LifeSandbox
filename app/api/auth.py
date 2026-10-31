@@ -43,10 +43,7 @@ def _configuration():
             503,
             detail={
                 "code": "google_signin_unconfigured",
-                "message": (
-                    "Google sign-in needs OAuth client credentials, a sign-in callback URL, "
-                    "and AUTH_SECRET."
-                ),
+                "message": ("Google sign-in needs OAuth client credentials, a sign-in callback URL, and AUTH_SECRET."),
             },
         )
     return settings
@@ -117,9 +114,7 @@ async def google_signin_start(db: AsyncSession = Depends(get_session)):
             "prompt": "select_account",
         }
     )
-    redirect = RedirectResponse(
-        f"https://accounts.google.com/o/oauth2/v2/auth?{query}", status_code=302
-    )
+    redirect = RedirectResponse(f"https://accounts.google.com/o/oauth2/v2/auth?{query}", status_code=302)
     redirect.set_cookie(
         STATE_COOKIE,
         state,

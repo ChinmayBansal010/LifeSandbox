@@ -165,9 +165,7 @@ async def execute_followthrough_tool(
     if name == "create_task":
         payload = TaskWrite.model_validate(arguments)
         if payload.project_id and not await db.scalar(
-            select(ProjectRow.id).where(
-                ProjectRow.id == payload.project_id, ProjectRow.user_id == user_id
-            )
+            select(ProjectRow.id).where(ProjectRow.id == payload.project_id, ProjectRow.user_id == user_id)
         ):
             raise ValueError("Project not found")
         data = payload.model_dump(mode="json")
@@ -180,16 +178,12 @@ async def execute_followthrough_tool(
         db.add(row)
         await db.flush()
         await _save_idempotency(db, user_id, key, row.id, "task", digest)
-        db.add(
-            AuditRow(user_id=user_id, action="task.create", resource_id=row.id, outcome="succeeded")
-        )
+        db.add(AuditRow(user_id=user_id, action="task.create", resource_id=row.id, outcome="succeeded"))
         return task_view(row)
 
     if name in {"update_task", "complete_task", "cancel_task"}:
         task = await db.scalar(
-            select(TaskRow).where(
-                TaskRow.id == arguments.get("task_id"), TaskRow.user_id == user_id
-            )
+            select(TaskRow).where(TaskRow.id == arguments.get("task_id"), TaskRow.user_id == user_id)
         )
         if task is None:
             raise ValueError("Task not found")
@@ -200,19 +194,13 @@ async def execute_followthrough_tool(
                 "project_id" in values
                 and values["project_id"]
                 and not await db.scalar(
-                    select(ProjectRow.id).where(
-                        ProjectRow.id == values["project_id"], ProjectRow.user_id == user_id
-                    )
+                    select(ProjectRow.id).where(ProjectRow.id == values["project_id"], ProjectRow.user_id == user_id)
                 )
             ):
                 raise ValueError("Project not found")
             for key, value in values.items():
                 setattr(task, key, value)
-            db.add(
-                AuditRow(
-                    user_id=user_id, action="task.update", resource_id=task.id, outcome="succeeded"
-                )
-            )
+            db.add(AuditRow(user_id=user_id, action="task.update", resource_id=task.id, outcome="succeeded"))
         else:
             if task.status in {"completed", "cancelled"}:
                 raise ValueError("Task is already resolved")
@@ -232,10 +220,7 @@ async def execute_followthrough_tool(
     if name == "list_reminders":
         rows = (
             await db.scalars(
-                select(ReminderRow)
-                .where(ReminderRow.user_id == user_id)
-                .order_by(ReminderRow.scheduled_at)
-                .limit(50)
+                select(ReminderRow).where(ReminderRow.user_id == user_id).order_by(ReminderRow.scheduled_at).limit(50)
             )
         ).all()
         return {"items": [reminder_view(row) for row in rows]}
@@ -264,11 +249,7 @@ async def execute_followthrough_tool(
             )
         )
         await _save_idempotency(db, user_id, key, row.id, "reminder", digest)
-        db.add(
-            AuditRow(
-                user_id=user_id, action="reminder.schedule", resource_id=row.id, outcome="queued"
-            )
-        )
+        db.add(AuditRow(user_id=user_id, action="reminder.schedule", resource_id=row.id, outcome="queued"))
         return reminder_view(row)
 
     if name in {"update_reminder", "cancel_reminder"}:
@@ -283,9 +264,7 @@ async def execute_followthrough_tool(
             raise ValueError("Pending reminder not found")
         if name == "cancel_reminder":
             reminder.status = "cancelled"
-            job = await db.scalar(
-                select(JobRow).where(JobRow.reminder_id == reminder.id, JobRow.status == "queued")
-            )
+            job = await db.scalar(select(JobRow).where(JobRow.reminder_id == reminder.id, JobRow.status == "queued"))
             if job:
                 job.status = "cancelled"
             action = "reminder.cancel"
@@ -294,16 +273,12 @@ async def execute_followthrough_tool(
             for key, value in changes.items():
                 if value is not None:
                     setattr(reminder, key, value)
-            job = await db.scalar(
-                select(JobRow).where(JobRow.reminder_id == reminder.id, JobRow.status == "queued")
-            )
+            job = await db.scalar(select(JobRow).where(JobRow.reminder_id == reminder.id, JobRow.status == "queued"))
             if job:
                 job.scheduled_at = reminder.scheduled_at
                 job.idempotency_key = f"reminder:{reminder.id}:edit:{uuid4()}"
             action = "reminder.update"
-        db.add(
-            AuditRow(user_id=user_id, action=action, resource_id=reminder.id, outcome="succeeded")
-        )
+        db.add(AuditRow(user_id=user_id, action=action, resource_id=reminder.id, outcome="succeeded"))
         await db.flush()
         return reminder_view(reminder)
 
@@ -313,9 +288,7 @@ async def execute_followthrough_tool(
 async def _existing_task(db, user_id: str, key: str | None, digest: str):
     if key is None:
         return None
-    prior = await db.scalar(
-        select(IdempotencyRow).where(IdempotencyRow.user_id == user_id, IdempotencyRow.key == key)
-    )
+    prior = await db.scalar(select(IdempotencyRow).where(IdempotencyRow.user_id == user_id, IdempotencyRow.key == key))
     if prior is None:
         return None
     if prior.request_hash and prior.request_hash != digest:
@@ -331,9 +304,7 @@ async def _existing_task(db, user_id: str, key: str | None, digest: str):
 async def _existing_reminder(db, user_id: str, key: str | None, digest: str):
     if key is None:
         return None
-    prior = await db.scalar(
-        select(IdempotencyRow).where(IdempotencyRow.user_id == user_id, IdempotencyRow.key == key)
-    )
+    prior = await db.scalar(select(IdempotencyRow).where(IdempotencyRow.user_id == user_id, IdempotencyRow.key == key))
     if prior is None:
         return None
     if prior.request_hash and prior.request_hash != digest:
@@ -346,9 +317,7 @@ async def _existing_reminder(db, user_id: str, key: str | None, digest: str):
     return row
 
 
-async def _save_idempotency(
-    db, user_id: str, key, resource_id: str, resource_type: str, digest: str
-):
+async def _save_idempotency(db, user_id: str, key, resource_id: str, resource_type: str, digest: str):
     if key:
         db.add(
             IdempotencyRow(

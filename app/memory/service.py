@@ -19,11 +19,54 @@ from app.rag.retrieval import reciprocal_rank_fusion
 logger = logging.getLogger("life_sandbox.memory")
 
 _HISTORY_STOP_WORDS = {
-    "about", "after", "again", "and", "are", "but", "can", "did", "does", "for",
-    "from", "have", "how", "into", "last", "like", "mention", "more", "much", "please",
-    "remember", "said", "that", "the", "then", "there", "this", "time", "talk", "talked",
-    "tell", "them", "they", "what", "when", "where", "which", "who", "with", "would",
-    "you", "your", "conversation", "chat", "discuss", "discussed", "earlier", "previous",
+    "about",
+    "after",
+    "again",
+    "and",
+    "are",
+    "but",
+    "can",
+    "did",
+    "does",
+    "for",
+    "from",
+    "have",
+    "how",
+    "into",
+    "last",
+    "like",
+    "mention",
+    "more",
+    "much",
+    "please",
+    "remember",
+    "said",
+    "that",
+    "the",
+    "then",
+    "there",
+    "this",
+    "time",
+    "talk",
+    "talked",
+    "tell",
+    "them",
+    "they",
+    "what",
+    "when",
+    "where",
+    "which",
+    "who",
+    "with",
+    "would",
+    "you",
+    "your",
+    "conversation",
+    "chat",
+    "discuss",
+    "discussed",
+    "earlier",
+    "previous",
 }
 
 
@@ -102,6 +145,7 @@ async def search_conversation_history(
         )
     return recalled
 
+
 SENSITIVE_CATEGORIES = {"health", "financial", "identity", "credential"}
 
 
@@ -110,9 +154,24 @@ def tokens(value: str) -> set[str]:
 
 
 _IDENTITY_MODIFIERS = {
-    "concise", "detailed", "short", "long", "brief", "verbose",
-    "dark", "light", "fast", "slow", "simple", "complex",
-    "more", "less", "high", "low", "morning", "evening",
+    "concise",
+    "detailed",
+    "short",
+    "long",
+    "brief",
+    "verbose",
+    "dark",
+    "light",
+    "fast",
+    "slow",
+    "simple",
+    "complex",
+    "more",
+    "less",
+    "high",
+    "low",
+    "morning",
+    "evening",
 }
 
 
@@ -229,9 +288,7 @@ async def search_memories(db: AsyncSession, user_id: str, query: str, limit: int
             else:
                 created_at = created_at.astimezone(UTC)
             age_days = max(0, (now - created_at).days)
-            score = (
-                overlap / max(len(query_terms), 1) + min(r.confidence, 1) * 0.1 - age_days / 3650
-            )
+            score = overlap / max(len(query_terms), 1) + min(r.confidence, 1) * 0.1 - age_days / 3650
             scored_sparse.append((r, score))
     scored_sparse.sort(key=lambda pair: pair[1], reverse=True)
     sparse_ranked_rows = [p[0] for p in scored_sparse[: limit * 3]]
@@ -295,9 +352,7 @@ async def save_memory(
     return row
 
 
-async def process_explicit_memory_request(
-    db: AsyncSession, user_id: str, message: str, conversation_id: str
-):
+async def process_explicit_memory_request(db: AsyncSession, user_id: str, message: str, conversation_id: str):
     extracted = explicit_memory_request(message)
     if extracted is None:
         return None
@@ -308,11 +363,7 @@ async def process_explicit_memory_request(
     auto_categories = set(json.loads(policy.auto_categories))
     approval_categories = set(json.loads(policy.approval_categories))
     never_auto = set(json.loads(policy.never_auto_categories))
-    if (
-        category in auto_categories
-        and category not in never_auto
-        and category not in SENSITIVE_CATEGORIES
-    ):
+    if category in auto_categories and category not in never_auto and category not in SENSITIVE_CATEGORIES:
         row = await save_memory(
             db,
             user_id,
@@ -422,9 +473,7 @@ def extract_implicit_facts(message: str) -> list[tuple[str, str]]:
     return facts
 
 
-async def process_reflection_job(
-    db: AsyncSession, user_id: str, payload: dict
-) -> list[str]:
+async def process_reflection_job(db: AsyncSession, user_id: str, payload: dict) -> list[str]:
     """Asynchronously reflect on a conversation exchange and extract/save personal facts."""
     conversation_id = payload.get("conversation_id")
     message = payload.get("message", "")

@@ -4,8 +4,8 @@ import asyncio
 import importlib.util
 import json
 import os
-import shutil
 import re
+import shutil
 import tempfile
 from urllib.parse import quote_plus
 
@@ -131,9 +131,7 @@ async def research_with_browser(query: str) -> dict[str, str]:
             search_results: list[dict[str, str]] = []
             search_url = ""
             for terms in _github_search_terms(query):
-                search_url = (
-                    "https://github.com/search?q=" + quote_plus(terms) + "&type=repositories"
-                )
+                search_url = "https://github.com/search?q=" + quote_plus(terms) + "&type=repositories"
                 await page.goto(search_url)
                 await asyncio.sleep(1.5)
                 raw = await page.evaluate(
@@ -153,9 +151,7 @@ async def research_with_browser(query: str) -> dict[str, str]:
                     url = link.get("href", "").rstrip("/")
                     if is_repository_url(url):
                         path = url.removeprefix("https://github.com/")
-                        search_results.append(
-                            {"url": url, "name": link.get("text", "").strip() or path}
-                        )
+                        search_results.append({"url": url, "name": link.get("text", "").strip() or path})
                 if len({item["url"] for item in search_results}) >= 3:
                     break
 

@@ -48,6 +48,7 @@ DECISION_TOOLS = [
     }
 ]
 
+
 class Allocation(BaseModel):
     category: str = Field(min_length=1)
     amount: Decimal = Field(ge=0)
@@ -80,11 +81,7 @@ def execute_decision_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any
                 "allocations_by_category": {
                     category: str(
                         sum(
-                            (
-                                item.amount
-                                for item in option.allocations
-                                if item.category == category
-                            ),
+                            (item.amount for item in option.allocations if item.category == category),
                             Decimal(0),
                         )
                     )

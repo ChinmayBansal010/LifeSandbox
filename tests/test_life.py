@@ -78,10 +78,7 @@ def test_corrected_preference_supersedes_previous_value():
         active = client.get("/api/v1/memories/search", params={"query": "detailed answers"})
         assert [row["content"] for row in active.json()["items"]] == ["I prefer detailed answers"]
         all_memories = client.get("/api/v1/memories").json()["items"]
-        assert (
-            next(row for row in all_memories if row["id"] == first.json()["id"])["status"]
-            == "superseded"
-        )
+        assert next(row for row in all_memories if row["id"] == first.json()["id"])["status"] == "superseded"
 
 
 def test_editing_memory_without_changing_content_keeps_it_active():
@@ -113,9 +110,7 @@ def test_explicit_memory_request_requires_approval_and_is_recalled(monkeypatch):
 
     monkeypatch.setattr(chat_service.conversation_graph, "ainvoke", capture)
     with TestClient(app) as client:
-        response = client.post(
-            "/api/v1/chat", json={"message": "Please remember that I prefer concise answers."}
-        )
+        response = client.post("/api/v1/chat", json={"message": "Please remember that I prefer concise answers."})
         assert response.status_code == 200
         assert response.json()["memory_request"]["status"] == "pending"
         candidates = client.get("/api/v1/memory-candidates").json()["items"]
@@ -142,9 +137,7 @@ def test_sensitive_memory_request_is_never_auto_saved(monkeypatch):
                 "hosted_memory_allowed": False,
             },
         )
-        response = client.post(
-            "/api/v1/chat", json={"message": "Remember that my salary is 1000 per month."}
-        )
+        response = client.post("/api/v1/chat", json={"message": "Remember that my salary is 1000 per month."})
         assert response.status_code == 200
         assert response.json()["memory_request"]["status"] == "pending"
         memories = client.get("/api/v1/memories").json()["items"]
@@ -174,16 +167,10 @@ def test_recurring_reminder_persists_delivery_and_next_occurrence():
     assert asyncio.run(run_due_once(datetime.now(UTC))) == 1
     assert asyncio.run(run_due_once(datetime.now(UTC))) == 0
     with TestClient(app) as client:
-        jobs = [
-            job
-            for job in client.get("/api/v1/jobs").json()["items"]
-            if job["reminder_id"] == reminder_id
-        ]
+        jobs = [job for job in client.get("/api/v1/jobs").json()["items"] if job["reminder_id"] == reminder_id]
         assert sorted(job["status"] for job in jobs) == ["queued", "succeeded"]
         notifications = client.get("/api/v1/notifications").json()["items"]
-        assert (
-            sum(notification["text"] == "Review weekly plan" for notification in notifications) == 1
-        )
+        assert sum(notification["text"] == "Review weekly plan" for notification in notifications) == 1
 
 
 def test_worker_recovers_stale_running_reminder():
@@ -271,22 +258,13 @@ def test_approved_task_action_executes_once_and_rejects_unapproved_side_effect()
         approval_id = proposal.json()["id"]
         execute_path = f"/api/v1/approved-actions/{approval_id}/execute"
         assert client.post(execute_path).status_code == 409
-        assert not any(
-            task["title"] == "Call the supplier"
-            for task in client.get("/api/v1/tasks").json()["items"]
-        )
+        assert not any(task["title"] == "Call the supplier" for task in client.get("/api/v1/tasks").json()["items"])
         assert client.post(f"/api/v1/approvals/{approval_id}/approve").status_code == 200
         first = client.post(execute_path)
         second = client.post(execute_path)
         assert first.status_code == second.status_code == 200
         assert first.json()["resource_id"] == second.json()["resource_id"]
-        assert (
-            sum(
-                task["title"] == "Call the supplier"
-                for task in client.get("/api/v1/tasks").json()["items"]
-            )
-            == 1
-        )
+        assert sum(task["title"] == "Call the supplier" for task in client.get("/api/v1/tasks").json()["items"]) == 1
 
 
 def test_expired_approval_cannot_execute():
@@ -315,9 +293,7 @@ def test_expired_approval_cannot_execute():
         response = client.post(f"/api/v1/approved-actions/{approval_id}/execute")
         assert response.status_code == 409
         assert response.json()["detail"]["code"] == "approval_expired"
-        assert not any(
-            task["title"] == "Too late" for task in client.get("/api/v1/tasks").json()["items"]
-        )
+        assert not any(task["title"] == "Too late" for task in client.get("/api/v1/tasks").json()["items"])
 
 
 def test_mutated_approval_payload_cannot_execute():
@@ -346,9 +322,7 @@ def test_mutated_approval_payload_cannot_execute():
         response = client.post(f"/api/v1/approved-actions/{approval_id}/execute")
         assert response.status_code == 409
         assert response.json()["detail"]["code"] == "payload_changed"
-        assert not any(
-            task["title"] == "Changed" for task in client.get("/api/v1/tasks").json()["items"]
-        )
+        assert not any(task["title"] == "Changed" for task in client.get("/api/v1/tasks").json()["items"])
 
 
 def test_memories_projects_tasks_reminders_and_jobs_are_owner_scoped():
@@ -369,9 +343,7 @@ def test_memories_projects_tasks_reminders_and_jobs_are_owner_scoped():
             f"/api/v1/memories/{memory['id']}/project",
             json={"project_id": project["id"]},
         )
-        task = client.post(
-            "/api/v1/tasks", json={"title": "Private task", "project_id": project["id"]}
-        ).json()
+        task = client.post("/api/v1/tasks", json={"title": "Private task", "project_id": project["id"]}).json()
         reminder = client.post(
             "/api/v1/reminders",
             json={
@@ -381,23 +353,14 @@ def test_memories_projects_tasks_reminders_and_jobs_are_owner_scoped():
                 "task_id": task["id"],
             },
         ).json()
-        job = next(
-            item
-            for item in client.get("/api/v1/jobs").json()["items"]
-            if item["reminder_id"] == reminder["id"]
-        )
+        job = next(item for item in client.get("/api/v1/jobs").json()["items"] if item["reminder_id"] == reminder["id"])
         assert linked.status_code == 200
 
         app.dependency_overrides[current_principal] = owner_two
         assert client.get(f"/api/v1/memories/{memory['id']}").status_code == 404
+        assert client.get("/api/v1/memories/search", params={"query": "private notes"}).json()["items"] == []
         assert (
-            client.get("/api/v1/memories/search", params={"query": "private notes"}).json()["items"]
-            == []
-        )
-        assert (
-            client.patch(
-                f"/api/v1/memories/{memory['id']}/project", json={"project_id": project["id"]}
-            ).status_code
+            client.patch(f"/api/v1/memories/{memory['id']}/project", json={"project_id": project["id"]}).status_code
             == 404
         )
         assert client.get(f"/api/v1/tasks/{task['id']}").status_code == 404
@@ -445,9 +408,7 @@ def test_postgres_workers_claim_one_due_job_once():
         async with SessionLocal() as db:
             job = await db.get(JobRow, job_id)
             count = await db.scalar(
-                select(func.count())
-                .select_from(NotificationRow)
-                .where(NotificationRow.job_id == job_id)
+                select(func.count()).select_from(NotificationRow).where(NotificationRow.job_id == job_id)
             )
         return sum(worker_results), job.status, job.attempts, count
 
@@ -484,9 +445,7 @@ def test_chat_graph_executes_scoped_task_tool(monkeypatch):
     model = ToolModel()
     monkeypatch.setattr(graph_module, "model_for", lambda **_kwargs: model)
     with TestClient(app) as client:
-        response = client.post(
-            "/api/v1/chat", json={"message": "Add a task to prepare sprint review"}
-        )
+        response = client.post("/api/v1/chat", json={"message": "Add a task to prepare sprint review"})
         assert response.status_code == 200
         assert response.json()["reply"] == "Task created."
         tasks = client.get("/api/v1/tasks").json()["items"]
@@ -495,9 +454,7 @@ def test_chat_graph_executes_scoped_task_tool(monkeypatch):
 
 def test_project_task_and_durable_reminder_notification():
     with TestClient(app) as client:
-        project = client.post(
-            "/api/v1/projects", json={"title": "Coursework", "next_action": "submit draft"}
-        )
+        project = client.post("/api/v1/projects", json={"title": "Coursework", "next_action": "submit draft"})
         assert project.status_code == 201
         key = f"task-once-{uuid4()}"
         task = client.post(
@@ -517,10 +474,7 @@ def test_project_task_and_durable_reminder_notification():
             headers={"Idempotency-Key": key},
         )
         assert again.json()["id"] == task.json()["id"]
-        assert (
-            client.post(f"/api/v1/tasks/{task.json()['id']}/complete").json()["status"]
-            == "completed"
-        )
+        assert client.post(f"/api/v1/tasks/{task.json()['id']}/complete").json()["status"] == "completed"
 
         reminder = client.post(
             "/api/v1/reminders",
@@ -536,24 +490,13 @@ def test_project_task_and_durable_reminder_notification():
     assert asyncio.run(run_due_once(datetime.now(UTC))) == 0
     with TestClient(app) as client:
         assert (
-            next(
-                row
-                for row in client.get("/api/v1/reminders").json()["items"]
-                if row["id"] == reminder_id
-            )["status"]
+            next(row for row in client.get("/api/v1/reminders").json()["items"] if row["id"] == reminder_id)["status"]
             == "delivered"
         )
         persisted_tasks = client.get("/api/v1/tasks").json()["items"]
-        assert any(
-            row["id"] == task.json()["id"] and row["status"] == "completed"
-            for row in persisted_tasks
-        )
+        assert any(row["id"] == task.json()["id"] and row["status"] == "completed" for row in persisted_tasks)
         assert any(row["id"] == second_task.json()["id"] for row in persisted_tasks)
-        job = next(
-            row
-            for row in client.get("/api/v1/jobs").json()["items"]
-            if row["reminder_id"] == reminder_id
-        )
+        job = next(row for row in client.get("/api/v1/jobs").json()["items"] if row["reminder_id"] == reminder_id)
         notifications = client.get("/api/v1/notifications").json()["items"]
         assert sum(row["job_id"] == job["id"] for row in notifications) == 1
 
@@ -581,14 +524,10 @@ def test_cancelling_reminder_cancels_queued_job_without_delivery():
             },
         ).json()
         assert client.delete(f"/api/v1/reminders/{reminder['id']}").json()["status"] == "cancelled"
-        job = next(
-            row for row in client.get("/api/v1/jobs").json()["items"]
-            if row["reminder_id"] == reminder["id"]
-        )
+        job = next(row for row in client.get("/api/v1/jobs").json()["items"] if row["reminder_id"] == reminder["id"])
         assert job["status"] == "cancelled"
         assert all(
-            notification["job_id"] != job["id"]
-            for notification in client.get("/api/v1/notifications").json()["items"]
+            notification["job_id"] != job["id"] for notification in client.get("/api/v1/notifications").json()["items"]
         )
 
 
@@ -601,9 +540,7 @@ def test_approval_is_explicit_and_owner_scoped():
 
     with TestClient(app) as client:
         app.dependency_overrides[current_principal] = owner_one
-        proposal = client.post(
-            "/api/v1/approvals", json={"action": "test.write", "description": "Write a test file"}
-        )
+        proposal = client.post("/api/v1/approvals", json={"action": "test.write", "description": "Write a test file"})
         assert proposal.json()["status"] == "pending"
         approval_id = proposal.json()["id"]
         app.dependency_overrides[current_principal] = owner_two

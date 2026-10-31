@@ -81,9 +81,7 @@ async def search_user_documents(
         FileChunkRow.file_id.in_(valid_file_ids),
     ]
 
-    all_chunks = list(
-        (await db.scalars(select(FileChunkRow).where(*chunk_filter))).all()
-    )
+    all_chunks = list((await db.scalars(select(FileChunkRow).where(*chunk_filter))).all())
     if not all_chunks:
         return []
 
@@ -164,11 +162,7 @@ def retrieve(
     if not 1 <= limit <= 20:
         raise ValueError("limit must be between 1 and 20")
     query_vector = embed(query)
-    ranked = [
-        (p, cosine(query_vector, p.vector))
-        for p in passages
-        if p.owner_id == owner_id
-    ]
+    ranked = [(p, cosine(query_vector, p.vector)) for p in passages if p.owner_id == owner_id]
     return sorted(
         (item for item in ranked if item[1] >= threshold),
         key=lambda item: item[1],

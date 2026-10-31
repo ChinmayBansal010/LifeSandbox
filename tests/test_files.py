@@ -8,12 +8,7 @@ from app.main import app, settings
 
 def _png_1x1():
     def chunk(kind, data):
-        return (
-            struct.pack(">I", len(data))
-            + kind
-            + data
-            + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
-        )
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data) & 0xFFFFFFFF)
 
     return (
         b"\x89PNG\r\n\x1a\n"

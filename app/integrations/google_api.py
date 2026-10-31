@@ -15,7 +15,6 @@ from app.core.config import get_settings
 from app.integrations.google import decrypt_credentials, encrypt_credentials
 from app.persistence.models import IntegrationConnectionRow
 
-
 SCOPE_COMPATIBILITY: dict[str, set[str]] = {
     "https://www.googleapis.com/auth/calendar.readonly": {
         "https://www.googleapis.com/auth/calendar.readonly",
@@ -111,9 +110,7 @@ async def _connection(
                         payload = response.json()
                     credentials["access_token"] = payload["access_token"]
                     row.encrypted_credentials = encrypt_credentials(credentials)
-                    row.expires_at = datetime.now(UTC) + timedelta(
-                        seconds=int(payload.get("expires_in", 3600))
-                    )
+                    row.expires_at = datetime.now(UTC) + timedelta(seconds=int(payload.get("expires_in", 3600)))
                     await db.commit()
                     token = credentials["access_token"]
                 except (httpx.HTTPError, KeyError, ValueError) as exc:
@@ -152,9 +149,7 @@ async def _request(
         headers.update(kwargs.pop("headers"))
     try:
         async with httpx.AsyncClient(timeout=20) as client:
-            response = await client.request(
-                method, url, headers=headers, **kwargs
-            )
+            response = await client.request(method, url, headers=headers, **kwargs)
             response.raise_for_status()
             if as_text:
                 return response.text
@@ -220,12 +215,8 @@ async def list_events(
         or end - start > timedelta(days=31)
         or not 1 <= limit <= 100
     ):
-        raise ValueError(
-            "Use an aware time range of at most 31 days and a result limit from 1 to 100"
-        )
-    if calendar_id != "primary" and not all(
-        character.isalnum() or character in "_.@+-" for character in calendar_id
-    ):
+        raise ValueError("Use an aware time range of at most 31 days and a result limit from 1 to 100")
+    if calendar_id != "primary" and not all(character.isalnum() or character in "_.@+-" for character in calendar_id):
         raise ValueError("Invalid calendar ID")
     ZoneInfo(timezone)
     body = await _request(
@@ -469,10 +460,7 @@ async def search_messages(db: AsyncSession, user_id: str, query: str, limit: int
             504,
             detail={
                 "code": "google_tool_timeout",
-                "message": (
-                    "Gmail search timed out before results were confirmed. "
-                    "Narrow the query and retry."
-                ),
+                "message": ("Gmail search timed out before results were confirmed. Narrow the query and retry."),
             },
         ) from exc
 
@@ -498,10 +486,7 @@ async def _search_messages(db: AsyncSession, user_id: str, query: str, limit: in
             f"https://gmail.googleapis.com/gmail/v1/users/me/messages/{ref['id']}",
             params={"format": "metadata", "metadataHeaders": ["From", "To", "Subject", "Date"]},
         )
-        headers = {
-            h.get("name", "").lower(): h.get("value", "")
-            for h in msg.get("payload", {}).get("headers", [])
-        }
+        headers = {h.get("name", "").lower(): h.get("value", "") for h in msg.get("payload", {}).get("headers", [])}
         results.append(
             {
                 "id": msg.get("id"),
@@ -521,22 +506,14 @@ def _decode_part(part: dict) -> str:
     data = part.get("body", {}).get("data")
     if data:
         try:
-            return base64.urlsafe_b64decode(data + "=" * (-len(data) % 4)).decode(
-                "utf-8", errors="replace"
-            )
+            return base64.urlsafe_b64decode(data + "=" * (-len(data) % 4)).decode("utf-8", errors="replace")
         except (ValueError, UnicodeError):
             return ""
     return "\n".join(_decode_part(child) for child in part.get("parts", []))
 
 
 async def get_thread(db: AsyncSession, user_id: str, thread_id: str, limit: int = 10):
-    if (
-        not thread_id
-        or len(thread_id) > 200
-        or "/" in thread_id
-        or ".." in thread_id
-        or not 1 <= limit <= 20
-    ):
+    if not thread_id or len(thread_id) > 200 or "/" in thread_id or ".." in thread_id or not 1 <= limit <= 20:
         raise ValueError("Invalid Gmail thread ID or message limit")
     body = await _request(
         db,
@@ -548,10 +525,7 @@ async def get_thread(db: AsyncSession, user_id: str, thread_id: str, limit: int 
     )
     messages = []
     for msg in body.get("messages", [])[:limit]:
-        headers = {
-            h.get("name", "").lower(): h.get("value", "")
-            for h in msg.get("payload", {}).get("headers", [])
-        }
+        headers = {h.get("name", "").lower(): h.get("value", "") for h in msg.get("payload", {}).get("headers", [])}
         messages.append(
             {
                 "id": msg.get("id"),
@@ -584,17 +558,13 @@ async def create_draft(
         or len(body) > 20000
     ):
         raise ValueError("Draft recipients, subject, or body are invalid")
-    connection, _ = await _connection(
-        db, user_id, "https://www.googleapis.com/auth/gmail.compose", connection_id
-    )
+    connection, _ = await _connection(db, user_id, "https://www.googleapis.com/auth/gmail.compose", connection_id)
     connection_id = connection.id
     msg = EmailMessage()
     msg["To"] = ", ".join(to)
     msg["Subject"] = subject
     msg.set_content(body)
-    request_body = {
-        "message": {"raw": base64.urlsafe_b64encode(msg.as_bytes()).decode().rstrip("=")}
-    }
+    request_body = {"message": {"raw": base64.urlsafe_b64encode(msg.as_bytes()).decode().rstrip("=")}}
     if thread_id:
         request_body["message"]["threadId"] = thread_id
     draft = await _request(
@@ -629,8 +599,7 @@ async def read_draft(db: AsyncSession, user_id: str, connection_id: str, draft_i
     )
     message = body.get("message", {})
     headers = {
-        item.get("name", "").lower(): item.get("value", "")
-        for item in message.get("payload", {}).get("headers", [])
+        item.get("name", "").lower(): item.get("value", "") for item in message.get("payload", {}).get("headers", [])
     }
     content = {
         "draft_id": body.get("id"),
@@ -647,10 +616,7 @@ async def read_draft(db: AsyncSession, user_id: str, connection_id: str, draft_i
     }
     content["content_hash"] = hashlib.sha256(
         json.dumps(
-            {
-                key: content[key]
-                for key in ("draft_id", "recipients", "subject", "body", "thread_id")
-            },
+            {key: content[key] for key in ("draft_id", "recipients", "subject", "body", "thread_id")},
             sort_keys=True,
             separators=(",", ":"),
         ).encode()
@@ -663,9 +629,7 @@ class GoogleActionUncertain(RuntimeError):
 
 
 async def send_draft(db: AsyncSession, user_id: str, connection_id: str, draft_id: str) -> dict:
-    _, token = await _connection(
-        db, user_id, "https://www.googleapis.com/auth/gmail.send", connection_id
-    )
+    _, token = await _connection(db, user_id, "https://www.googleapis.com/auth/gmail.send", connection_id)
     try:
         async with httpx.AsyncClient(timeout=20) as client:
             response = await client.post(
@@ -769,11 +733,7 @@ async def reply_to_thread(
                 recipients = [sender] if sender else []
             if not reply_subject:
                 orig_subj = last_msg.get("subject", "")
-                reply_subject = (
-                    orig_subj
-                    if orig_subj.lower().startswith("re:")
-                    else f"Re: {orig_subj}"
-                )
+                reply_subject = orig_subj if orig_subj.lower().startswith("re:") else f"Re: {orig_subj}"
     if not recipients:
         raise ValueError("Could not determine reply recipient. Please specify 'to' explicitly.")
     if not reply_subject:
@@ -902,13 +862,7 @@ async def get_drive_file_content(
     file_id: str,
     connection_id: str | None = None,
 ) -> dict:
-    if (
-        not file_id
-        or not isinstance(file_id, str)
-        or len(file_id) > 250
-        or "/" in file_id
-        or "\\" in file_id
-    ):
+    if not file_id or not isinstance(file_id, str) or len(file_id) > 250 or "/" in file_id or "\\" in file_id:
         raise ValueError("Invalid Google Drive file ID")
 
     meta = await _request(

@@ -60,9 +60,7 @@ class ToolDefinition:
         """Return UI-safe capability metadata; never includes credentials or prompts."""
         operations = [self.name]
         permission_labels = {
-            "https://www.googleapis.com/auth/calendar.readonly": (
-                "Read calendar events and availability"
-            ),
+            "https://www.googleapis.com/auth/calendar.readonly": ("Read calendar events and availability"),
             "https://www.googleapis.com/auth/calendar.events": "Create, edit, and delete calendar events",
             "https://www.googleapis.com/auth/calendar": "Full access to Google Calendar",
             "https://www.googleapis.com/auth/gmail.readonly": "Search and read email",
@@ -83,9 +81,7 @@ class ToolDefinition:
             "status": status,
             "operations": operations,
             "permission_requirements": list(self.required_permissions),
-            "permission_labels": [
-                permission_labels.get(scope, scope) for scope in self.required_permissions
-            ],
+            "permission_labels": [permission_labels.get(scope, scope) for scope in self.required_permissions],
             "input_schema": self.parameters,
             "output_schema": self.output_schema,
             "connection_required": self.connection_requirement,
@@ -116,16 +112,10 @@ def _validate_schema(schema: dict[str, Any], value: Any, path: str) -> None:
     if "enum" in schema and value not in schema["enum"]:
         raise ValueError(f"{path} has an invalid value")
     if isinstance(value, str):
-        if (
-            len(value) < schema.get("minLength", 0)
-            or len(value) > schema.get("maxLength", 1_000_000)
-        ):
+        if len(value) < schema.get("minLength", 0) or len(value) > schema.get("maxLength", 1_000_000):
             raise ValueError(f"{path} has an invalid length")
     if isinstance(value, (int, float)) and not isinstance(value, bool):
-        if (
-            value < schema.get("minimum", float("-inf"))
-            or value > schema.get("maximum", float("inf"))
-        ):
+        if value < schema.get("minimum", float("-inf")) or value > schema.get("maximum", float("inf")):
             raise ValueError(f"{path} is out of range")
     if isinstance(value, dict):
         properties = schema.get("properties", {})
@@ -227,19 +217,29 @@ def register_tool(
     enabled: bool = True,
 ) -> None:
     inferred_provider = (
-        "google" if name.startswith(("gmail.", "calendar.", "drive."))
-        else "telegram" if name.startswith("telegram.")
-        else "research" if name == "research.search"
-        else "followthrough" if owner == "followthrough"
+        "google"
+        if name.startswith(("gmail.", "calendar.", "drive."))
+        else "telegram"
+        if name.startswith("telegram.")
+        else "research"
+        if name == "research.search"
+        else "followthrough"
+        if owner == "followthrough"
         else "local"
     )
     inferred_category = (
-        "calendar" if name.startswith("calendar.")
-        else "email" if name.startswith("gmail.")
-        else "drive" if name.startswith("drive.")
-        else "messaging" if name.startswith("telegram.")
-        else "research" if name.startswith("research.")
-        else "planning" if owner == "followthrough"
+        "calendar"
+        if name.startswith("calendar.")
+        else "email"
+        if name.startswith("gmail.")
+        else "drive"
+        if name.startswith("drive.")
+        else "messaging"
+        if name.startswith("telegram.")
+        else "research"
+        if name.startswith("research.")
+        else "planning"
+        if owner == "followthrough"
         else "analysis"
     )
     inferred_sensitivity: Literal["public", "personal", "sensitive"] = (
@@ -269,9 +269,7 @@ def register_tool(
             output_schema=output_schema or {"type": "object"},
             input_sensitivity=input_sensitivity or inferred_sensitivity,
             output_sensitivity=output_sensitivity or inferred_output_sensitivity,
-            returns_external_urls=(
-                inferred_urls if returns_external_urls is None else returns_external_urls
-            ),
+            returns_external_urls=(inferred_urls if returns_external_urls is None else returns_external_urls),
             enabled=enabled,
         )
     )

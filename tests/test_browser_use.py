@@ -7,8 +7,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main_module
-from app.conversation import graph as graph_module
 import app.providers.browser_use as browser_use_module
+from app.conversation import graph as graph_module
 from app.providers.browser_use import (
     has_no_repository_results,
     is_repository_url,
@@ -23,9 +23,7 @@ def test_github_navigation_url_is_not_accepted_as_repository():
 
 
 def test_github_empty_search_is_reported_as_no_repository_results():
-    assert has_no_repository_results(
-        "Repositories\n0 (0) results\nYour search did not match any repositories"
-    )
+    assert has_no_repository_results("Repositories\n0 (0) results\nYour search did not match any repositories")
     assert not has_no_repository_results("Repositories\n3 results\nowner/project")
 
 
@@ -87,11 +85,13 @@ def test_browser_research_repository_page_and_citations_e2e(monkeypatch):
             return json.dumps(repo_page_data)
         elif "github.com/" in current_url:
             repo_path = current_url.removeprefix("https://github.com/").rstrip("/")
-            return json.dumps({
-                "title": f"{repo_path}: Open-source project",
-                "url": current_url,
-                "text": f"README.md: Details for {repo_path}.",
-            })
+            return json.dumps(
+                {
+                    "title": f"{repo_path}: Open-source project",
+                    "url": current_url,
+                    "text": f"README.md: Details for {repo_path}.",
+                }
+            )
         return "{}"
 
     mock_page = AsyncMock()

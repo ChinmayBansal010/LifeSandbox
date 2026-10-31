@@ -19,17 +19,11 @@ async def current_principal(
     session_cookie: str | None = Cookie(default=None, alias="life_sandbox_session"),
 ) -> Principal:
     settings = get_settings()
-    token = (
-        authorization[7:]
-        if authorization and authorization.startswith("Bearer ")
-        else session_cookie
-    )
+    token = authorization[7:] if authorization and authorization.startswith("Bearer ") else session_cookie
     if settings.auth_mode == "development" and settings.app_env == "development" and not token:
         return Principal(user_id="local-user")
     if not token:
-        raise HTTPException(
-            status_code=401, detail={"code": "unauthorized", "message": "Bearer token required"}
-        )
+        raise HTTPException(status_code=401, detail={"code": "unauthorized", "message": "Bearer token required"})
     try:
         claims = jwt.decode(
             token,

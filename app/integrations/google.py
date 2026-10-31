@@ -108,15 +108,9 @@ def _settings():
 
 
 @router.get("")
-async def connections(
-    principal: Principal = Depends(current_principal), db: AsyncSession = Depends(get_session)
-):
+async def connections(principal: Principal = Depends(current_principal), db: AsyncSession = Depends(get_session)):
     rows = (
-        await db.scalars(
-            select(IntegrationConnectionRow).where(
-                IntegrationConnectionRow.user_id == principal.user_id
-            )
-        )
+        await db.scalars(select(IntegrationConnectionRow).where(IntegrationConnectionRow.user_id == principal.user_id))
     ).all()
     config = get_settings()
     configured = all(
@@ -178,9 +172,7 @@ async def authorize_google(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(get_session),
 ):
-    url = await create_google_authorization_url(
-        user_id=principal.user_id, db=db, capabilities=payload.capabilities
-    )
+    url = await create_google_authorization_url(user_id=principal.user_id, db=db, capabilities=payload.capabilities)
     return {"authorization_url": url}
 
 

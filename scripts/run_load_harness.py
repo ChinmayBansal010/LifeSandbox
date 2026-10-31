@@ -80,10 +80,7 @@ def main() -> int:
     parser.add_argument("--output", type=str, default="", help="Path to write JSON report")
     args = parser.parse_args()
 
-    print(
-        f"Starting load benchmark: {args.requests} requests, "
-        f"concurrency={args.concurrency}, limit={args.limit}..."
-    )
+    print(f"Starting load benchmark: {args.requests} requests, concurrency={args.concurrency}, limit={args.limit}...")
     results = asyncio.run(
         run_rate_limiter_load_benchmark(
             concurrency=args.concurrency,

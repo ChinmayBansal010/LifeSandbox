@@ -75,14 +75,7 @@ async def run_due_once(
             claim_filter.append(JobRow.job_type == job_type)
 
         ids = list(
-            (
-                await db.scalars(
-                    select(JobRow.id)
-                    .where(*claim_filter)
-                    .order_by(JobRow.scheduled_at)
-                    .limit(limit)
-                )
-            ).all()
+            (await db.scalars(select(JobRow.id).where(*claim_filter).order_by(JobRow.scheduled_at).limit(limit))).all()
         )
     for job_id in ids:
         async with SessionLocal() as db:
@@ -107,23 +100,13 @@ async def run_due_once(
                 continue
             try:
                 if job.job_type == "reminder_delivery":
-                    reminder = (
-                        await db.get(ReminderRow, job.reminder_id)
-                        if job.reminder_id
-                        else None
-                    )
+                    reminder = await db.get(ReminderRow, job.reminder_id) if job.reminder_id else None
                     if reminder is None or reminder.status != "pending":
                         job.status = "cancelled"
                     else:
-                        existing = await db.scalar(
-                            select(NotificationRow.id).where(NotificationRow.job_id == job.id)
-                        )
+                        existing = await db.scalar(select(NotificationRow.id).where(NotificationRow.job_id == job.id))
                         if not existing:
-                            db.add(
-                                NotificationRow(
-                                    user_id=job.user_id, job_id=job.id, text=reminder.text
-                                )
-                            )
+                            db.add(NotificationRow(user_id=job.user_id, job_id=job.id, text=reminder.text))
                         if reminder.recurrence in {"daily", "weekly"}:
                             reminder.scheduled_at = next_occurrence(
                                 reminder.scheduled_at, reminder.timezone, reminder.recurrence
@@ -134,9 +117,7 @@ async def run_due_once(
                                     user_id=reminder.user_id,
                                     reminder_id=reminder.id,
                                     scheduled_at=reminder.scheduled_at,
-                                    idempotency_key=(
-                                        f"reminder:{reminder.id}:{reminder.scheduled_at.isoformat()}"
-                                    ),
+                                    idempotency_key=(f"reminder:{reminder.id}:{reminder.scheduled_at.isoformat()}"),
                                 )
                             )
                         else:
@@ -164,9 +145,7 @@ async def run_due_once(
 
                 job.completed_at = now
                 await db.commit()
-                logger.info(
-                    "job lifecycle job_id=%s type=%s status=%s", job.id, job.job_type, job.status
-                )
+                logger.info("job lifecycle job_id=%s type=%s status=%s", job.id, job.job_type, job.status)
                 processed += 1
             except Exception as exc:
                 await db.rollback()
@@ -175,20 +154,14 @@ async def run_due_once(
                     if retry:
                         retry.last_error = type(exc).__name__
                         is_permanent = isinstance(exc, (ValueError, PermissionError))
-                        retry.status = (
-                            "failed"
-                            if (retry.attempts >= MAX_ATTEMPTS or is_permanent)
-                            else "queued"
-                        )
+                        retry.status = "failed" if (retry.attempts >= MAX_ATTEMPTS or is_permanent) else "queued"
                         if retry.status == "queued":
                             retry.scheduled_at = now + timedelta(seconds=30 * retry.attempts)
                         else:
                             retry.completed_at = now
                             if retry.job_type == "reminder_delivery":
                                 failed_reminder = (
-                                    await retry_db.get(ReminderRow, retry.reminder_id)
-                                    if retry.reminder_id
-                                    else None
+                                    await retry_db.get(ReminderRow, retry.reminder_id) if retry.reminder_id else None
                                 )
                                 if failed_reminder and failed_reminder.status == "pending":
                                     failed_reminder.status = "failed"
@@ -202,9 +175,7 @@ async def run_due_once(
                                     if failed_file and failed_file.status != "ready":
                                         failed_file.status = "error"
                                         failed_file.error_message = (
-                                            str(exc)[:500]
-                                            if str(exc)
-                                            else f"Ingestion failed: {type(exc).__name__}"
+                                            str(exc)[:500] if str(exc) else f"Ingestion failed: {type(exc).__name__}"
                                         )
                         await retry_db.commit()
                 logger.exception("job execution failed job_id=%s", job_id)

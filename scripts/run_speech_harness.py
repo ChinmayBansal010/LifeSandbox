@@ -99,10 +99,7 @@ def run_stt_harness(verbose: bool = False) -> dict:
         cer = metrics.get("cer", 1.0)
 
         status_str = "PASS" if passed and wer <= 0.1 else "FAIL"
-        print(
-            f"  [{status_str}] {case_id:28s} | "
-            f"WER: {wer:.2f} | CER: {cer:.2f} | {duration_ms:.1f}ms"
-        )
+        print(f"  [{status_str}] {case_id:28s} | WER: {wer:.2f} | CER: {cer:.2f} | {duration_ms:.1f}ms")
 
         results.append(
             {
@@ -136,9 +133,7 @@ def run_stt_harness(verbose: bool = False) -> dict:
                     )
                     ok = resp.status_code == 200
                     print(f"  [{'PASS' if ok else 'FAIL'}] Container: {label:5s} ({mime})")
-                    container_results.append(
-                        {"container": label, "status": "PASS" if ok else "FAIL"}
-                    )
+                    container_results.append({"container": label, "status": "PASS" if ok else "FAIL"})
 
     return {
         "stt_accuracy_cases": results,
@@ -194,10 +189,7 @@ def run_tts_harness(verbose: bool = False) -> dict:
 
                     status_str = "PASS" if is_valid_wav else "FAIL"
                     dur_str = f"{meta.duration_seconds:.2f}s audio" if meta else "invalid"
-                    print(
-                        f"  [{status_str}] {case_id:20s} (voice: {voice}) | "
-                        f"{dur_str} | {duration_ms:.1f}ms latency"
-                    )
+                    print(f"  [{status_str}] {case_id:20s} (voice: {voice}) | {dur_str} | {duration_ms:.1f}ms latency")
 
                     tts_results.append(
                         {

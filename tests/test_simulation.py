@@ -14,9 +14,7 @@ def test_projection_is_exact_and_tracks_constraint_violations():
         minimum_balance=Decimal("500"),
         scenarios=[
             Scenario(name="base"),
-            Scenario(
-                name="laptop", changes=[Change(name="laptop", amount=Decimal("-800"), month=1)]
-            ),
+            Scenario(name="laptop", changes=[Change(name="laptop", amount=Decimal("-800"), month=1)]),
         ],
     )
     result = simulate(request)

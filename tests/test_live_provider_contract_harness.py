@@ -81,10 +81,7 @@ async def test_openai_compatible_contract_tool_call_schema():
                             "type": "function",
                             "function": {
                                 "name": "google_calendar_create_event",
-                                "arguments": (
-                                    '{"title": "Review Lease", '
-                                    '"start_time": "2026-10-25T10:00:00Z"}'
-                                ),
+                                "arguments": ('{"title": "Review Lease", "start_time": "2026-10-25T10:00:00Z"}'),
                             },
                         }
                     ],
@@ -94,9 +91,7 @@ async def test_openai_compatible_contract_tool_call_schema():
         ],
     }
 
-    mock_response = httpx.Response(
-        200, json=upstream_json, request=httpx.Request("POST", "https://api.test/v1")
-    )
+    mock_response = httpx.Response(200, json=upstream_json, request=httpx.Request("POST", "https://api.test/v1"))
     model = OpenAICompatibleModel(
         provider="nebius",
         base_url="https://api.test/v1",
@@ -204,9 +199,7 @@ async def test_mem0_contract_schema(monkeypatch):
             {"id": "m2", "text": "Plans to purchase a home in 2027"},
         ]
     }
-    mock_resp = httpx.Response(
-        200, json=upstream_json, request=httpx.Request("POST", "https://api.mem0.ai")
-    )
+    mock_resp = httpx.Response(200, json=upstream_json, request=httpx.Request("POST", "https://api.mem0.ai"))
     with patch("httpx.AsyncClient.post", new_callable=AsyncMock, return_value=mock_resp):
         memories = await search_memories(query="career goals", user_id="user-123", limit=5)
         assert len(memories) == 2
@@ -217,9 +210,7 @@ async def test_mem0_contract_schema(monkeypatch):
 # ─── 4. Live Provider Opt-in Contract Verification ───────────────────────────
 
 
-@pytest.mark.skipif(
-    not RUN_LIVE, reason="Live provider verification requires RUN_LIVE_PROVIDER_TESTS=1"
-)
+@pytest.mark.skipif(not RUN_LIVE, reason="Live provider verification requires RUN_LIVE_PROVIDER_TESTS=1")
 @pytest.mark.asyncio
 async def test_live_nebius_provider_contract():
     """Live Contract: verify Nebius OpenAI-compatible endpoint responds with valid schema."""
@@ -240,9 +231,7 @@ async def test_live_nebius_provider_contract():
     assert len(result.text.strip()) > 0
 
 
-@pytest.mark.skipif(
-    not RUN_LIVE, reason="Live provider verification requires RUN_LIVE_PROVIDER_TESTS=1"
-)
+@pytest.mark.skipif(not RUN_LIVE, reason="Live provider verification requires RUN_LIVE_PROVIDER_TESTS=1")
 @pytest.mark.asyncio
 async def test_live_openrouter_provider_contract():
     """Live Contract: verify OpenRouter endpoint responds with valid schema."""
@@ -403,4 +392,3 @@ async def test_telegram_bot_api_contract_schema(monkeypatch):
     assert isinstance(sent, dict)
     assert sent["status"] == "sent"
     assert sent["message_id"] == 9901
-

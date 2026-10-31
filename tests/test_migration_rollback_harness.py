@@ -78,9 +78,9 @@ def test_migration_forward_and_rollback_harness(isolated_alembic_db):
     inspector = inspect(sync_engine)
     base_tables = set(inspector.get_table_names())
     # After downgrade to base, application tables should be dropped (alembic_version may remain)
-    assert not expected_tables.intersection(
-        base_tables
-    ), f"Tables remained after downgrade to base: {expected_tables.intersection(base_tables)}"
+    assert not expected_tables.intersection(base_tables), (
+        f"Tables remained after downgrade to base: {expected_tables.intersection(base_tables)}"
+    )
 
     # 3. Idempotent re-upgrade to head
     command.upgrade(cfg, "head")
@@ -105,6 +105,5 @@ def test_migration_schema_matches_declarative_models(isolated_alembic_db):
     missing_in_db = model_tables - db_tables
 
     assert not missing_in_db, (
-        "Schema drift detected! Tables declared in Base.metadata "
-        f"but missing from migrations: {missing_in_db}"
+        f"Schema drift detected! Tables declared in Base.metadata but missing from migrations: {missing_in_db}"
     )

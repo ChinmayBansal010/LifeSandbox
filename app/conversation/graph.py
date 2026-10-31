@@ -34,10 +34,10 @@ from app.integrations.google_api import (
     update_drive_file_content,
     update_event,
 )
+from app.openui import OPENUI_SYSTEM_PROMPT
 from app.persistence.models import ApprovalRow, AuditRow, IntegrationConnectionRow
 from app.providers.browser_use import research_with_browser
 from app.providers.llm import LLMError, model_for
-from app.openui import OPENUI_SYSTEM_PROMPT
 from app.services.followthrough_tools import execute_followthrough_tool
 from app.services.tool_tracker import trace_tool
 from app.skills.registry import detect_skill
@@ -95,10 +95,7 @@ def select_relevant_tools(
         term in text for term in ("task", "todo", "remind", "reminder", "project", "deadline")
     ):
         selected.update(FOLLOWTHROUGH_TOOL_NAMES)
-    if any(
-        term in text
-        for term in ("calendar", "schedule", "meeting", "free hour", "free time", "availability")
-    ):
+    if any(term in text for term in ("calendar", "schedule", "meeting", "free hour", "free time", "availability")):
         selected.update({"calendar.list_events", "calendar.find_free_time"})
 
     has_email_keywords = any(
@@ -118,12 +115,8 @@ def select_relevant_tools(
         )
     )
     is_email_followup = any(
-        term in text
-        for term in ("send it", "send this", "send them", "send", "deliver", "approve", "go ahead")
-    ) and any(
-        term in recent_context
-        for term in ("email", "gmail", "mail", "draft", "to:", "subject:")
-    )
+        term in text for term in ("send it", "send this", "send them", "send", "deliver", "approve", "go ahead")
+    ) and any(term in recent_context for term in ("email", "gmail", "mail", "draft", "to:", "subject:"))
 
     if has_email_keywords or is_email_followup:
         selected.update({"gmail.search_messages", "gmail.get_thread", "gmail.create_draft"})
@@ -172,10 +165,7 @@ def select_relevant_tools(
         )
     ):
         selected.add("telegram.send_message")
-    if any(
-        term in text
-        for term in ("latest", "current", "research", "open-source", "web", "online", "sources")
-    ):
+    if any(term in text for term in ("latest", "current", "research", "open-source", "web", "online", "sources")):
         selected.add("research.search")
     if intent == "research":
         selected.add("research.search")
@@ -209,9 +199,7 @@ async def _bounded(awaitable: Any, timeout_seconds: float) -> Any:
 
 
 async def classify(state: ConversationState):
-    async with trace_tool(
-        "intent_classifier", "classifier", {"message": state.get("message", "")}
-    ) as event:
+    async with trace_tool("intent_classifier", "classifier", {"message": state.get("message", "")}) as event:
         text = state.get("message", "").lower()
         compares_allocations = bool(
             re.search(r"\b(compare|evaluate|assess)\b.{0,80}\b(plans?|options?)\b", text)
@@ -270,10 +258,7 @@ async def classify(state: ConversationState):
                 )
             )
             else "followthrough"
-            if any(
-                term in text
-                for term in ("task", "todo", "remind", "reminder", "project", "deadline")
-            )
+            if any(term in text for term in ("task", "todo", "remind", "reminder", "project", "deadline"))
             else "conversation"
         )
         skill, skill_trigger = detect_skill(state.get("message", ""))
@@ -329,9 +314,7 @@ async def agent(state: ConversationState):
     messages = state.get("agent_messages")
     if state.get("intent") == "research":
         settings = get_settings()
-        relevant = select_relevant_tools(
-            state.get("message", ""), state.get("intent", ""), state.get("history", [])
-        )
+        relevant = select_relevant_tools(state.get("message", ""), state.get("intent", ""), state.get("history", []))
         non_research_tools = {
             "calendar.list_events",
             "calendar.find_free_time",
@@ -344,9 +327,8 @@ async def agent(state: ConversationState):
             "telegram.send_message",
             *FOLLOWTHROUGH_TOOL_NAMES,
         }
-        if (
-            (settings.research_provider != "tavily" or not settings.tavily_api_key)
-            and not relevant.intersection(non_research_tools)
+        if (settings.research_provider != "tavily" or not settings.tavily_api_key) and not relevant.intersection(
+            non_research_tools
         ):
             return {
                 "reply": (
@@ -362,9 +344,7 @@ async def agent(state: ConversationState):
         skill_context = ""
         if skill:
             trigger_info = f" (invoked via {skill_trigger})" if skill_trigger else ""
-            skill_context = (
-                f"\nRelevant decision skill [{skill.name}]{trigger_info}: {skill.instructions}"
-            )
+            skill_context = f"\nRelevant decision skill [{skill.name}]{trigger_info}: {skill.instructions}"
         channel = state.get("channel", "web")
         if channel == "telegram":
             formatting = (
@@ -487,9 +467,7 @@ async def agent(state: ConversationState):
 
     model = model_for(model=state.get("model"))
     rounds = state.get("tool_rounds", 0)
-    allowed_tools = select_relevant_tools(
-        state.get("message", ""), state.get("intent", ""), state.get("history", [])
-    )
+    allowed_tools = select_relevant_tools(state.get("message", ""), state.get("intent", ""), state.get("history", []))
     if not browser_research:
         if get_settings().research_provider != "tavily":
             allowed_tools.discard("research.search")
@@ -505,9 +483,7 @@ async def agent(state: ConversationState):
                     )
                 )
             ).all()
-            granted = {
-                scope for connection in connections for scope in json.loads(connection.scopes)
-            }
+            granted = {scope for connection in connections for scope in json.loads(connection.scopes)}
 
             def _has_permission(required_scope: str) -> bool:
                 compatible = SCOPE_COMPATIBILITY.get(required_scope, {required_scope})
@@ -516,11 +492,13 @@ async def agent(state: ConversationState):
             if not _has_permission("https://www.googleapis.com/auth/calendar.readonly"):
                 allowed_tools.difference_update({"calendar.list_events", "calendar.find_free_time"})
             if not _has_permission("https://www.googleapis.com/auth/calendar.events"):
-                allowed_tools.difference_update({
-                    "calendar.create_event",
-                    "calendar.update_event",
-                    "calendar.delete_event",
-                })
+                allowed_tools.difference_update(
+                    {
+                        "calendar.create_event",
+                        "calendar.update_event",
+                        "calendar.delete_event",
+                    }
+                )
             if not _has_permission("https://www.googleapis.com/auth/gmail.readonly"):
                 allowed_tools.difference_update({"gmail.search_messages", "gmail.get_thread"})
             if not _has_permission("https://www.googleapis.com/auth/gmail.compose"):
@@ -532,12 +510,14 @@ async def agent(state: ConversationState):
             if not _has_permission("https://www.googleapis.com/auth/drive.readonly"):
                 allowed_tools.difference_update({"drive.search_files", "drive.get_file_content"})
             if not _has_permission("https://www.googleapis.com/auth/drive.file"):
-                allowed_tools.difference_update({
-                    "drive.create_file",
-                    "drive.update_file_content",
-                    "drive.delete_file",
-                    "drive.create_folder",
-                })
+                allowed_tools.difference_update(
+                    {
+                        "drive.create_file",
+                        "drive.update_file_content",
+                        "drive.delete_file",
+                        "drive.create_folder",
+                    }
+                )
             if _has_permission("https://www.googleapis.com/auth/gmail.compose") and _has_permission(
                 "https://www.googleapis.com/auth/gmail.send"
             ):
@@ -576,9 +556,7 @@ async def agent(state: ConversationState):
             "provider": completion.provider,
             "model": completion.model,
             "has_tool_calls": bool(completion.tool_calls),
-            "tool_calls": [
-                {"name": tc.get("function", {}).get("name")} for tc in (completion.tool_calls or [])
-            ],
+            "tool_calls": [{"name": tc.get("function", {}).get("name")} for tc in (completion.tool_calls or [])],
             "text_length": len(completion.text or ""),
         }
 
@@ -627,14 +605,8 @@ async def agent(state: ConversationState):
                 "model": completion.model,
                 "text_length": len(completion.text or ""),
             }
-        if (
-            not completion.text.strip()
-            or "<tool_call" in completion.text
-            or "<function=" in completion.text
-        ):
-            raise LLMError(
-                "Provider did not return a user-facing answer", provider=completion.provider
-            )
+        if not completion.text.strip() or "<tool_call" in completion.text or "<function=" in completion.text:
+            raise LLMError("Provider did not return a user-facing answer", provider=completion.provider)
     return {
         "agent_messages": messages,
         "reply": completion.text,
@@ -686,9 +658,7 @@ async def execute_tools(state: ConversationState):
                 if name == "research.search":
                     from app.providers.research import research
 
-                    sources = await _bounded(
-                        research(arguments["query"]), definition.timeout_seconds
-                    )
+                    sources = await _bounded(research(arguments["query"]), definition.timeout_seconds)
                     result = {
                         "query": arguments["query"],
                         "sources": [source.model_dump(mode="json") for source in sources],
@@ -761,15 +731,18 @@ async def execute_tools(state: ConversationState):
                         end_dt = datetime.fromisoformat(arguments["end"])
                         if end_dt.tzinfo is None:
                             end_dt = end_dt.replace(tzinfo=tz)
-                        result = await _bounded(list_events(
-                            tool_db,
-                            user_id,
-                            start_dt,
-                            end_dt,
-                            tz_str,
-                            arguments.get("calendar_id", "primary"),
-                            arguments.get("limit", 50),
-                        ), definition.timeout_seconds)
+                        result = await _bounded(
+                            list_events(
+                                tool_db,
+                                user_id,
+                                start_dt,
+                                end_dt,
+                                tz_str,
+                                arguments.get("calendar_id", "primary"),
+                                arguments.get("limit", 50),
+                            ),
+                            definition.timeout_seconds,
+                        )
                     elif name == "calendar.find_free_time":
                         tz_str = arguments.get("timezone", "UTC")
                         try:
@@ -784,16 +757,19 @@ async def execute_tools(state: ConversationState):
                         if end_dt.tzinfo is None:
                             end_dt = end_dt.replace(tzinfo=tz)
                         duration = int(arguments.get("duration_minutes", 30))
-                        result = await _bounded(find_free_time(
-                            tool_db,
-                            user_id,
-                            start_dt,
-                            end_dt,
-                            tz_str,
-                            duration,
-                            int(arguments.get("working_start", 9)),
-                            int(arguments.get("working_end", 17)),
-                        ), definition.timeout_seconds)
+                        result = await _bounded(
+                            find_free_time(
+                                tool_db,
+                                user_id,
+                                start_dt,
+                                end_dt,
+                                tz_str,
+                                duration,
+                                int(arguments.get("working_start", 9)),
+                                int(arguments.get("working_end", 17)),
+                            ),
+                            definition.timeout_seconds,
+                        )
                     elif name == "calendar.create_event":
                         result = await _bounded(
                             create_event(
@@ -839,16 +815,12 @@ async def execute_tools(state: ConversationState):
                         )
                     elif name == "gmail.search_messages":
                         result = await _bounded(
-                            search_messages(
-                                tool_db, user_id, arguments["query"], arguments.get("limit", 10)
-                            ),
+                            search_messages(tool_db, user_id, arguments["query"], arguments.get("limit", 10)),
                             definition.timeout_seconds,
                         )
                     elif name == "gmail.get_thread":
                         result = await _bounded(
-                            get_thread(
-                                tool_db, user_id, arguments["thread_id"], arguments.get("limit", 10)
-                            ),
+                            get_thread(tool_db, user_id, arguments["thread_id"], arguments.get("limit", 10)),
                             definition.timeout_seconds,
                         )
                     elif name == "gmail.create_draft":
@@ -930,19 +902,14 @@ async def execute_tools(state: ConversationState):
                                 item
                                 for item in connection_rows
                                 if all(
-                                    any(
-                                        g in SCOPE_COMPATIBILITY.get(req, {req})
-                                        for g in json.loads(item.scopes)
-                                    )
+                                    any(g in SCOPE_COMPATIBILITY.get(req, {req}) for g in json.loads(item.scopes))
                                     for req in required_scopes
                                 )
                             ),
                             None,
                         )
                         if connection is None:
-                            raise ValueError(
-                                "Connect Gmail with draft and send approval permissions first"
-                            )
+                            raise ValueError("Connect Gmail with draft and send approval permissions first")
                         draft = await _bounded(
                             read_draft(tool_db, user_id, connection.id, arguments["draft_id"]),
                             definition.timeout_seconds,
@@ -951,9 +918,7 @@ async def execute_tools(state: ConversationState):
                         proposal = ApprovalRow(
                             user_id=user_id,
                             action="gmail.send_draft",
-                            description=(
-                                f"Send email to {draft['recipients']['to']}: {draft['subject']}"
-                            )[:500],
+                            description=(f"Send email to {draft['recipients']['to']}: {draft['subject']}")[:500],
                             arguments=serialized,
                             payload_hash=hashlib.sha256(serialized.encode()).hexdigest(),
                             expires_at=datetime.now(UTC) + timedelta(hours=24),
@@ -1060,17 +1025,18 @@ async def execute_tools(state: ConversationState):
                     user_id = state.get("user_id")
                     conversation_id = state.get("conversation_id")
                     if tool_db is None or user_id is None or conversation_id is None:
-                        raise ValueError(
-                            "Follow-through tools require an authenticated chat context"
-                        )
-                    result = await _bounded(execute_followthrough_tool(
-                        tool_db,
-                        user_id,
-                        conversation_id,
-                        call_id,
-                        name,
-                        arguments,
-                    ), definition.timeout_seconds)
+                        raise ValueError("Follow-through tools require an authenticated chat context")
+                    result = await _bounded(
+                        execute_followthrough_tool(
+                            tool_db,
+                            user_id,
+                            conversation_id,
+                            call_id,
+                            name,
+                            arguments,
+                        ),
+                        definition.timeout_seconds,
+                    )
                 else:
                     result = execute_decision_tool(name, arguments)
                 if (
@@ -1080,9 +1046,7 @@ async def execute_tools(state: ConversationState):
                     or name.startswith("telegram.")
                 ):
                     event["output_data"] = {
-                        "status": result.get("status", "succeeded")
-                        if isinstance(result, dict)
-                        else "succeeded",
+                        "status": result.get("status", "succeeded") if isinstance(result, dict) else "succeeded",
                         "count": sum(
                             len(result.get(key, []))
                             for key in ("items", "messages", "slots", "files")
@@ -1100,8 +1064,7 @@ async def execute_tools(state: ConversationState):
                     error = {
                         "code": "tool_outcome_uncertain",
                         "message": (
-                            "Google may have created the draft before the timeout. "
-                            "Check Gmail before trying again."
+                            "Google may have created the draft before the timeout. Check Gmail before trying again."
                         ),
                     }
                     event["status"] = "uncertain"
@@ -1109,10 +1072,7 @@ async def execute_tools(state: ConversationState):
                 elif isinstance(exc, TimeoutError):
                     error = {
                         "code": "tool_timeout",
-                        "message": (
-                            "The operation exceeded its execution limit; "
-                            "its result was not confirmed."
-                        ),
+                        "message": ("The operation exceeded its execution limit; its result was not confirmed."),
                     }
                 else:
                     error = {
@@ -1155,17 +1115,11 @@ async def browser_research(state: ConversationState):
     """Run explicitly enabled web research before the supervisor writes its answer."""
     if not state.get("allow_browser_use"):
         return {}
-    async with trace_tool(
-        "browser_research", "research", {"message": state.get("message", "")}
-    ) as event:
+    async with trace_tool("browser_research", "research", {"message": state.get("message", "")}) as event:
         try:
             result = await research_with_browser(state.get("message", ""))
             event["output_data"] = {
-                "result_preview": (
-                    result.get("result", "")[:500]
-                    if isinstance(result, dict)
-                    else str(result)[:500]
-                )
+                "result_preview": (result.get("result", "")[:500] if isinstance(result, dict) else str(result)[:500])
             }
         except Exception as exc:
             logging.getLogger("life_sandbox.browser_use").exception("Browser Use research failed")
@@ -1193,9 +1147,7 @@ def build_graph():
         {"browser_research": "browser_research", "agent": "agent"},
     )
     workflow.add_edge("browser_research", "agent")
-    workflow.add_conditional_edges(
-        "agent", after_agent, {"execute_tools": "execute_tools", "done": END}
-    )
+    workflow.add_conditional_edges("agent", after_agent, {"execute_tools": "execute_tools", "done": END})
     workflow.add_edge("execute_tools", "agent")
     return workflow.compile()
 

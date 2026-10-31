@@ -32,9 +32,7 @@ def test_skill_routing_regression(message: str, expected_skill: str):
     """Ensure natural language prompt routing consistently identifies the intended skill."""
     skill, trigger = detect_skill(message)
     assert skill is not None, f"Failed to detect any skill for: '{message}'"
-    assert skill.name == expected_skill, (
-        f"Skill routing regression: expected {expected_skill}, got {skill.name}"
-    )
+    assert skill.name == expected_skill, f"Skill routing regression: expected {expected_skill}, got {skill.name}"
     assert trigger in ("context", "slash_command")
 
 
@@ -74,9 +72,7 @@ def test_skill_routing_regression(message: str, expected_skill: str):
 def test_tool_authorization_regression(message: str, required_tool: str):
     """Ensure user requests deterministically grant the required tool schemas."""
     tools = select_relevant_tools(message)
-    assert required_tool in tools, (
-        f"Tool relevance regression: expected {required_tool} to be selected in {tools}"
-    )
+    assert required_tool in tools, f"Tool relevance regression: expected {required_tool} to be selected in {tools}"
 
 
 @pytest.mark.asyncio

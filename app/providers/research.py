@@ -21,9 +21,7 @@ class ResearchUnavailable(RuntimeError):
 async def research(query: str) -> list[ResearchSource]:
     settings = get_settings()
     if settings.research_provider != "tavily" or not settings.tavily_api_key:
-        raise ResearchUnavailable(
-            "Research is disabled; configure RESEARCH_PROVIDER=tavily and TAVILY_API_KEY"
-        )
+        raise ResearchUnavailable("Research is disabled; configure RESEARCH_PROVIDER=tavily and TAVILY_API_KEY")
     try:
         async with httpx.AsyncClient(timeout=15) as client:
             response = await client.post(

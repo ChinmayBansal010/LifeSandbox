@@ -257,9 +257,7 @@ def test_stt_endpoint_all_supported_containers(monkeypatch):
                         "/api/v1/audio/transcriptions",
                         files={"file": (filename, io.BytesIO(payload), mime)},
                     )
-                    assert (
-                        response.status_code == 200
-                    ), f"Failed for {filename} ({mime}): {response.text}"
+                    assert response.status_code == 200, f"Failed for {filename} ({mime}): {response.text}"
                     assert response.json()["text"] == "Container test passed."
 
 

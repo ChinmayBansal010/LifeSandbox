@@ -55,9 +55,7 @@ async def find_memories(
     db: AsyncSession = Depends(get_session),
 ):
     if not query.strip() or not 1 <= limit <= 20:
-        raise HTTPException(
-            422, detail={"code": "invalid_search", "message": "Invalid query or limit"}
-        )
+        raise HTTPException(422, detail={"code": "invalid_search", "message": "Invalid query or limit"})
     rows = await search_memories(db, principal.user_id, query, limit)
     await db.commit()
     return {"items": [memory_view(row) for row in rows]}
@@ -69,9 +67,7 @@ async def get_memory(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(get_session),
 ):
-    row = await db.scalar(
-        select(MemoryRow).where(MemoryRow.id == memory_id, MemoryRow.user_id == principal.user_id)
-    )
+    row = await db.scalar(select(MemoryRow).where(MemoryRow.id == memory_id, MemoryRow.user_id == principal.user_id))
     if row is None:
         raise HTTPException(404, detail={"code": "not_found", "message": "Memory not found"})
     return memory_view(row)
@@ -83,9 +79,7 @@ async def archive_memory(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(get_session),
 ):
-    row = await db.scalar(
-        select(MemoryRow).where(MemoryRow.id == memory_id, MemoryRow.user_id == principal.user_id)
-    )
+    row = await db.scalar(select(MemoryRow).where(MemoryRow.id == memory_id, MemoryRow.user_id == principal.user_id))
     if row is None:
         raise HTTPException(404, detail={"code": "not_found", "message": "Memory not found"})
     row.status = "archived"
@@ -113,15 +107,11 @@ async def link_memory_project(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(get_session),
 ):
-    row = await db.scalar(
-        select(MemoryRow).where(MemoryRow.id == memory_id, MemoryRow.user_id == principal.user_id)
-    )
+    row = await db.scalar(select(MemoryRow).where(MemoryRow.id == memory_id, MemoryRow.user_id == principal.user_id))
     if row is None:
         raise HTTPException(404, detail={"code": "not_found", "message": "Memory not found"})
     if payload.project_id and not await db.scalar(
-        select(ProjectRow.id).where(
-            ProjectRow.id == payload.project_id, ProjectRow.user_id == principal.user_id
-        )
+        select(ProjectRow.id).where(ProjectRow.id == payload.project_id, ProjectRow.user_id == principal.user_id)
     ):
         raise HTTPException(404, detail={"code": "not_found", "message": "Project not found"})
     row.project_id = payload.project_id
@@ -141,9 +131,7 @@ async def list_memory_candidates(
     rows = (
         await db.scalars(
             select(MemoryCandidateRow)
-            .where(
-                MemoryCandidateRow.user_id == principal.user_id, MemoryCandidateRow.status == status
-            )
+            .where(MemoryCandidateRow.user_id == principal.user_id, MemoryCandidateRow.status == status)
             .order_by(MemoryCandidateRow.created_at.desc())
         )
     ).all()
@@ -165,14 +153,10 @@ async def approve_memory_candidate(
     if row is None:
         raise HTTPException(404, detail={"code": "not_found", "message": "Candidate not found"})
     if row.status != "pending":
-        raise HTTPException(
-            409, detail={"code": "candidate_resolved", "message": "Candidate is no longer pending"}
-        )
+        raise HTTPException(409, detail={"code": "candidate_resolved", "message": "Candidate is no longer pending"})
     policy = await policy_for(db, principal.user_id)
     if not policy.enabled:
-        raise HTTPException(
-            409, detail={"code": "memory_disabled", "message": "Local memory is disabled"}
-        )
+        raise HTTPException(409, detail={"code": "memory_disabled", "message": "Local memory is disabled"})
     try:
         memory = await save_memory(
             db,
@@ -216,9 +200,7 @@ async def reject_memory_candidate(
     if row is None:
         raise HTTPException(404, detail={"code": "not_found", "message": "Candidate not found"})
     if row.status != "pending":
-        raise HTTPException(
-            409, detail={"code": "candidate_resolved", "message": "Candidate is no longer pending"}
-        )
+        raise HTTPException(409, detail={"code": "candidate_resolved", "message": "Candidate is no longer pending"})
     row.status = "rejected"
     row.resolved_at = datetime.now(UTC)
     db.add(
