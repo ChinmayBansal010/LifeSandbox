@@ -546,7 +546,7 @@ async def process_telegram_update(
                 "<i>This link is valid for 10 minutes. Once authorized, you can perform all "
                 "your operations right here from Telegram!</i>\n\n"
                 "💡 <b>Tip if running locally:</b>\n"
-                "If your browser shows <i>\"Site can't be reached\"</i> after you approve "
+                'If your browser shows <i>"Site can\'t be reached"</i> after you approve '
                 "permissions (because <code>localhost:8000</code> is running on your computer "
                 "and not reachable from your phone), simply <b>copy the full URL from your "
                 "browser's address bar and paste it directly into this chat</b>! I will finish "
