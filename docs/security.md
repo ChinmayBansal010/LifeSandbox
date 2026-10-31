@@ -1,6 +1,6 @@
 # Security
 
-Development auth maps requests to `local-user` only while `APP_ENV` is not production. Production mode requires `AUTH_MODE=jwt` and a secret and checks HS256 signature, issuer, audience, expiration and subject. This is a basic adapter, not Better Auth integration or a substitute for production key rotation/JWKS verification. Never deploy the development bypass.
+Development auth maps requests to `local-user` only while `APP_ENV` is not production. Production mode requires `AUTH_MODE=jwt` and a secret and checks HS256 signature, issuer, audience, expiration and subject. Any configured `AUTH_SECRET` must contain at least 32 bytes. This is a basic adapter, not Better Auth integration or a substitute for production key rotation/JWKS verification. Never deploy the development bypass.
 
 Ownership is derived from the authenticated principal for conversation, memory, candidate, project, task, reminder, job, approval and file lookups; foreign IDs return 404. Local memory saving requires explicit user action or an explicit "remember" request covered by an allowed nonsensitive policy category. Hosted Mem0 use additionally requires persisted permission and per-exchange opt-in. User text, memories and tool results are untrusted.
 
@@ -17,6 +17,10 @@ The model only receives request-relevant tools after Google scopes have been fil
 
 Google app sign-in is a separate OpenID Connect flow. It uses owner-independent one-time state bound to a short-lived HttpOnly SameSite=Lax cookie, PKCE, nonce verification, Google JWKS signature checks, verified email, and an eight-hour signed HttpOnly session cookie. The session subject is the stable Google `sub`, namespaced as `google:<sub>`; email is display metadata and never an ownership key. `AUTH_SECRET` signs app sessions and must be set before enabling sign-in. In development, the local `local-user` fallback remains available when no session cookie is present; production requires JWT mode and does not use that fallback.
 
+
+## Telegram integration security
+
+Telegram webhook requests fail closed unless `TELEGRAM_WEBHOOK_SECRET` is configured and the request header matches it using a constant-time comparison. Webhook payloads are size-bounded. Setting or deleting the bot webhook and viewing operational diagnostics require an administrator; webhook destinations must use HTTPS. When multiple Telegram chats are allowlisted, they receive isolated `telegram:<chat-id>` principals by default. Use `TELEGRAM_USER_ID_MAP` only to intentionally bind a chat to a specific existing principal.
 
 ## Administrative authorization
 

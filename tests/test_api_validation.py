@@ -3,18 +3,26 @@ from fastapi.testclient import TestClient
 from app.main import app
 
 
-def test_health_endpoint_exposes_environment_status():
+def test_health_endpoint_does_not_expose_environment_configuration():
     with TestClient(app) as client:
         response = client.get("/health")
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
-    assert response.json()["environment"] == "development"
+    assert "environment" not in response.json()
 
 
 def test_request_id_header_is_preserved():
     with TestClient(app) as client:
         response = client.get("/health", headers={"X-Request-ID": "test-request-123"})
     assert response.headers["X-Request-ID"] == "test-request-123"
+
+
+def test_request_id_rejects_untrusted_header_values():
+    malicious_id = "bad" + chr(13) + chr(10) + "Injected: yes"
+    with TestClient(app) as client:
+        response = client.get("/health", headers={"X-Request-ID": malicious_id})
+    assert response.status_code == 200
+    assert response.headers["X-Request-ID"] != malicious_id
 
 
 def test_request_id_is_generated_when_missing():

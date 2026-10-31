@@ -16,11 +16,16 @@ def test_production_requires_jwt_authentication():
         Settings(_env_file=None, app_env="production", auth_mode="development")
 
 
+def test_auth_secret_must_have_at_least_32_bytes():
+    with pytest.raises(ValidationError, match="AUTH_SECRET must contain at least 32 bytes"):
+        Settings(_env_file=None, auth_secret="too-short")
+
+
 def test_jwt_requires_secret_issuer_and_audience():
     with pytest.raises(ValidationError, match="AUTH_SECRET is required"):
         Settings(_env_file=None, auth_mode="jwt")
     with pytest.raises(ValidationError, match="AUTH_ISSUER and AUTH_AUDIENCE are required"):
-        Settings(_env_file=None, auth_mode="jwt", auth_secret="test-secret")
+        Settings(_env_file=None, auth_mode="jwt", auth_secret="test-secret-that-is-at-least-32-bytes-long")
 
 
 @pytest.mark.parametrize("provider", ["nebius", "openrouter"])

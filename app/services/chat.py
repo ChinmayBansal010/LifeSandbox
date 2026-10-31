@@ -45,7 +45,7 @@ async def run_chat(
     is_disconnected=None,
     attachment_ids: list[str] | None = None,
     channel: str = "web",
-): 
+):
     started_at = time.monotonic()
     logger.info(
         "chat_turn_started",

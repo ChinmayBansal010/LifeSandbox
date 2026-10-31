@@ -8,13 +8,18 @@ This document explains how the Telegram bot integrates with Google services (Goo
 
 All settings are read dynamically from `.env` via `app.core.config.Settings`. Nothing is hardcoded.
 
+For tenant isolation, a single authorized Telegram chat retains `TELEGRAM_DEFAULT_USER_ID`. When multiple chat IDs are allowlisted, each chat receives a separate `telegram:<chat-id>` identity unless explicitly mapped in `TELEGRAM_USER_ID_MAP`. Map IDs only when you intentionally want that chat to access an existing LifeSandbox account. Webhook mode requires `TELEGRAM_WEBHOOK_SECRET`; webhook administration is restricted to configured administrators.
+
 ```env
 # Telegram
 TELEGRAM_BOT_TOKEN=<your-bot-token>
 TELEGRAM_CHAT_ID=<your-chat-id>
 TELEGRAM_ALLOWED_CHAT_IDS=<optional-comma-separated-chat-ids>
 TELEGRAM_DEFAULT_USER_ID=local-user
+# Optional: map each authorized Telegram chat ID to a LifeSandbox principal ID.
+TELEGRAM_USER_ID_MAP={}
 TELEGRAM_POLLING_ENABLED=true
+TELEGRAM_WEBHOOK_SECRET=<long-random-webhook-secret>
 
 # Google OAuth
 GOOGLE_OAUTH_CLIENT_ID=<your-client-id>

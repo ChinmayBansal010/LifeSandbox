@@ -3,6 +3,7 @@ import importlib.util
 import json
 import logging
 import os
+import re
 import uuid
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -116,9 +117,7 @@ async def lifespan(_: FastAPI):
             "auth_mode": settings.auth_mode,
             "database_driver": engine.url.drivername,
             "research_provider": settings.research_provider,
-            "telegram_polling_enabled": bool(
-                telegram_is_configured() and settings.telegram_polling_enabled
-            ),
+            "telegram_polling_enabled": bool(telegram_is_configured() and settings.telegram_polling_enabled),
         },
     )
     # Dev convenience only; production schema is managed by Alembic migrations.
@@ -149,7 +148,14 @@ async def lifespan(_: FastAPI):
         await engine.dispose()
 
 
-app = FastAPI(title="Life Sandbox API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(
+    title="Life Sandbox API",
+    version="0.1.0",
+    lifespan=lifespan,
+    docs_url=None if settings.app_env == "production" else "/docs",
+    redoc_url=None if settings.app_env == "production" else "/redoc",
+    openapi_url=None if settings.app_env == "production" else "/openapi.json",
+)
 _rate_limiter = SlidingWindowRateLimiter(limit=settings.rate_limit_per_minute)
 app.include_router(life_router)
 app.include_router(auth_router)
@@ -160,7 +166,7 @@ app.include_router(telegram_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Request-ID"],
 )
 
@@ -169,8 +175,13 @@ app.add_middleware(
 async def llm_error(_: Request, exc: LLMError):
     logging.getLogger("life_sandbox.provider").error(
         "model_provider_failure",
-        extra={"provider": exc.provider, "status_code": exc.status_code, "error_code": exc.code,
-               "stage": exc.stage, "duration_ms": round(exc.duration_ms, 2)},
+        extra={
+            "provider": exc.provider,
+            "status_code": exc.status_code,
+            "error_code": exc.code,
+            "stage": exc.stage,
+            "duration_ms": round(exc.duration_ms, 2),
+        },
     )
     return JSONResponse(
         status_code=502,
@@ -187,7 +198,8 @@ async def llm_error(_: Request, exc: LLMError):
 
 @app.middleware("http")
 async def request_id(request: Request, call_next):
-    rid = (request.headers.get("X-Request-ID") or str(uuid.uuid4()))[:128]
+    supplied_rid = request.headers.get("X-Request-ID", "")
+    rid = supplied_rid if re.fullmatch(r"[A-Za-z0-9._-]{1,128}", supplied_rid) else str(uuid.uuid4())
     request.state.request_id = rid
     started = asyncio.get_running_loop().time()
     method = request.method
@@ -198,12 +210,24 @@ async def request_id(request: Request, call_next):
             duration_ms = round((asyncio.get_running_loop().time() - started) * 1000, 2)
             logger.warning(
                 "http_request_rejected",
-                extra={"request_id": rid, "method": method, "path": path, "status_code": 429,
-                       "duration_ms": duration_ms, "reason": "rate_limit"},
+                extra={
+                    "request_id": rid,
+                    "method": method,
+                    "path": path,
+                    "status_code": 429,
+                    "duration_ms": duration_ms,
+                    "reason": "rate_limit",
+                },
             )
             return JSONResponse(
                 status_code=429,
-                headers={"X-Request-ID": rid, "Retry-After": "60"},
+                headers={
+                    "X-Request-ID": rid,
+                    "Retry-After": "60",
+                    "X-Content-Type-Options": "nosniff",
+                    "X-Frame-Options": "DENY",
+                    "Referrer-Policy": "strict-origin-when-cross-origin",
+                },
                 content={
                     "error": {
                         "code": "rate_limit_exceeded",
@@ -217,6 +241,12 @@ async def request_id(request: Request, call_next):
         response = await call_next(request)
         status_code = response.status_code
         response.headers["X-Request-ID"] = rid
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        response.headers["Permissions-Policy"] = "camera=(), geolocation=()"
+        if settings.app_env == "production":
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         return response
     except Exception:
         logger.exception(
@@ -229,8 +259,13 @@ async def request_id(request: Request, call_next):
         log_method = logger.error if status_code >= 500 else logger.warning if status_code >= 400 else logger.info
         log_method(
             "http_request_completed",
-            extra={"request_id": rid, "method": method, "path": path,
-                   "status_code": status_code, "duration_ms": duration_ms},
+            extra={
+                "request_id": rid,
+                "method": method,
+                "path": path,
+                "status_code": status_code,
+                "duration_ms": duration_ms,
+            },
         )
         if "request_token" in locals():
             reset_request_id(request_token)
@@ -247,7 +282,7 @@ async def unhandled_error(_: Request, exc: Exception):
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "environment": settings.app_env}
+    return {"status": "ok"}
 
 
 @app.get("/ready")
