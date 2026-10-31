@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 
 import jwt
-from fastapi import Cookie, Header, HTTPException
+from fastapi import Cookie, Depends, Header, HTTPException
 
 from app.core.config import get_settings
 
@@ -53,3 +53,13 @@ async def current_principal(
         raise HTTPException(
             status_code=401, detail={"code": "unauthorized", "message": "Invalid bearer token"}
         ) from exc
+
+
+async def require_admin(principal: Principal = Depends(current_principal)) -> Principal:
+    """Require a principal explicitly allowlisted by the deployment operator."""
+    if principal.user_id not in get_settings().admin_user_ids:
+        raise HTTPException(
+            status_code=403,
+            detail={"code": "forbidden", "message": "Administrator access required"},
+        )
+    return principal

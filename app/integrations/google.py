@@ -301,8 +301,25 @@ async def google_callback(
     <meta charset="utf-8">
     <title>Google Account Connected</title>
     <style>
-        body {{ font-family: system-ui, -apple-system, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #09090b; color: #fafafa; }}
-        .card {{ text-align: center; padding: 2rem; border-radius: 1rem; border: 1px solid #27272a; background: #18181b; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1); max-width: 400px; }}
+        body {{
+            font-family: system-ui, -apple-system, sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background: #09090b;
+            color: #fafafa;
+        }}
+        .card {{
+            text-align: center;
+            padding: 2rem;
+            border-radius: 1rem;
+            border: 1px solid #27272a;
+            background: #18181b;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+            max-width: 400px;
+        }}
         h1 {{ font-size: 1.25rem; margin-bottom: 0.5rem; color: #10b981; }}
         p {{ font-size: 0.875rem; color: #a1a1aa; line-height: 1.5; }}
     </style>

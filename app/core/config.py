@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     auth_secret: str | None = None
     auth_issuer: str | None = None
     auth_audience: str | None = None
+    admin_user_ids: list[str] = Field(default_factory=list)
     llm_provider: Literal["mock", "nebius", "openrouter"] = "mock"
     llm_fallback_provider: Literal["", "nebius", "openrouter", "mock"] = ""
     nebius_api_key: str | None = None

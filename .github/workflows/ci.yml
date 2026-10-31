@@ -32,8 +32,10 @@ jobs:
           python-version: "3.13"
       - name: Install locked dependencies
         run: uv sync --locked
-      - name: Lint application and new validation checks
-        run: uv run ruff check app scripts/check_repo_hygiene.py scripts/validate_compose.py scripts/run_evals.py tests/test_config_validation.py tests/test_config_bounds.py tests/test_api_validation.py tests/test_simulation_validation.py tests/test_simulation_properties.py tests/test_compose_validation.py tests/test_llm_eval_regression.py
+      - name: Lint backend, scripts, and tests
+        run: uv run ruff check app scripts tests
+      - name: Check Python formatting
+        run: uv run ruff format --check app scripts tests
       - name: Run full backend test suite
         run: uv run pytest -ra
       - name: Check tracked-file hygiene

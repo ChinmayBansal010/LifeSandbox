@@ -576,11 +576,17 @@ async def process_telegram_update(
         except HTTPException as exc:
             detail = exc.detail
             msg = detail.get("message", str(detail)) if isinstance(detail, dict) else str(detail)
-            err_msg = f"⚠️ <b>Google Connection Failed:</b> {html.escape(msg)}\n\nPlease run <code>/connect_google</code> to get a fresh link and try again."
+            err_msg = (
+                f"⚠️ <b>Google Connection Failed:</b> {html.escape(msg)}\n\n"
+                "Please run <code>/connect_google</code> to get a fresh link and try again."
+            )
             await send_telegram_message(message=err_msg, chat_id=chat_id)
             return {"status": "error", "error": msg}
         except Exception as exc:
-            err_msg = f"⚠️ <b>Google Connection Error:</b> {html.escape(str(exc))}\n\nPlease run <code>/connect_google</code> to try again."
+            err_msg = (
+                f"⚠️ <b>Google Connection Error:</b> {html.escape(str(exc))}\n\n"
+                "Please run <code>/connect_google</code> to try again."
+            )
             await send_telegram_message(message=err_msg, chat_id=chat_id)
             return {"status": "error", "error": str(exc)}
 

@@ -31,7 +31,7 @@ from app.api.memory import router as memory_router
 from app.api.workflow import router as workflow_router
 from app.core.config import get_settings
 from app.core.rate_limit import SlidingWindowRateLimiter
-from app.core.security import Principal, current_principal
+from app.core.security import Principal, current_principal, require_admin
 from app.domain.simulation import SimulationRequest, simulate
 from app.integrations.google import router as integrations_router
 from app.integrations.telegram import (
@@ -1133,7 +1133,7 @@ async def list_admin_traces(
     search: str | None = None,
     tool_filter: str | None = None,
     status: str | None = None,
-    _: Principal = Depends(current_principal),
+    _: Principal = Depends(require_admin),
     db: AsyncSession = Depends(get_session),
 ):
     items = await get_traces(
@@ -1150,7 +1150,7 @@ async def list_admin_traces(
 @app.get("/api/v1/admin/traces/{trace_id}")
 async def get_admin_trace(
     trace_id: str,
-    _: Principal = Depends(current_principal),
+    _: Principal = Depends(require_admin),
     db: AsyncSession = Depends(get_session),
 ):
     item = await get_trace_by_id(trace_id, db=db)
@@ -1161,7 +1161,7 @@ async def get_admin_trace(
 
 @app.delete("/api/v1/admin/traces", status_code=204)
 async def clear_admin_traces(
-    _: Principal = Depends(current_principal),
+    _: Principal = Depends(require_admin),
     db: AsyncSession = Depends(get_session),
 ):
     await clear_traces(db=db)
@@ -1169,7 +1169,7 @@ async def clear_admin_traces(
 
 @app.get("/api/v1/admin/stats")
 async def admin_stats(
-    _: Principal = Depends(current_principal),
+    _: Principal = Depends(require_admin),
     db: AsyncSession = Depends(get_session),
 ):
     return await get_stats(db=db)

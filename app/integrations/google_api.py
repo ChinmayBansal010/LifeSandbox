@@ -1041,7 +1041,8 @@ async def update_drive_file_content(
         user_id,
         "https://www.googleapis.com/auth/drive.file",
         "PATCH",
-        f"https://www.googleapis.com/upload/drive/v3/files/{file_id}?uploadType=media&fields=id,name,mimeType,webViewLink",
+        f"https://www.googleapis.com/upload/drive/v3/files/{file_id}?"
+        "uploadType=media&fields=id,name,mimeType,webViewLink",
         connection_id=connection_id,
         content=content.encode("utf-8"),
         headers={"Content-Type": f"{mime_type}; charset=UTF-8"},

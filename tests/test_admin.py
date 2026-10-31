@@ -1,9 +1,11 @@
 from fastapi.testclient import TestClient
 
+from app.core.config import get_settings
 from app.main import app
 
 
-def test_admin_traces_recorded_on_chat():
+def test_admin_traces_recorded_on_chat(monkeypatch):
+    monkeypatch.setattr(get_settings(), "admin_user_ids", ["local-user"])
     with TestClient(app) as client:
         # Clear existing traces
         del_resp = client.delete("/api/v1/admin/traces")
@@ -57,7 +59,8 @@ def test_admin_traces_recorded_on_chat():
         assert "intent_classifier" in stats["tool_breakdown"]
 
 
-def test_admin_traces_filter_and_search():
+def test_admin_traces_filter_and_search(monkeypatch):
+    monkeypatch.setattr(get_settings(), "admin_user_ids", ["local-user"])
     with TestClient(app) as client:
         client.delete("/api/v1/admin/traces")
         client.post("/api/v1/chat", json={"message": "UniqueSearchQueryXYZ"})
@@ -76,3 +79,12 @@ def test_admin_traces_filter_and_search():
         tool_match = client.get("/api/v1/admin/traces?tool_filter=intent_classifier")
         assert tool_match.status_code == 200
         assert len(tool_match.json()["items"]) >= 1
+
+
+def test_non_admin_cannot_read_or_clear_admin_data(monkeypatch):
+    monkeypatch.setattr(get_settings(), "admin_user_ids", [])
+    with TestClient(app) as client:
+        assert client.get("/api/v1/admin/traces").status_code == 403
+        assert client.get("/api/v1/admin/traces/example").status_code == 403
+        assert client.get("/api/v1/admin/stats").status_code == 403
+        assert client.delete("/api/v1/admin/traces").status_code == 403
