@@ -750,19 +750,27 @@ export function useStore() {
           throw error;
         }
 
+        const failureDetail = (error as Error & { failureDetail?: { provider?: string; stage?: string; code?: string; message?: string } }).failureDetail;
         const errorCode = error instanceof Error && error.name === 'AbortError'
           ? 'CHAT_CLIENT_TIMEOUT'
-          : (error as Error & { failureDetail?: { provider?: string; stage?: string; code?: string } }).failureDetail?.stage === 'llm_generate'
-            ? ((error as Error & { failureDetail?: { code?: string } }).failureDetail?.code === 'timeout' ? 'OPENROUTER_TIMEOUT' : 'OPENROUTER_FAILURE')
+          : failureDetail?.stage === 'llm_generate'
+            ? (failureDetail?.code === 'timeout'
+                ? 'OPENROUTER_TIMEOUT'
+                : failureDetail?.code === 'rate_limit'
+                  ? 'RATE_LIMIT'
+                  : 'OPENROUTER_FAILURE')
             : undefined;
         if (convToUpdate) {
+          const detailMsg = failureDetail?.message;
           const message = errorCode === 'CHAT_CLIENT_TIMEOUT'
             ? 'Chat request timed out after 105s waiting for a response. Mem0 save was not completed.'
             : errorCode === 'OPENROUTER_TIMEOUT'
               ? 'Model response timed out (OpenRouter). Mem0 save was not attempted.'
-              : errorCode === 'OPENROUTER_FAILURE'
-                ? 'The model provider failed to generate a reply. Mem0 save was not attempted.'
-                : error instanceof Error ? error.message : 'Please try again.';
+              : errorCode === 'RATE_LIMIT'
+                ? (detailMsg || 'Model rate limit exceeded. Mem0 save was not attempted.')
+                : errorCode === 'OPENROUTER_FAILURE'
+                  ? (detailMsg && !detailMsg.includes('The assistant request failed') ? detailMsg : 'The model provider failed to generate a reply. Mem0 save was not attempted.')
+                  : error instanceof Error ? error.message : 'Please try again.';
           const updatedMessages = convToUpdate.messages.map((m) =>
             m.id === messageId
               ? {

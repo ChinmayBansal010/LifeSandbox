@@ -452,3 +452,66 @@ async def test_telegram_google_callback_pasted_url(monkeypatch):
     assert "Google Account Connected Successfully" in sent[-1]
     assert "user@example.com" in sent[-1]
 
+
+def test_sanitize_telegram_response_and_formatting():
+    sample_openui = (
+        "I can help you think through this decision! Let me structure a comparison of the two paths using the OpenUI framework so you can see the key dimensions side by side.\n\n"
+        "Let me first check if I need to reference any data about these fields, and then I'll present a comparison.\n\n"
+        "Actually, let me just build a comprehensive comparison directly — I have enough understanding of both fields to present the key trade-offs.\n\n"
+        "Let me structure this as a comparison with KPI cards and a decision framework.\n"
+        "root = Card([header, kpiBlock, comparisonSections, decisionFactors, actionButtons])\n"
+        'header = CardHeader("CSE vs VLSI: Career Comparison", "Key dimensions to help you decide")\n'
+        'cseMarket = TextContent("**Job Market:** Huge demand across software, AI, data, full-stack.")\n'
+        'vlsiMarket = TextContent("**Job Market:** Narrower but specialized in chip design.")\n'
+        'decisionFactors = InlineHeader("Decision Framework", "Rate these factors for yourself")\n'
+    )
+    sanitized = telegram.sanitize_telegram_response(sample_openui)
+    # Ensure raw OpenUI assignments and internal monologue are stripped
+    assert "root = Card" not in sanitized
+    assert "TextContent(" not in sanitized
+    assert "Actually, let me just build" not in sanitized
+    # Ensure title and content are preserved in clean markdown
+    assert "CSE vs VLSI: Career Comparison" in sanitized
+    assert "**Job Market:** Huge demand across software" in sanitized
+    assert "Decision Framework" in sanitized
+
+    formatted = telegram.format_markdown_for_telegram(sample_openui)
+    assert "<b>Job Market:</b>" in formatted
+    assert "root = Card" not in formatted
+
+
+@pytest.mark.asyncio
+async def test_process_telegram_update_passes_channel(monkeypatch):
+    monkeypatch.setattr(
+        telegram,
+        "get_settings",
+        lambda: SimpleNamespace(
+            telegram_bot_token="mock_token",
+            telegram_chat_id="11111",
+            telegram_allowed_chat_ids=None,
+            telegram_default_user_id="local-user",
+            llm_provider="mock",
+        ),
+    )
+    monkeypatch.setattr(telegram, "send_telegram_message", AsyncMock(return_value={"status": "sent"}))
+    monkeypatch.setattr(telegram, "send_telegram_action", AsyncMock(return_value=True))
+
+    passed_kwargs = {}
+
+    async def mock_run_chat(db, user_id, message, conversation_id=None, **kwargs):
+        passed_kwargs.update(kwargs)
+        return {"conversation_id": conversation_id, "reply": "Clean response"}
+
+    with patch("app.services.chat.run_chat", side_effect=mock_run_chat):
+        update = {
+            "update_id": 10,
+            "message": {
+                "message_id": 30,
+                "chat": {"id": 11111},
+                "text": "CSE or VLSI?",
+            },
+        }
+        await telegram.process_telegram_update(update)
+        assert passed_kwargs.get("channel") == "telegram"
+
+

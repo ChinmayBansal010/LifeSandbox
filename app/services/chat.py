@@ -41,6 +41,7 @@ async def run_chat(
     browse: bool = False,
     is_disconnected=None,
     attachment_ids: list[str] | None = None,
+    channel: str = "web",
 ):
     if conversation_id:
         row = await db.scalar(
@@ -281,6 +282,7 @@ async def run_chat(
                         "file_context": file_context,
                         "image_inputs": image_inputs,
                         "allow_browser_use": browse,
+                        "channel": channel,
                         "db": db,
                     }
                 )
