@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.integrations import telegram
 from app.main import app
+from app.core.security import Principal, current_principal
 from app.persistence.models import Base
 from app.persistence.session import engine
 
@@ -270,6 +271,18 @@ def test_telegram_webhook_route(monkeypatch):
         )
         assert res_good.status_code == 200
         assert res_good.json()["ok"] is True
+
+        app.dependency_overrides[current_principal] = lambda: Principal(user_id="ordinary-user")
+        try:
+            res_set = client.post(
+                "/api/v1/integrations/telegram/set-webhook",
+                json={"webhook_url": "https://example.com/hook"},
+            )
+            res_delete = client.post("/api/v1/integrations/telegram/delete-webhook")
+            assert res_set.status_code == 403
+            assert res_delete.status_code == 403
+        finally:
+            app.dependency_overrides.pop(current_principal, None)
 
 
 @pytest.mark.asyncio
