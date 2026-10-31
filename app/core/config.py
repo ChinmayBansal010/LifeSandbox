@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     telegram_chat_id: str | None = None
     telegram_allowed_chat_ids: str | None = None
     telegram_default_user_id: str = "local-user"
+    telegram_user_id_map: dict[str, str] = Field(default_factory=dict)
     telegram_polling_enabled: bool = True
     telegram_webhook_secret: str | None = None
     aws_access_key_id: str | None = None
@@ -96,6 +97,8 @@ class Settings(BaseSettings):
                 raise ValueError("AUTH_SECRET is required when AUTH_MODE=jwt")
             if not self.auth_issuer or not self.auth_audience:
                 raise ValueError("AUTH_ISSUER and AUTH_AUDIENCE are required when AUTH_MODE=jwt")
+        if self.auth_secret and len(self.auth_secret.encode("utf-8")) < 32:
+            raise ValueError("AUTH_SECRET must contain at least 32 bytes")
         selected = {
             "nebius": (self.nebius_api_key, self.nebius_model),
             "openrouter": (self.openrouter_api_key, self.openrouter_model),
