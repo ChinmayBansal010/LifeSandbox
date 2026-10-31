@@ -18,10 +18,11 @@ def test_request_id_header_is_preserved():
 
 
 def test_request_id_rejects_untrusted_header_values():
+    malicious_id = "bad" + chr(13) + chr(10) + "Injected: yes"
     with TestClient(app) as client:
-        response = client.get("/health", headers={"X-Request-ID": "bad\\r\\nInjected: yes"})
+        response = client.get("/health", headers={"X-Request-ID": malicious_id})
     assert response.status_code == 200
-    assert response.headers["X-Request-ID"] != "bad\\r\\nInjected: yes"
+    assert response.headers["X-Request-ID"] != malicious_id
 
 
 def test_request_id_is_generated_when_missing():
