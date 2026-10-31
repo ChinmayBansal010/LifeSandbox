@@ -17,7 +17,12 @@ def reset_request_id(token: Token) -> None:
 
 
 _STANDARD = set(logging.makeLogRecord({}).__dict__) | {
-    "message", "asctime", "exc_info", "exc_text", "stack_info", "taskName",
+    "message",
+    "asctime",
+    "exc_info",
+    "exc_text",
+    "stack_info",
+    "taskName",
 }
 
 
