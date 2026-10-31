@@ -481,6 +481,11 @@ async def process_telegram_update(
     chat_id = chat.get("id")
     if not chat_id:
         return {"status": "ignored", "reason": "no_chat_id"}
+    sender = msg.get("from", {})
+    sender_id = sender.get("id") if isinstance(sender, dict) else None
+    if chat.get("type") not in (None, "private") or (sender_id and str(sender_id) != str(chat_id)):
+        logger.warning("Rejected Telegram update from non-private chat_id=%s", chat_id)
+        return {"status": "unauthorized", "chat_id": str(chat_id)}
 
     settings = get_settings()
 
