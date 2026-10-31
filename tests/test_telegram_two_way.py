@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from app.core.security import Principal, current_principal
 from app.integrations import telegram
 from app.main import app
 from app.persistence.models import Base
@@ -271,6 +272,18 @@ def test_telegram_webhook_route(monkeypatch):
         assert res_good.status_code == 200
         assert res_good.json()["ok"] is True
 
+        app.dependency_overrides[current_principal] = lambda: Principal(user_id="ordinary-user")
+        try:
+            res_set = client.post(
+                "/api/v1/integrations/telegram/set-webhook",
+                json={"webhook_url": "https://example.com/hook"},
+            )
+            res_delete = client.post("/api/v1/integrations/telegram/delete-webhook")
+            assert res_set.status_code == 403
+            assert res_delete.status_code == 403
+        finally:
+            app.dependency_overrides.pop(current_principal, None)
+
 
 @pytest.mark.asyncio
 async def test_telegram_connect_google_command(monkeypatch):
@@ -518,3 +531,55 @@ async def test_process_telegram_update_passes_channel(monkeypatch):
         }
         await telegram.process_telegram_update(update)
         assert passed_kwargs.get("channel") == "telegram"
+
+
+def test_telegram_chat_tenant_isolation(monkeypatch):
+    monkeypatch.setattr(
+        telegram,
+        "get_settings",
+        lambda: SimpleNamespace(
+            telegram_chat_id="11111",
+            telegram_allowed_chat_ids="22222,33333",
+            telegram_default_user_id="local-user",
+            telegram_user_id_map={},
+        ),
+    )
+    assert telegram.telegram_user_id_for_chat("22222") == "telegram:22222"
+    assert telegram.telegram_user_id_for_chat("33333") == "telegram:33333"
+
+    monkeypatch.setattr(
+        telegram,
+        "get_settings",
+        lambda: SimpleNamespace(
+            telegram_chat_id="11111",
+            telegram_allowed_chat_ids=None,
+            telegram_default_user_id="google:trusted-user",
+            telegram_user_id_map={"11111": "google:trusted-user"},
+        ),
+    )
+    assert telegram.telegram_user_id_for_chat("11111") == "google:trusted-user"
+
+
+@pytest.mark.asyncio
+async def test_telegram_group_chat_is_rejected(monkeypatch):
+    monkeypatch.setattr(
+        telegram,
+        "get_settings",
+        lambda: SimpleNamespace(
+            telegram_bot_token="token",
+            telegram_chat_id="-100123",
+            telegram_allowed_chat_ids=None,
+            telegram_default_user_id="local-user",
+        ),
+    )
+    result = await telegram.process_telegram_update(
+        {
+            "update_id": 91,
+            "message": {
+                "chat": {"id": -100123, "type": "supergroup"},
+                "from": {"id": 12345},
+                "text": "/status",
+            },
+        }
+    )
+    assert result["status"] == "unauthorized"
