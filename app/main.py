@@ -117,9 +117,7 @@ async def lifespan(_: FastAPI):
             "auth_mode": settings.auth_mode,
             "database_driver": engine.url.drivername,
             "research_provider": settings.research_provider,
-            "telegram_polling_enabled": bool(
-                telegram_is_configured() and settings.telegram_polling_enabled
-            ),
+            "telegram_polling_enabled": bool(telegram_is_configured() and settings.telegram_polling_enabled),
         },
     )
     # Dev convenience only; production schema is managed by Alembic migrations.
@@ -177,8 +175,13 @@ app.add_middleware(
 async def llm_error(_: Request, exc: LLMError):
     logging.getLogger("life_sandbox.provider").error(
         "model_provider_failure",
-        extra={"provider": exc.provider, "status_code": exc.status_code, "error_code": exc.code,
-               "stage": exc.stage, "duration_ms": round(exc.duration_ms, 2)},
+        extra={
+            "provider": exc.provider,
+            "status_code": exc.status_code,
+            "error_code": exc.code,
+            "stage": exc.stage,
+            "duration_ms": round(exc.duration_ms, 2),
+        },
     )
     return JSONResponse(
         status_code=502,
@@ -207,8 +210,14 @@ async def request_id(request: Request, call_next):
             duration_ms = round((asyncio.get_running_loop().time() - started) * 1000, 2)
             logger.warning(
                 "http_request_rejected",
-                extra={"request_id": rid, "method": method, "path": path, "status_code": 429,
-                       "duration_ms": duration_ms, "reason": "rate_limit"},
+                extra={
+                    "request_id": rid,
+                    "method": method,
+                    "path": path,
+                    "status_code": 429,
+                    "duration_ms": duration_ms,
+                    "reason": "rate_limit",
+                },
             )
             return JSONResponse(
                 status_code=429,
@@ -250,8 +259,13 @@ async def request_id(request: Request, call_next):
         log_method = logger.error if status_code >= 500 else logger.warning if status_code >= 400 else logger.info
         log_method(
             "http_request_completed",
-            extra={"request_id": rid, "method": method, "path": path,
-                   "status_code": status_code, "duration_ms": duration_ms},
+            extra={
+                "request_id": rid,
+                "method": method,
+                "path": path,
+                "status_code": status_code,
+                "duration_ms": duration_ms,
+            },
         )
         if "request_token" in locals():
             reset_request_id(request_token)
