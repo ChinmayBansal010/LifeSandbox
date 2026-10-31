@@ -1,6 +1,6 @@
 # Security
 
-Development auth maps requests to `local-user` only while `APP_ENV` is not production. Production mode requires `AUTH_MODE=jwt` and a secret and checks HS256 signature, issuer, audience, expiration and subject. This is a basic adapter, not Better Auth integration or a substitute for production key rotation/JWKS verification. Never deploy the development bypass.
+Development auth maps requests to `local-user` only while `APP_ENV` is not production. Production mode requires `AUTH_MODE=jwt` and a secret and checks HS256 signature, issuer, audience, expiration and subject. Any configured `AUTH_SECRET` must contain at least 32 bytes. This is a basic adapter, not Better Auth integration or a substitute for production key rotation/JWKS verification. Never deploy the development bypass.
 
 Ownership is derived from the authenticated principal for conversation, memory, candidate, project, task, reminder, job, approval and file lookups; foreign IDs return 404. Local memory saving requires explicit user action or an explicit "remember" request covered by an allowed nonsensitive policy category. Hosted Mem0 use additionally requires persisted permission and per-exchange opt-in. User text, memories and tool results are untrusted.
 
