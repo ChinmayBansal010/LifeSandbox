@@ -272,8 +272,14 @@ async def classify(state: ConversationState):
             "skill_trigger": skill_trigger if skill else None,
             "status": "planning",
         }
-        logger.info("agent_intent_classified", extra={"intent": intent, "skill": skill.name if skill else None,
-                                                        "tool_candidates": len(select_relevant_tools(text, intent))})
+        logger.info(
+            "agent_intent_classified",
+            extra={
+                "intent": intent,
+                "skill": skill.name if skill else None,
+                "tool_candidates": len(select_relevant_tools(text, intent)),
+            },
+        )
         event["output_data"] = {
             "intent": intent,
             "skill": skill.name if skill else None,
@@ -665,9 +671,15 @@ async def execute_tools(state: ConversationState):
             validation_error = None
 
         tool_started = time.monotonic()
-        logger.info("agent_tool_execution_started", extra={"tool": name or "unknown", "tool_call_id": call_id or None,
-                                                             "arguments_valid": validation_error is None,
-                                                             "authorized": name in state.get("authorized_tools", [])})
+        logger.info(
+            "agent_tool_execution_started",
+            extra={
+                "tool": name or "unknown",
+                "tool_call_id": call_id or None,
+                "arguments_valid": validation_error is None,
+                "authorized": name in state.get("authorized_tools", []),
+            },
+        )
         async with trace_tool(
             name or "unknown_tool",
             "followthrough" if name in FOLLOWTHROUGH_TOOL_NAMES else "decision_tool",
