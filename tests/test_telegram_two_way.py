@@ -458,9 +458,11 @@ async def test_telegram_google_callback_pasted_url(monkeypatch):
 
 def test_sanitize_telegram_response_and_formatting():
     sample_openui = (
-        "I can help you think through this decision! Let me structure a comparison of the two paths using the OpenUI framework so you can see the key dimensions side by side.\n\n"
+        "I can help you think through this decision! Let me structure a comparison of the "
+        "two paths using the OpenUI framework so you can see the key dimensions side by side.\n\n"
         "Let me first check if I need to reference any data about these fields, and then I'll present a comparison.\n\n"
-        "Actually, let me just build a comprehensive comparison directly — I have enough understanding of both fields to present the key trade-offs.\n\n"
+        "Actually, let me just build a comprehensive comparison directly — I have enough "
+        "understanding of both fields to present the key trade-offs.\n\n"
         "Let me structure this as a comparison with KPI cards and a decision framework.\n"
         "root = Card([header, kpiBlock, comparisonSections, decisionFactors, actionButtons])\n"
         'header = CardHeader("CSE vs VLSI: Career Comparison", "Key dimensions to help you decide")\n'
