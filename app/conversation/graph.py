@@ -534,10 +534,17 @@ async def agent(state: ConversationState):
     tool_names = [t["function"]["name"] for t in available_tools] if tools_param else []
 
     model_started = time.monotonic()
-    logger.info("agent_model_call_started", extra={"provider": getattr(model, "provider", get_settings().llm_provider),
-                                                    "model": getattr(model, "model", state.get("model")),
-                                                    "round": rounds + 1, "message_count": len(messages),
-                                                    "available_tool_count": len(tool_names), "available_tools": tool_names})
+    logger.info(
+        "agent_model_call_started",
+        extra={
+            "provider": getattr(model, "provider", get_settings().llm_provider),
+            "model": getattr(model, "model", state.get("model")),
+            "round": rounds + 1,
+            "message_count": len(messages),
+            "available_tool_count": len(tool_names),
+            "available_tools": tool_names,
+        },
+    )
     async with trace_tool(
         "llm_completion",
         "model",
@@ -563,10 +570,17 @@ async def agent(state: ConversationState):
                 completion = await fallback_model.complete(messages, tools=tools_param)
             else:
                 raise
-        logger.info("agent_model_call_completed", extra={"provider": completion.provider, "model": completion.model,
-                                                           "round": rounds + 1, "tool_call_count": len(completion.tool_calls or []),
-                                                           "response_chars": len(completion.text or ""),
-                                                           "duration_ms": round((time.monotonic() - model_started) * 1000, 2)})
+        logger.info(
+            "agent_model_call_completed",
+            extra={
+                "provider": completion.provider,
+                "model": completion.model,
+                "round": rounds + 1,
+                "tool_call_count": len(completion.tool_calls or []),
+                "response_chars": len(completion.text or ""),
+                "duration_ms": round((time.monotonic() - model_started) * 1000, 2),
+            },
+        )
         event["output_data"] = {
             "provider": completion.provider,
             "model": completion.model,
@@ -1076,13 +1090,25 @@ async def execute_tools(state: ConversationState):
                 else:
                     event["output_data"] = result
                 audit.outcome = "succeeded"
-                logger.info("agent_tool_execution_completed", extra={"tool": name or "unknown", "tool_call_id": call_id or None,
-                                                                       "outcome": "succeeded",
-                                                                       "duration_ms": round((time.monotonic() - tool_started) * 1000, 2)})
+                logger.info(
+                    "agent_tool_execution_completed",
+                    extra={
+                        "tool": name or "unknown",
+                        "tool_call_id": call_id or None,
+                        "outcome": "succeeded",
+                        "duration_ms": round((time.monotonic() - tool_started) * 1000, 2),
+                    },
+                )
             except Exception as exc:
-                logger.warning("agent_tool_execution_failed", extra={"tool": name or "unknown", "tool_call_id": call_id or None,
-                                                                       "error_type": type(exc).__name__,
-                                                                       "duration_ms": round((time.monotonic() - tool_started) * 1000, 2)})
+                logger.warning(
+                    "agent_tool_execution_failed",
+                    extra={
+                        "tool": name or "unknown",
+                        "tool_call_id": call_id or None,
+                        "error_type": type(exc).__name__,
+                        "duration_ms": round((time.monotonic() - tool_started) * 1000, 2),
+                    },
+                )
                 if isinstance(exc, HTTPException) and isinstance(exc.detail, dict):
                     error = exc.detail
                 elif isinstance(exc, TimeoutError) and name == "gmail.create_draft":
