@@ -972,7 +972,7 @@ async def api_delete_webhook(
 
 @router.get("/status")
 async def telegram_integration_status(
-    _: Principal = Depends(current_principal),
+    _: Principal = Depends(require_admin),
 ) -> dict[str, Any]:
     """Inspect current Telegram integration and connection status."""
     settings = get_settings()
