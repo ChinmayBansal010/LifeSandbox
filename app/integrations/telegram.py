@@ -3,6 +3,7 @@ import html
 import json
 import logging
 import re
+import secrets
 from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
@@ -14,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.security import Principal, current_principal
+from app.core.security import Principal, require_admin
 from app.integrations.google import complete_google_callback, create_google_authorization_url
 from app.persistence.models import (
     ApprovalRow,
@@ -60,6 +61,19 @@ def is_chat_allowed(chat_id: str | int | None) -> bool:
         # Deny by default if no allowed chat IDs or default chat ID are configured
         return False
     return str(chat_id).strip() in allowed
+
+
+def telegram_user_id_for_chat(chat_id: str | int) -> str:
+    """Resolve a tenant identity without sharing one account across allowed chats."""
+    settings = get_settings()
+    chat_key = str(chat_id).strip()
+    mapping = getattr(settings, "telegram_user_id_map", {}) or {}
+    mapped_user_id = mapping.get(chat_key)
+    if isinstance(mapped_user_id, str) and mapped_user_id.strip():
+        return mapped_user_id.strip()
+    if len(get_allowed_chat_ids()) <= 1:
+        return getattr(settings, "telegram_default_user_id", "local-user")
+    return f"telegram:{chat_key}"
 
 
 def chunk_message(text: str, max_length: int = 4000) -> list[str]:
@@ -403,11 +417,16 @@ async def set_telegram_webhook(webhook_url: str, secret_token: str | None = None
     token = getattr(settings, "telegram_bot_token", None)
     if not token:
         raise HTTPException(status_code=503, detail="Telegram bot token not configured")
+    parsed_url = urlparse(webhook_url)
+    if parsed_url.scheme != "https" or not parsed_url.hostname or parsed_url.username or parsed_url.password:
+        raise HTTPException(status_code=400, detail="Webhook URL must be an HTTPS URL")
+    secret_token = secret_token or getattr(settings, "telegram_webhook_secret", None)
+    if not secret_token:
+        raise HTTPException(status_code=503, detail="TELEGRAM_WEBHOOK_SECRET must be configured")
 
     url = f"https://api.telegram.org/bot{token}/setWebhook"
     payload: dict[str, Any] = {"url": webhook_url}
-    if secret_token:
-        payload["secret_token"] = secret_token
+    payload["secret_token"] = secret_token
     async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.post(url, json=payload)
         return resp.json()
@@ -462,9 +481,13 @@ async def process_telegram_update(
     chat_id = chat.get("id")
     if not chat_id:
         return {"status": "ignored", "reason": "no_chat_id"}
+    sender = msg.get("from", {})
+    sender_id = sender.get("id") if isinstance(sender, dict) else None
+    if chat.get("type") not in (None, "private") or (sender_id and str(sender_id) != str(chat_id)):
+        logger.warning("Rejected Telegram update from non-private chat_id=%s", chat_id)
+        return {"status": "unauthorized", "chat_id": str(chat_id)}
 
     settings = get_settings()
-    user_id = getattr(settings, "telegram_default_user_id", "local-user")
 
     # Authorization Check
     if not is_chat_allowed(chat_id):
@@ -482,6 +505,7 @@ async def process_telegram_update(
             pass
         return {"status": "unauthorized", "chat_id": str(chat_id)}
 
+    user_id = telegram_user_id_for_chat(chat_id)
     text = (msg.get("text") or msg.get("caption") or "").strip()
     if not text:
         unsupported_msg = (
@@ -893,16 +917,34 @@ async def telegram_webhook(
     db: AsyncSession = Depends(get_session),
     x_telegram_bot_api_secret_token: str | None = Header(None),
 ) -> dict[str, Any]:
-    """Endpoint receiving incoming updates from Telegram webhook."""
-    settings = get_settings()
-    configured_secret = getattr(settings, "telegram_webhook_secret", None)
-    if configured_secret and x_telegram_bot_api_secret_token != configured_secret:
+    """Endpoint receiving authenticated, size-bounded Telegram updates."""
+    configured_secret = getattr(get_settings(), "telegram_webhook_secret", None)
+    if not configured_secret:
+        raise HTTPException(status_code=503, detail="TELEGRAM_WEBHOOK_SECRET must be configured")
+    if not x_telegram_bot_api_secret_token or not secrets.compare_digest(
+        x_telegram_bot_api_secret_token, configured_secret
+    ):
         raise HTTPException(status_code=403, detail="Invalid secret token")
 
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > 1_000_000:
+                raise HTTPException(status_code=413, detail="Telegram update is too large")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid content length") from exc
+
+    raw_body = bytearray()
+    async for chunk in request.stream():
+        raw_body.extend(chunk)
+        if len(raw_body) > 1_000_000:
+            raise HTTPException(status_code=413, detail="Telegram update is too large")
     try:
-        body = await request.json()
-    except Exception as exc:
+        body = json.loads(raw_body)
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
         raise HTTPException(status_code=400, detail="Malformed JSON body") from exc
+    if not isinstance(body, dict):
+        raise HTTPException(status_code=400, detail="Telegram update must be a JSON object")
 
     result = await process_telegram_update(body, db=db)
     return {"ok": True, "result": result}
@@ -911,19 +953,18 @@ async def telegram_webhook(
 @router.post("/set-webhook")
 async def api_set_webhook(
     payload: dict[str, Any],
-    _: Principal = Depends(current_principal),
+    _: Principal = Depends(require_admin),
 ) -> dict[str, Any]:
-    """Set the Telegram bot webhook to a specified HTTPS URL."""
+    """Set the Telegram bot webhook; only an administrator may redirect updates."""
     url = payload.get("webhook_url")
-    if not url:
-        raise HTTPException(status_code=400, detail="webhook_url is required")
-    secret = payload.get("secret_token")
-    return await set_telegram_webhook(url, secret)
+    if not isinstance(url, str) or not url or len(url) > 2048:
+        raise HTTPException(status_code=400, detail="A valid webhook_url is required")
+    return await set_telegram_webhook(url)
 
 
 @router.post("/delete-webhook")
 async def api_delete_webhook(
-    _: Principal = Depends(current_principal),
+    _: Principal = Depends(require_admin),
 ) -> dict[str, Any]:
     """Delete the active Telegram bot webhook."""
     return await delete_telegram_webhook()
@@ -931,7 +972,7 @@ async def api_delete_webhook(
 
 @router.get("/status")
 async def telegram_integration_status(
-    _: Principal = Depends(current_principal),
+    _: Principal = Depends(require_admin),
 ) -> dict[str, Any]:
     """Inspect current Telegram integration and connection status."""
     settings = get_settings()
