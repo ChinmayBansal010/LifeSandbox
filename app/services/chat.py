@@ -47,10 +47,17 @@ async def run_chat(
     channel: str = "web",
 ): 
     started_at = time.monotonic()
-    logger.info("chat_turn_started", extra={"channel": channel, "has_conversation_id": bool(conversation_id),
-                                           "history_override_count": len(history_override or []),
-                                           "attachment_count": len(attachment_ids or []), "remember_requested": remember,
-                                           "browser_requested": browse})
+    logger.info(
+        "chat_turn_started",
+        extra={
+            "channel": channel,
+            "has_conversation_id": bool(conversation_id),
+            "history_override_count": len(history_override or []),
+            "attachment_count": len(attachment_ids or []),
+            "remember_requested": remember,
+            "browser_requested": browse,
+        },
+    )
     if conversation_id:
         row = await db.scalar(
             select(ConversationRow).where(ConversationRow.id == conversation_id, ConversationRow.user_id == user_id)
@@ -206,9 +213,16 @@ async def run_chat(
         if requested_file_ids and not excerpts and not image_inputs:
             raise ValueError("Attached files have no extracted text")
         file_context = "\n\n".join(excerpts)
-        logger.info("chat_attachments_loaded", extra={"conversation_id": row.id, "file_count": len(files),
-                                                       "text_chunk_count": len(top_chunks), "image_count": len(image_inputs),
-                                                       "context_chars": len(file_context)})
+        logger.info(
+            "chat_attachments_loaded",
+            extra={
+                "conversation_id": row.id,
+                "file_count": len(files),
+                "text_chunk_count": len(top_chunks),
+                "image_count": len(image_inputs),
+                "context_chars": len(file_context),
+            },
+        )
 
     async with trace_prompt(
         prompt=message,
@@ -232,8 +246,14 @@ async def run_chat(
                 past_conversations = await search_conversation_history(db, user_id, row.id, message)
         except Exception:
             logging.getLogger("life_sandbox.memory").exception("Local conversation recall failed")
-        logger.info("chat_context_retrieved", extra={"conversation_id": row.id, "local_memory_count": len(memories),
-                                                       "past_conversation_count": len(past_conversations)})
+        logger.info(
+            "chat_context_retrieved",
+            extra={
+                "conversation_id": row.id,
+                "local_memory_count": len(memories),
+                "past_conversation_count": len(past_conversations),
+            },
+        )
         if remember:
             hosted_allowed = False
             try:
@@ -263,9 +283,17 @@ async def run_chat(
             else:
                 hosted_search_status = "disabled"
 
-        logger.info("chat_model_execution_started", extra={"conversation_id": row.id, "provider": get_settings().llm_provider,
-                                                              "history_count": len(history), "memory_count": len(memories),
-                                                              "file_context_chars": len(file_context), "image_count": len(image_inputs)})
+        logger.info(
+            "chat_model_execution_started",
+            extra={
+                "conversation_id": row.id,
+                "provider": get_settings().llm_provider,
+                "history_count": len(history),
+                "memory_count": len(memories),
+                "file_context_chars": len(file_context),
+                "image_count": len(image_inputs),
+            },
+        )
         db.add(MessageRow(conversation_id=row.id, role="user", content=message))
         try:
             model_task = asyncio.create_task(
@@ -301,11 +329,18 @@ async def run_chat(
                 if not disconnect_task.done():
                     disconnect_task.cancel()
             state = await model_task
-            logger.info("chat_model_execution_completed", extra={"conversation_id": row.id,
-                                                                   "provider": state.get("provider"), "model": state.get("model"),
-                                                                   "intent": state.get("intent"), "skill": state.get("skill"),
-                                                                   "tool_count": len(state.get("tools_accessed", [])),
-                                                                   "reply_chars": len(state.get("reply", ""))})
+            logger.info(
+                "chat_model_execution_completed",
+                extra={
+                    "conversation_id": row.id,
+                    "provider": state.get("provider"),
+                    "model": state.get("model"),
+                    "intent": state.get("intent"),
+                    "skill": state.get("skill"),
+                    "tool_count": len(state.get("tools_accessed", [])),
+                    "reply_chars": len(state.get("reply", "")),
+                },
+            )
         except Exception:
             await db.rollback()
             raise
@@ -376,8 +411,14 @@ async def run_chat(
         )
         db.add(reflection_job)
         await db.commit()
-        logger.info("chat_turn_persisted", extra={"conversation_id": row.id, "memory_request_created": bool(memory_request),
-                                                   "duration_ms": round((time.monotonic() - started_at) * 1000, 2)})
+        logger.info(
+            "chat_turn_persisted",
+            extra={
+                "conversation_id": row.id,
+                "memory_request_created": bool(memory_request),
+                "duration_ms": round((time.monotonic() - started_at) * 1000, 2),
+            },
+        )
 
         trace_data["response_preview" = state["reply"][:500]
         trace_data["skill"] = state.get("skill")
