@@ -21,6 +21,7 @@ def signin_settings():
         auth_audience=None,
         auth_mode="development",
         app_env="development",
+        neon_auth_url=None,
     )
 
 
@@ -39,12 +40,18 @@ def test_google_signin_creates_owner_session_and_consumes_state(monkeypatch, sig
             "email": "person@example.com",
             "email_verified": True,
             "name": "Personal User",
+            "picture": "https://lh3.googleusercontent.com/a/mock-pic",
         }
 
     monkeypatch.setattr(auth_module, "_exchange_google_code", exchange)
     monkeypatch.setattr(auth_module, "_verify_google_id_token", verify)
 
     with TestClient(app, follow_redirects=False) as client:
+        status_resp = client.get("/api/v1/auth/google/status")
+        assert status_resp.status_code == 200
+        assert status_resp.json()["configured"] is True
+        assert status_resp.json()["google_oauth"] is True
+
         start = client.get("/api/v1/auth/google/start")
         assert start.status_code == 302
         authorize = parse_qs(urlparse(start.headers["location"]).query)
@@ -68,6 +75,7 @@ def test_google_signin_creates_owner_session_and_consumes_state(monkeypatch, sig
             "user_id": "google:google-subject-123",
             "email": "person@example.com",
             "name": "Personal User",
+            "picture": "https://lh3.googleusercontent.com/a/mock-pic",
             "authenticated": True,
         }
 

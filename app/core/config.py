@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     aws_region: str = "us-east-2"
     aws_endpoint_url_s3: str | None = None
     neon_storage_bucket: str | None = None
+    neon_auth_url: str | None = None
     embedding_provider: Literal["fastembed", "openai", "local_hash"] = "fastembed"
     embedding_dimensions: int = Field(default=384, ge=8, le=8192)
     fastembed_model: str = "BAAI/bge-small-en-v1.5"

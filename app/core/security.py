@@ -12,6 +12,7 @@ class Principal:
     user_id: str
     email: str | None = None
     name: str | None = None
+    picture: str | None = None
 
 
 async def current_principal(
@@ -24,6 +25,8 @@ async def current_principal(
         return Principal(user_id="local-user")
     if not token:
         raise HTTPException(status_code=401, detail={"code": "unauthorized", "message": "Bearer token required"})
+
+    # Check local HS256 session token first
     try:
         claims = jwt.decode(
             token,
@@ -42,11 +45,34 @@ async def current_principal(
             user_id=subject.strip(),
             email=claims.get("email"),
             name=claims.get("name"),
+            picture=claims.get("picture"),
         )
-    except Exception as exc:
+    except Exception as local_err:
+        # shortcut: Neon Auth JWKS verification supports standard Neon Auth RS256/ES256 JWTs, upgrade to database session polling if stateful revocations are required.
+        if settings.neon_auth_url:
+            try:
+                neon_jwks_url = f"{settings.neon_auth_url.rstrip('/')}/.well-known/jwks.json"
+                key_client = jwt.PyJWKClient(neon_jwks_url, cache_keys=True, timeout=5)
+                signing_key = key_client.get_signing_key_from_jwt(token)
+                neon_claims = jwt.decode(
+                    token,
+                    signing_key.key,
+                    algorithms=["RS256", "ES256", "EdDSA"],
+                    options={"verify_aud": False},
+                )
+                sub = neon_claims.get("sub") or neon_claims.get("id")
+                if sub and isinstance(sub, str):
+                    return Principal(
+                        user_id=f"neon:{sub.strip()}",
+                        email=neon_claims.get("email"),
+                        name=neon_claims.get("name"),
+                        picture=neon_claims.get("image") or neon_claims.get("picture"),
+                    )
+            except Exception:
+                pass
         raise HTTPException(
             status_code=401, detail={"code": "unauthorized", "message": "Invalid bearer token"}
-        ) from exc
+        ) from local_err
 
 
 async def require_admin(principal: Principal = Depends(current_principal)) -> Principal:

@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
 from app.core.security import Principal, current_principal
-from app.persistence.models import GoogleLoginStateRow
+from app.persistence.models import GoogleLoginStateRow, UserRow
 from app.persistence.session import get_session
 
 router = APIRouter(prefix="/api/v1/auth", tags=["authentication"])
@@ -130,14 +130,18 @@ async def google_signin_start(db: AsyncSession = Depends(get_session)):
 @router.get("/google/status")
 async def google_signin_status():
     settings = get_settings()
-    configured = bool(
+    google_configured = bool(
         settings.google_oauth_client_id
         and settings.google_oauth_client_secret
         and settings.google_auth_callback_url
         and settings.auth_secret
     )
+    neon_auth_configured = bool(settings.neon_auth_url)
+    configured = google_configured or neon_auth_configured
     return {
         "configured": configured,
+        "google_oauth": google_configured,
+        "neon_auth": neon_auth_configured,
         "message": (
             "Google sign-in is ready."
             if configured
@@ -222,13 +226,39 @@ async def google_signin_callback(
             },
         ) from exc
 
+    user_id = f"google:{claims['sub']}"
+    email = claims.get("email")
+    name = claims.get("name")
+    picture = claims.get("picture")
+
+    # Persist user profile to database (Neon Postgres)
+    user = await db.get(UserRow, user_id)
+    if user is None:
+        user = UserRow(
+            id=user_id,
+            email=email,
+            name=name,
+            picture=picture,
+            provider="google",
+            created_at=now,
+            last_login_at=now,
+        )
+        db.add(user)
+    else:
+        user.email = email
+        user.name = name
+        user.picture = picture
+        user.last_login_at = now
+    await db.commit()
+
     issuer = settings.auth_issuer or "life-sandbox"
     audience = settings.auth_audience or "life-sandbox-web"
     session_token = jwt.encode(
         {
-            "sub": f"google:{claims['sub']}",
-            "email": claims.get("email"),
-            "name": claims.get("name"),
+            "sub": user_id,
+            "email": email,
+            "name": name,
+            "picture": picture,
             "iss": issuer,
             "aud": audience,
             "iat": now,
@@ -252,12 +282,25 @@ async def google_signin_callback(
 
 
 @router.get("/me")
-async def current_user(principal: Principal = Depends(current_principal)):
+async def current_user(
+    principal: Principal = Depends(current_principal),
+    db: AsyncSession = Depends(get_session),
+):
+    name = principal.name
+    email = principal.email
+    picture = principal.picture
+    if principal.user_id and principal.user_id != "local-user":
+        user = await db.get(UserRow, principal.user_id)
+        if user:
+            name = user.name or name
+            email = user.email or email
+            picture = user.picture or picture
     return {
         "user_id": principal.user_id,
-        "email": principal.email,
-        "name": principal.name,
-        "authenticated": principal.email is not None,
+        "email": email,
+        "name": name,
+        "picture": picture,
+        "authenticated": email is not None or (principal.user_id and principal.user_id != "local-user"),
     }
 
 

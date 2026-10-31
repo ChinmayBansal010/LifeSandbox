@@ -31,7 +31,7 @@ export default function ProfileMenu({
     const result = new URLSearchParams(window.location.search).get('auth');
     return result === 'success' ? 'Google sign-in complete.' : result === 'denied' ? 'Google sign-in was cancelled.' : '';
   });
-  const [account, setAccount] = useState<{ name: string | null; email: string | null; authenticated: boolean } | null>(null);
+  const [account, setAccount] = useState<{ name: string | null; email: string | null; picture?: string | null; authenticated: boolean } | null>(null);
   const [googleConfigured, setGoogleConfigured] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -103,8 +103,12 @@ export default function ProfileMenu({
         aria-haspopup="true"
       >
         <div className="flex items-center gap-2 min-w-0">
-          <div className="w-7 h-7 rounded-full bg-accent text-accent-fg flex items-center justify-center font-semibold text-xs shrink-0 shadow-2xs">
-            LS
+          <div className="w-7 h-7 rounded-full overflow-hidden bg-accent text-accent-fg flex items-center justify-center font-semibold text-xs shrink-0 shadow-2xs">
+            {account?.picture ? (
+              <img src={account.picture} alt={displayName} className="w-full h-full object-cover" />
+            ) : (
+              (displayName[0] ?? 'L').toUpperCase()
+            )}
           </div>
           {!compact && (
             <div className="text-left min-w-0 flex-1 truncate">
@@ -112,7 +116,7 @@ export default function ProfileMenu({
                 {displayName}
               </span>
               <span className="block text-[10px] text-fg-muted truncate leading-tight">
-                Free plan · Local dev
+                {account?.authenticated ? 'Authenticated · Neon' : 'Free plan · Local dev'}
               </span>
             </div>
           )}
@@ -130,8 +134,12 @@ export default function ProfileMenu({
           {/* Account Section */}
           <div className="px-2.5 py-2 border-b border-border">
             <div className="flex items-center gap-2.5 mb-2">
-              <div className="w-9 h-9 rounded-full bg-accent/15 text-accent flex items-center justify-center font-bold text-sm shrink-0 border border-accent/25">
-                <User size={18} />
+              <div className="w-9 h-9 rounded-full overflow-hidden bg-accent/15 text-accent flex items-center justify-center font-bold text-sm shrink-0 border border-accent/25">
+                {account?.picture ? (
+                  <img src={account.picture} alt={displayName} className="w-full h-full object-cover" />
+                ) : (
+                  <User size={18} />
+                )}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="font-semibold text-sm text-fg truncate">{displayName}</div>
@@ -240,7 +248,7 @@ export default function ProfileMenu({
               </div>
               <div className="flex justify-between py-0.5">
                 <span>Storage</span>
-                <span className="font-medium text-fg">Local SQLite</span>
+                <span className="font-medium text-fg">{account?.authenticated ? 'Neon Postgres' : 'Local SQLite'}</span>
               </div>
             </div>
             <button

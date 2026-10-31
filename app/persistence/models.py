@@ -15,6 +15,17 @@ def now():
     return datetime.now(UTC)
 
 
+class UserRow(Base):
+    __tablename__ = "users"
+    id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    email: Mapped[str | None] = mapped_column(String(320), nullable=True, index=True)
+    name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    picture: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    provider: Mapped[str] = mapped_column(String(50), default="google")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    last_login_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
+
+
 class ConversationRow(Base):
     __tablename__ = "conversations"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
