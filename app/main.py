@@ -30,6 +30,7 @@ from app.api.life import router as life_router
 from app.api.memory import router as memory_router
 from app.api.workflow import router as workflow_router
 from app.core.config import get_settings
+from app.core.logging import bind_request_id, configure_logging, reset_request_id
 from app.core.rate_limit import SlidingWindowRateLimiter
 from app.core.security import Principal, current_principal, require_admin
 from app.domain.simulation import SimulationRequest, simulate
@@ -90,13 +91,36 @@ def _kokoro_pipeline():
     return importlib.import_module("kokoro").KPipeline(lang_code="a")
 
 
-logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+configure_logging(settings.log_level)
+logger = logging.getLogger("life_sandbox.http")
 if settings.sentry_dsn:
     sentry_sdk.init(dsn=settings.sentry_dsn, traces_sample_rate=0.05, send_default_pii=False)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    startup_model = (
+        settings.nebius_model
+        if settings.llm_provider == "nebius"
+        else settings.openrouter_model
+        if settings.llm_provider == "openrouter"
+        else "local-reflection"
+    )
+    logger.info(
+        "application_startup",
+        extra={
+            "environment": settings.app_env,
+            "log_level": settings.log_level.upper(),
+            "provider": settings.llm_provider,
+            "model": startup_model,
+            "auth_mode": settings.auth_mode,
+            "database_driver": engine.url.drivername,
+            "research_provider": settings.research_provider,
+            "telegram_polling_enabled": bool(
+                telegram_is_configured() and settings.telegram_polling_enabled
+            ),
+        },
+    )
     # Dev convenience only; production schema is managed by Alembic migrations.
     if settings.app_env != "production":
         async with engine.begin() as conn:
@@ -121,6 +145,7 @@ async def lifespan(_: FastAPI):
                 await asyncio.wait_for(telegram_task, timeout=5.0)
             except (TimeoutError, asyncio.CancelledError):
                 pass
+        logger.info("application_shutdown", extra={"environment": settings.app_env})
         await engine.dispose()
 
 
@@ -142,10 +167,10 @@ app.add_middleware(
 
 @app.exception_handler(LLMError)
 async def llm_error(_: Request, exc: LLMError):
-    logging.getLogger("life_sandbox.provider").warning(
-        "Model provider failure provider=%s status_code=%s",
-        exc.provider,
-        exc.status_code,
+    logging.getLogger("life_sandbox.provider").error(
+        "model_provider_failure",
+        extra={"provider": exc.provider, "status_code": exc.status_code, "error_code": exc.code,
+               "stage": exc.stage, "duration_ms": round(exc.duration_ms, 2)},
     )
     return JSONResponse(
         status_code=502,
@@ -162,11 +187,20 @@ async def llm_error(_: Request, exc: LLMError):
 
 @app.middleware("http")
 async def request_id(request: Request, call_next):
-    rid = request.headers.get("X-Request-ID") or str(uuid.uuid4())
+    rid = (request.headers.get("X-Request-ID") or str(uuid.uuid4()))[:128]
     request.state.request_id = rid
-    if settings.app_env == "production" and request.url.path.startswith("/api/") and request.method != "OPTIONS":
+    started = asyncio.get_running_loop().time()
+    method = request.method
+    path = request.url.path
+    if settings.app_env == "production" and path.startswith("/api/") and method != "OPTIONS":
         client_key = request.client.host if request.client else "unknown"
         if not _rate_limiter.allow(client_key):
+            duration_ms = round((asyncio.get_running_loop().time() - started) * 1000, 2)
+            logger.warning(
+                "http_request_rejected",
+                extra={"request_id": rid, "method": method, "path": path, "status_code": 429,
+                       "duration_ms": duration_ms, "reason": "rate_limit"},
+            )
             return JSONResponse(
                 status_code=429,
                 headers={"X-Request-ID": rid, "Retry-After": "60"},
@@ -177,14 +211,34 @@ async def request_id(request: Request, call_next):
                     }
                 },
             )
-    response = await call_next(request)
-    response.headers["X-Request-ID"] = rid
-    return response
+    status_code = 500
+    try:
+        request_token = bind_request_id(rid)
+        response = await call_next(request)
+        status_code = response.status_code
+        response.headers["X-Request-ID"] = rid
+        return response
+    except Exception:
+        logger.exception(
+            "http_request_failed",
+            extra={"request_id": rid, "method": method, "path": path, "status_code": 500},
+        )
+        raise
+    finally:
+        duration_ms = round((asyncio.get_running_loop().time() - started) * 1000, 2)
+        log_method = logger.error if status_code >= 500 else logger.warning if status_code >= 400 else logger.info
+        log_method(
+            "http_request_completed",
+            extra={"request_id": rid, "method": method, "path": path,
+                   "status_code": status_code, "duration_ms": duration_ms},
+        )
+        if "request_token" in locals():
+            reset_request_id(request_token)
 
 
 @app.exception_handler(Exception)
 async def unhandled_error(_: Request, exc: Exception):
-    logging.getLogger("life_sandbox").exception("Unhandled request failure", exc_info=exc)
+    logging.getLogger("life_sandbox").exception("unhandled_request_failure", extra={"error_type": type(exc).__name__})
     return JSONResponse(
         status_code=500,
         content={"error": {"code": "internal_error", "message": "The request could not be completed"}},

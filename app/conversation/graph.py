@@ -3,6 +3,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 from datetime import UTC, datetime, timedelta
 from typing import Any, TypedDict
 from zoneinfo import ZoneInfo
@@ -44,6 +45,8 @@ from app.services.tool_tracker import trace_tool
 from app.skills.registry import detect_skill
 from app.tools import catalog as _tool_catalog  # noqa: F401 - registers built-in capabilities
 from app.tools.registry import registry
+
+logger = logging.getLogger("life_sandbox.agent")
 
 
 class ConversationState(TypedDict, total=False):
@@ -269,6 +272,8 @@ async def classify(state: ConversationState):
             "skill_trigger": skill_trigger if skill else None,
             "status": "planning",
         }
+        logger.info("agent_intent_classified", extra={"intent": intent, "skill": skill.name if skill else None,
+                                                        "tool_candidates": len(select_relevant_tools(text, intent))})
         event["output_data"] = {
             "intent": intent,
             "skill": skill.name if skill else None,
@@ -528,6 +533,18 @@ async def agent(state: ConversationState):
     tools_param = available_tools if available_tools and rounds < 3 else None
     tool_names = [t["function"]["name"] for t in available_tools] if tools_param else []
 
+    model_started = time.monotonic()
+    logger.info(
+        "agent_model_call_started",
+        extra={
+            "provider": getattr(model, "provider", get_settings().llm_provider),
+            "model": getattr(model, "model", state.get("model")),
+            "round": rounds + 1,
+            "message_count": len(messages),
+            "available_tool_count": len(tool_names),
+            "available_tools": tool_names,
+        },
+    )
     async with trace_tool(
         "llm_completion",
         "model",
@@ -553,6 +570,17 @@ async def agent(state: ConversationState):
                 completion = await fallback_model.complete(messages, tools=tools_param)
             else:
                 raise
+        logger.info(
+            "agent_model_call_completed",
+            extra={
+                "provider": completion.provider,
+                "model": completion.model,
+                "round": rounds + 1,
+                "tool_call_count": len(completion.tool_calls or []),
+                "response_chars": len(completion.text or ""),
+                "duration_ms": round((time.monotonic() - model_started) * 1000, 2),
+            },
+        )
         event["output_data"] = {
             "provider": completion.provider,
             "model": completion.model,
@@ -636,6 +664,10 @@ async def execute_tools(state: ConversationState):
         else:
             validation_error = None
 
+        tool_started = time.monotonic()
+        logger.info("agent_tool_execution_started", extra={"tool": name or "unknown", "tool_call_id": call_id or None,
+                                                             "arguments_valid": validation_error is None,
+                                                             "authorized": name in state.get("authorized_tools", [])})
         async with trace_tool(
             name or "unknown_tool",
             "followthrough" if name in FOLLOWTHROUGH_TOOL_NAMES else "decision_tool",
@@ -1058,7 +1090,25 @@ async def execute_tools(state: ConversationState):
                 else:
                     event["output_data"] = result
                 audit.outcome = "succeeded"
+                logger.info(
+                    "agent_tool_execution_completed",
+                    extra={
+                        "tool": name or "unknown",
+                        "tool_call_id": call_id or None,
+                        "outcome": "succeeded",
+                        "duration_ms": round((time.monotonic() - tool_started) * 1000, 2),
+                    },
+                )
             except Exception as exc:
+                logger.warning(
+                    "agent_tool_execution_failed",
+                    extra={
+                        "tool": name or "unknown",
+                        "tool_call_id": call_id or None,
+                        "error_type": type(exc).__name__,
+                        "duration_ms": round((time.monotonic() - tool_started) * 1000, 2),
+                    },
+                )
                 if isinstance(exc, HTTPException) and isinstance(exc.detail, dict):
                     error = exc.detail
                 elif isinstance(exc, TimeoutError) and name == "gmail.create_draft":
