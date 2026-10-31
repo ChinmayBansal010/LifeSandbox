@@ -32,7 +32,7 @@ def _unwrap_inline_code(text: str) -> str:
             parts.append(text[cursor:])
             break
         parts.append(text[cursor:start])
-        parts.append(text[start + 1:end])
+        parts.append(text[start + 1 : end])
         cursor = end + 1
     return "".join(parts)
 
@@ -50,17 +50,17 @@ def _unwrap_markdown_links(text: str) -> str:
         is_image = start > 0 and text[start - 1] == "!"
         link_end = text.find("](", label_start)
         if link_end == -1:
-            parts.append(text[cursor:start + 1])
+            parts.append(text[cursor : start + 1])
             cursor = start + 1
             continue
 
         closing = text.find(")", link_end + 2)
         if closing == -1 or link_end == label_start:
-            parts.append(text[cursor:start + 1])
+            parts.append(text[cursor : start + 1])
             cursor = start + 1
             continue
 
-        parts.append(text[cursor:start - 1 if is_image else start])
+        parts.append(text[cursor : start - 1 if is_image else start])
         parts.append(text[label_start:link_end])
         cursor = closing + 1
     return "".join(parts)
@@ -94,11 +94,7 @@ def _strip_line_prefixes(text: str) -> str:
                 marker_end = list_index
                 while marker_end < len(line) and line[marker_end].isdigit():
                     marker_end += 1
-                if (
-                    marker_end > list_index
-                    and marker_end < len(line)
-                    and line[marker_end] in ".)"
-                ):
+                if marker_end > list_index and marker_end < len(line) and line[marker_end] in ".)":
                     marker_end += 1
                     if marker_end < len(line) and line[marker_end].isspace():
                         while marker_end < len(line) and line[marker_end].isspace():

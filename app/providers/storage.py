@@ -17,9 +17,7 @@ def presigned_upload(user_id: str, file_id: str, mime_type: str, size: int) -> s
             settings.neon_storage_bucket,
         )
     ):
-        raise StorageUnavailable(
-            "Neon Object Storage is not configured; set AWS credentials, endpoint, and bucket"
-        )
+        raise StorageUnavailable("Neon Object Storage is not configured; set AWS credentials, endpoint, and bucket")
     if size < 1 or size > settings.upload_max_bytes:
         raise ValueError("Upload size is outside the configured limit")
     if mime_type not in {

@@ -123,22 +123,16 @@ async def validate_project(db: AsyncSession, user_id: str, project_id: str | Non
 
 
 async def validate_task(db: AsyncSession, user_id: str, task_id: str | None):
-    if task_id and not await db.scalar(
-        select(TaskRow.id).where(TaskRow.id == task_id, TaskRow.user_id == user_id)
-    ):
+    if task_id and not await db.scalar(select(TaskRow.id).where(TaskRow.id == task_id, TaskRow.user_id == user_id)):
         raise HTTPException(404, detail={"code": "not_found", "message": "Task not found"})
 
 
 def request_hash(value: dict) -> str:
-    return hashlib.sha256(
-        json.dumps(value, sort_keys=True, separators=(",", ":")).encode()
-    ).hexdigest()
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
 async def existing_idempotent_resource(db: AsyncSession, user_id: str, key: str, digest: str):
-    prior = await db.scalar(
-        select(IdempotencyRow).where(IdempotencyRow.user_id == user_id, IdempotencyRow.key == key)
-    )
+    prior = await db.scalar(select(IdempotencyRow).where(IdempotencyRow.user_id == user_id, IdempotencyRow.key == key))
     if prior is None:
         return None
     if prior.request_hash and prior.request_hash != digest:
@@ -233,15 +227,11 @@ async def edit_reminder(
         )
     )
     if reminder is None:
-        raise HTTPException(
-            404, detail={"code": "not_found", "message": "Pending reminder not found"}
-        )
+        raise HTTPException(404, detail={"code": "not_found", "message": "Pending reminder not found"})
     await validate_task(db, principal.user_id, payload.task_id)
     for key, value in payload.model_dump().items():
         setattr(reminder, key, value)
-    job = await db.scalar(
-        select(JobRow).where(JobRow.reminder_id == reminder.id, JobRow.status == "queued")
-    )
+    job = await db.scalar(select(JobRow).where(JobRow.reminder_id == reminder.id, JobRow.status == "queued"))
     if job:
         job.scheduled_at = reminder.scheduled_at
         job.idempotency_key = f"reminder:{reminder.id}:edit:{uuid4()}"
@@ -264,15 +254,11 @@ async def cancel_task(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(get_session),
 ):
-    task = await db.scalar(
-        select(TaskRow).where(TaskRow.id == task_id, TaskRow.user_id == principal.user_id)
-    )
+    task = await db.scalar(select(TaskRow).where(TaskRow.id == task_id, TaskRow.user_id == principal.user_id))
     if task is None:
         raise HTTPException(404, detail={"code": "not_found", "message": "Task not found"})
     if task.status in {"completed", "cancelled"}:
-        raise HTTPException(
-            409, detail={"code": "task_resolved", "message": "Task is already resolved"}
-        )
+        raise HTTPException(409, detail={"code": "task_resolved", "message": "Task is already resolved"})
     task.status = "cancelled"
     task.completed_at = datetime.now(UTC)
     db.add(
@@ -295,9 +281,7 @@ async def list_reminder_schedules(
 ):
     rows = (
         await db.scalars(
-            select(ReminderRow)
-            .where(ReminderRow.user_id == principal.user_id)
-            .order_by(ReminderRow.scheduled_at)
+            select(ReminderRow).where(ReminderRow.user_id == principal.user_id).order_by(ReminderRow.scheduled_at)
         )
     ).all()
     return {"items": [reminder_view(row) for row in rows]}
@@ -327,19 +311,13 @@ async def execute_approval_action(
     correlation_id: str | None = None,
     allow_pending: bool = False,
 ) -> dict:
-    approval = await db.scalar(
-        select(ApprovalRow).where(
-            ApprovalRow.id == approval_id, ApprovalRow.user_id == user_id
-        )
-    )
+    approval = await db.scalar(select(ApprovalRow).where(ApprovalRow.id == approval_id, ApprovalRow.user_id == user_id))
     if approval is None:
         raise HTTPException(404, detail={"code": "not_found", "message": "Approval not found"})
     serialized = approval.arguments
     digest = hashlib.sha256(serialized.encode()).hexdigest()
     if digest != approval.payload_hash:
-        raise HTTPException(
-            409, detail={"code": "payload_changed", "message": "Approved action payload changed"}
-        )
+        raise HTTPException(409, detail={"code": "payload_changed", "message": "Approved action payload changed"})
     if approval.status in {"executed", "succeeded"} and approval.result_resource_id:
         return {
             "status": approval.status,
@@ -374,9 +352,7 @@ async def execute_approval_action(
             )
         )
         await db.commit()
-        raise HTTPException(
-            409, detail={"code": "approval_expired", "message": "Approval has expired"}
-        )
+        raise HTTPException(409, detail={"code": "approval_expired", "message": "Approval has expired"})
     if approval.action == "gmail.send_draft":
         try:
             arguments = json.loads(serialized)
@@ -421,9 +397,7 @@ async def execute_approval_action(
                 409,
                 detail={
                     "code": "approved_payload_changed",
-                    "message": (
-                        "The Gmail draft changed after approval. Review and approve a new proposal."
-                    ),
+                    "message": ("The Gmail draft changed after approval. Review and approve a new proposal."),
                 },
             )
         claim = await db.execute(
@@ -511,9 +485,7 @@ async def execute_approval_action(
 
     key = f"approval:{approval.id}"
     existing = await db.scalar(
-        select(IdempotencyRow).where(
-            IdempotencyRow.user_id == user_id, IdempotencyRow.key == key
-        )
+        select(IdempotencyRow).where(IdempotencyRow.user_id == user_id, IdempotencyRow.key == key)
     )
     if existing:
         if existing.request_hash and existing.request_hash != digest:

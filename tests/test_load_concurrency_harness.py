@@ -162,5 +162,3 @@ async def test_idempotency_collision_under_concurrency():
     async with SessionLocal() as session:
         await session.execute(delete(JobRow).where(JobRow.idempotency_key == key))
         await session.commit()
-
-

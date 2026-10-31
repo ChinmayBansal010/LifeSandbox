@@ -4,17 +4,15 @@ import re
 
 SEPARATORS = [
     r"(?=\n#{1,6}\s)",  # Markdown headings
-    r"\n\n+",           # Paragraph breaks
-    r"\n+",             # Line breaks
-    r"(?<=[.!?])\s+",   # Sentence boundaries
-    r"(?<=[;:,])\s+",   # Clause boundaries
-    r"\s+",             # Word boundaries
+    r"\n\n+",  # Paragraph breaks
+    r"\n+",  # Line breaks
+    r"(?<=[.!?])\s+",  # Sentence boundaries
+    r"(?<=[;:,])\s+",  # Clause boundaries
+    r"\s+",  # Word boundaries
 ]
 
 
-def chunk_text(
-    text: str, max_chars: int = 1200, overlap: int | None = None
-) -> list[str]:
+def chunk_text(text: str, max_chars: int = 1200, overlap: int | None = None) -> list[str]:
     """Recursively split text using markdown and sentence boundaries with 10-15% overlap."""
     if max_chars <= 0:
         raise ValueError("Require max_chars > 0")
@@ -66,9 +64,7 @@ def chunk_text(
             chunks.append(current)
             if overlap > 0:
                 overlap_prefix = current[-overlap:]
-                needs_space = not (
-                    overlap_prefix.endswith(("\n", " ")) or p.startswith(("\n", " "))
-                )
+                needs_space = not (overlap_prefix.endswith(("\n", " ")) or p.startswith(("\n", " ")))
                 c_sep = " " if needs_space else ""
                 current = overlap_prefix + c_sep + p
                 if len(current) > max_chars:

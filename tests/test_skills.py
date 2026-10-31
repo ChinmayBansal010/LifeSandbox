@@ -26,4 +26,3 @@ def test_slash_command_skill_selection():
     skill, trigger = detect_skill("I want to buy a new phone")
     assert skill is not None and skill.name == "purchasing"
     assert trigger == "context"
-

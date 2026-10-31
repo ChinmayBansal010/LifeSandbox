@@ -16,9 +16,7 @@ from app.persistence.session import SessionLocal
 
 def test_google_credentials_are_encrypted_and_require_key(monkeypatch):
     key = Fernet.generate_key().decode()
-    monkeypatch.setattr(
-        google, "get_settings", lambda: type("Settings", (), {"google_token_encryption_key": key})()
-    )
+    monkeypatch.setattr(google, "get_settings", lambda: type("Settings", (), {"google_token_encryption_key": key})())
     encrypted = google.encrypt_credentials({"access_token": "secret-token"})
     assert "secret-token" not in encrypted
     assert google.decrypt_credentials(encrypted) == {"access_token": "secret-token"}
@@ -62,13 +60,10 @@ async def test_free_time_uses_real_busy_intervals(monkeypatch):
     )
     assert result["source"] == "Google Calendar freeBusy"
     assert all(
-        slot["start"] != "2026-10-23T14:00:00+00:00"
-        and slot["start"] != "2026-10-23T14:30:00+00:00"
+        slot["start"] != "2026-10-23T14:00:00+00:00" and slot["start"] != "2026-10-23T14:30:00+00:00"
         for slot in result["slots"]
     )
-    assert not any(
-        slot["start"] < "2026-10-23T15:00:00+00:00" < slot["end"] for slot in result["slots"]
-    )
+    assert not any(slot["start"] < "2026-10-23T15:00:00+00:00" < slot["end"] for slot in result["slots"])
 
 
 def test_google_oauth_state_is_owner_bound_one_time_and_credentials_are_encrypted(monkeypatch):
@@ -127,9 +122,7 @@ def test_google_oauth_state_is_owner_bound_one_time_and_credentials_are_encrypte
         )
         assert authorize.status_code == 200
         query = parse_qs(urlparse(authorize.json()["authorization_url"]).query)
-        assert query["redirect_uri"] == [
-            "https://app.example.test/api/v1/integrations/google/callback"
-        ]
+        assert query["redirect_uri"] == ["https://app.example.test/api/v1/integrations/google/callback"]
         state = query["state"][0]
 
         callback = client.get(
@@ -153,10 +146,7 @@ def test_google_oauth_state_is_owner_bound_one_time_and_credentials_are_encrypte
             )
             assert row is not None
             assert "access-secret" not in row.encrypted_credentials
-            assert (
-                google.decrypt_credentials(row.encrypted_credentials)["refresh_token"]
-                == "refresh-secret"
-            )
+            assert google.decrypt_credentials(row.encrypted_credentials)["refresh_token"] == "refresh-secret"
 
     from sqlalchemy import select
 
@@ -181,9 +171,7 @@ async def test_search_drive_files_formats_results(monkeypatch):
         }
 
     monkeypatch.setattr(google_api, "_request", fake_request)
-    result = await google_api.search_drive_files(
-        None, "owner", query="Budget", mime_type="document", limit=10
-    )
+    result = await google_api.search_drive_files(None, "owner", query="Budget", mime_type="document", limit=10)
     assert result["count"] == 1
     assert result["files"][0]["id"] == "doc123"
     assert result["files"][0]["name"] == "Quarterly Budget.docx"
@@ -234,9 +222,21 @@ async def test_calendar_create_update_delete_events(monkeypatch):
     async def fake_request(_db, _user, scope, method, url, **kwargs):
         captured.append({"scope": scope, "method": method, "url": url, "json": kwargs.get("json")})
         if method == "POST":
-            return {"id": "event_123", "summary": "Project Sync", "start": {"dateTime": "2026-10-30T10:00:00Z"}, "end": {"dateTime": "2026-10-30T11:00:00Z"}, "htmlLink": "https://calendar.google.com/event_123"}
+            return {
+                "id": "event_123",
+                "summary": "Project Sync",
+                "start": {"dateTime": "2026-10-30T10:00:00Z"},
+                "end": {"dateTime": "2026-10-30T11:00:00Z"},
+                "htmlLink": "https://calendar.google.com/event_123",
+            }
         elif method == "PATCH":
-            return {"id": "event_123", "summary": "Updated Sync", "start": {"dateTime": "2026-10-30T11:00:00Z"}, "end": {"dateTime": "2026-10-30T12:00:00Z"}, "htmlLink": "https://calendar.google.com/event_123"}
+            return {
+                "id": "event_123",
+                "summary": "Updated Sync",
+                "start": {"dateTime": "2026-10-30T11:00:00Z"},
+                "end": {"dateTime": "2026-10-30T12:00:00Z"},
+                "htmlLink": "https://calendar.google.com/event_123",
+            }
         return {}
 
     monkeypatch.setattr(google_api, "_request", fake_request)
@@ -302,7 +302,12 @@ async def test_drive_create_update_delete_folder(monkeypatch):
     async def fake_request(_db, _user, scope, method, url, **kwargs):
         captured.append({"scope": scope, "method": method, "url": url, "json": kwargs.get("json")})
         if method == "POST" and "multipart" in url:
-            return {"id": "file_456", "name": "Notes.txt", "mimeType": "text/plain", "webViewLink": "https://drive.google.com/file_456"}
+            return {
+                "id": "file_456",
+                "name": "Notes.txt",
+                "mimeType": "text/plain",
+                "webViewLink": "https://drive.google.com/file_456",
+            }
         elif method == "POST":
             return {"id": "folder_789", "name": "Projects", "webViewLink": "https://drive.google.com/folder_789"}
         elif method == "PATCH" and "media" in url:
@@ -313,7 +318,9 @@ async def test_drive_create_update_delete_folder(monkeypatch):
 
     monkeypatch.setattr(google_api, "_request", fake_request)
 
-    created_file = await google_api.create_drive_file(None, "owner", "Notes.txt", "Initial notes", mime_type="text/plain")
+    created_file = await google_api.create_drive_file(
+        None, "owner", "Notes.txt", "Initial notes", mime_type="text/plain"
+    )
     assert created_file["status"] == "created"
     assert created_file["file_id"] == "file_456"
 
@@ -356,4 +363,3 @@ def test_new_google_tools_registered_in_catalog():
         tool = registry.get(tool_name)
         assert tool is not None, f"Expected {tool_name} to be registered"
         assert tool.provider_id == "google"
-

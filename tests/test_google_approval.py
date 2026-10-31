@@ -11,6 +11,7 @@ from app.persistence.session import SessionLocal
 
 def test_gmail_send_requires_approval_and_revalidates_snapshot(monkeypatch):
     with TestClient(app) as client:
+
         async def add_connection():
             async with SessionLocal() as db:
                 db.add(

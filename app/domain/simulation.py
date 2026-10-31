@@ -49,8 +49,7 @@ class SimulationRequest(BaseModel):
             for change in scenario.changes:
                 if change.frequency == "one_time" and change.month > self.months:
                     raise ValueError(
-                        f"One-time change '{change.name}' falls outside the "
-                        f"{self.months}-month projection"
+                        f"One-time change '{change.name}' falls outside the {self.months}-month projection"
                     )
         return self
 

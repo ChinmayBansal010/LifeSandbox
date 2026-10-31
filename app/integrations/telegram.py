@@ -202,7 +202,7 @@ def extract_oauth_code_and_state(text: str) -> tuple[str | None, str | None]:
     """Extract code and state parameters from a URL or callback command string."""
     clean = text.strip()
     if clean.lower().startswith("/callback"):
-        clean = clean[len("/callback"):].strip()
+        clean = clean[len("/callback") :].strip()
     clean = clean.strip("<>\"'")
 
     if "code=" in clean and "state=" in clean:
@@ -274,9 +274,7 @@ async def send_telegram_message(
             400,
             detail={
                 "code": "telegram_chat_id_missing",
-                "message": (
-                    "No Telegram chat ID provided. Provide chat_id or set TELEGRAM_CHAT_ID in .env."
-                ),
+                "message": ("No Telegram chat ID provided. Provide chat_id or set TELEGRAM_CHAT_ID in .env."),
             },
         )
 
@@ -304,9 +302,7 @@ async def send_telegram_message(
 
         for attempt in range(1, max_retries + 1):
             try:
-                async with httpx.AsyncClient(
-                    timeout=httpx.Timeout(20.0, connect=10.0)
-                ) as client:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=10.0)) as client:
                     response = await client.post(url, json=payload)
                     if response.status_code == 400 and payload.get("parse_mode"):
                         # If HTML/formatting fails, fall back to plain text
@@ -320,9 +316,7 @@ async def send_telegram_message(
                             502,
                             detail={
                                 "code": "telegram_error",
-                                "message": data.get(
-                                    "description", "Telegram API returned an error."
-                                ),
+                                "message": data.get("description", "Telegram API returned an error."),
                             },
                         )
                     res_data = data.get("result", {})
@@ -346,8 +340,7 @@ async def send_telegram_message(
                 last_error = exc
                 if attempt < max_retries:
                     logger.warning(
-                        "Transient network error sending to Telegram (attempt %s/%s): %s. "
-                        "Retrying...",
+                        "Transient network error sending to Telegram (attempt %s/%s): %s. Retrying...",
                         attempt,
                         max_retries,
                         exc,
@@ -525,10 +518,17 @@ async def process_telegram_update(
 
     if lowered in {"/connect_google", "/auth_google", "/auth"}:
         config = get_settings()
-        if not all((config.google_oauth_client_id, config.google_oauth_client_secret, config.google_oauth_callback_url)):
+        if not all(
+            (
+                config.google_oauth_client_id,
+                config.google_oauth_client_secret,
+                config.google_oauth_callback_url,
+            )
+        ):
             missing_msg = (
                 "⚠️ <b>Google OAuth Not Configured</b>\n\n"
-                "To enable Google integrations (Gmail, Calendar, Drive), ensure these are set in your <code>.env</code> file:\n"
+                "To enable Google integrations (Gmail, Calendar, Drive), ensure these are set "
+                "in your <code>.env</code> file:\n"
                 "• <code>GOOGLE_OAUTH_CLIENT_ID</code>\n"
                 "• <code>GOOGLE_OAUTH_CLIENT_SECRET</code>\n"
                 "• <code>GOOGLE_OAUTH_CALLBACK_URL</code>\n"
@@ -542,10 +542,15 @@ async def process_telegram_update(
             connect_msg = (
                 "🔗 <b>Connect Your Google Account</b>\n\n"
                 "Click the link below to grant Life Sandbox access to your Gmail, Calendar, and Drive:\n\n"
-                f"👉 <a href=\"{auth_url}\"><b>Authorize Google Account</b></a>\n\n"
-                "<i>This link is valid for 10 minutes. Once authorized, you can perform all your operations right here from Telegram!</i>\n\n"
+                f'👉 <a href="{auth_url}"><b>Authorize Google Account</b></a>\n\n'
+                "<i>This link is valid for 10 minutes. Once authorized, you can perform all "
+                "your operations right here from Telegram!</i>\n\n"
                 "💡 <b>Tip if running locally:</b>\n"
-                "If your browser shows <i>\"Site can't be reached\"</i> after you approve permissions (because <code>localhost:8000</code> is running on your computer and not reachable from your phone), simply <b>copy the full URL from your browser's address bar and paste it directly into this chat</b>! I will finish connecting your account automatically."
+                'If your browser shows <i>"Site can\'t be reached"</i> after you approve '
+                "permissions (because <code>localhost:8000</code> is running on your computer "
+                "and not reachable from your phone), simply <b>copy the full URL from your "
+                "browser's address bar and paste it directly into this chat</b>! I will finish "
+                "connecting your account automatically."
             )
             await send_telegram_message(message=connect_msg, chat_id=chat_id)
             return {"status": "command_handled", "command": lowered}
@@ -567,27 +572,33 @@ async def process_telegram_update(
                 f"• <b>Capabilities:</b> {len(token_scopes)} permissions active\n\n"
                 "You can now manage your <b>Calendar, Gmail, and Google Drive</b> directly from Telegram!\n\n"
                 "<b>Try asking me:</b>\n"
-                "• <i>\"What's on my schedule today?\"</i>\n"
-                "• <i>\"Check my latest unread emails\"</i>\n"
-                "• <i>\"List files in my Google Drive\"</i>"
+                '• <i>"What\'s on my schedule today?"</i>\n'
+                '• <i>"Check my latest unread emails"</i>\n'
+                '• <i>"List files in my Google Drive"</i>'
             )
             await send_telegram_message(message=success_msg, chat_id=chat_id)
             return {"status": "google_connected", "account_email": account_email}
         except HTTPException as exc:
             detail = exc.detail
             msg = detail.get("message", str(detail)) if isinstance(detail, dict) else str(detail)
-            err_msg = f"⚠️ <b>Google Connection Failed:</b> {html.escape(msg)}\n\nPlease run <code>/connect_google</code> to get a fresh link and try again."
+            err_msg = (
+                f"⚠️ <b>Google Connection Failed:</b> {html.escape(msg)}\n\n"
+                "Please run <code>/connect_google</code> to get a fresh link and try again."
+            )
             await send_telegram_message(message=err_msg, chat_id=chat_id)
             return {"status": "error", "error": msg}
         except Exception as exc:
-            err_msg = f"⚠️ <b>Google Connection Error:</b> {html.escape(str(exc))}\n\nPlease run <code>/connect_google</code> to try again."
+            err_msg = (
+                f"⚠️ <b>Google Connection Error:</b> {html.escape(str(exc))}\n\n"
+                "Please run <code>/connect_google</code> to try again."
+            )
             await send_telegram_message(message=err_msg, chat_id=chat_id)
             return {"status": "error", "error": str(exc)}
 
     if lowered == "/callback":
         help_cb_msg = (
             "ℹ️ <b>How to Complete Connection:</b>\n\n"
-            "If your browser showed <i>\"Site can't be reached\"</i> after signing into Google, "
+            'If your browser showed <i>"Site can\'t be reached"</i> after signing into Google, '
             "copy the full URL from your browser's address bar and paste it here directly, or type:\n"
             "<code>/callback &lt;paste URL here&gt;</code>"
         )
@@ -607,7 +618,8 @@ async def process_telegram_update(
             not_conn_msg = (
                 "ℹ️ <b>Google Status: Not Connected</b>\n\n"
                 "You haven't connected a Google account yet.\n"
-                "Send <code>/connect_google</code> to link your account and unlock Gmail, Calendar, and Drive operations!"
+                "Send <code>/connect_google</code> to link your account and unlock Gmail, "
+                "Calendar, and Drive operations!"
             )
             await send_telegram_message(message=not_conn_msg, chat_id=chat_id)
             return {"status": "command_handled", "command": "/google_status"}
@@ -692,9 +704,7 @@ async def process_telegram_update(
             return {"status": "command_handled", "command": "/reject"}
         approval_id = parts[1].strip()
         approval = await db.scalar(
-            select(ApprovalRow).where(
-                ApprovalRow.id == approval_id, ApprovalRow.user_id == user_id
-            )
+            select(ApprovalRow).where(ApprovalRow.id == approval_id, ApprovalRow.user_id == user_id)
         )
         if approval is None:
             await send_telegram_message(message="⚠️ Approval not found.", chat_id=chat_id)
@@ -783,11 +793,7 @@ async def process_telegram_update(
             conversation_id=conversation_id,
             channel="telegram",
         )
-        reply = (
-            chat_result.get("reply", "No response generated.")
-            if chat_result
-            else "No response generated."
-        )
+        reply = chat_result.get("reply", "No response generated.") if chat_result else "No response generated."
         reply = format_markdown_for_telegram(reply)
     except Exception as exc:
         logger.exception("Failed to run chat turn for Telegram message: %s", exc)
@@ -853,9 +859,7 @@ async def run_telegram_polling(stop_event: asyncio.Event | None = None) -> None:
                             async with SessionLocal() as db:
                                 await process_telegram_update(upd, db=db)
                         except Exception as upd_exc:
-                            logger.exception(
-                                "Error processing Telegram update %s: %s", upd_id, upd_exc
-                            )
+                            logger.exception("Error processing Telegram update %s: %s", upd_id, upd_exc)
                 elif response.status_code == 409:
                     # Conflict: Webhook still active
                     logger.warning("Telegram polling 409 conflict. Retrying deleteWebhook...")

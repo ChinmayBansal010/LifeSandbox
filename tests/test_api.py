@@ -24,11 +24,15 @@ def test_chat_persists_history_and_rejects_unknown_conversation():
 
 def test_chat_creates_conversation_when_client_id_not_found():
     import uuid
+
     client_conv_id = str(uuid.uuid4())
     with TestClient(app) as client:
         response = client.post(
             "/api/v1/chat",
-            json={"message": "Check my calendar to find free time this Friday afternoon", "conversation_id": client_conv_id},
+            json={
+                "message": "Check my calendar to find free time this Friday afternoon",
+                "conversation_id": client_conv_id,
+            },
         )
         assert response.status_code == 200
         body = response.json()
@@ -67,8 +71,14 @@ def test_plugin_catalogue_is_registry_backed_and_reports_setup_truthfully():
     assert tools["gmail.search_messages"]["provider"] == "google"
     assert "gmail.readonly" in tools["gmail.search_messages"]["permission_requirements"][0]
     assert {item["status"] for item in tools.values()} <= {
-        "available", "connected", "requires_setup", "requires_connection",
-        "permission_required", "disabled", "unavailable", "degraded",
+        "available",
+        "connected",
+        "requires_setup",
+        "requires_connection",
+        "permission_required",
+        "disabled",
+        "unavailable",
+        "degraded",
     }
     assert all("token" not in key.lower() for item in tools.values() for key in item)
 
@@ -132,9 +142,10 @@ def test_conversation_crud_lifecycle_and_messages():
         assert get_res.json()["title"] == "Updated Strategy Session"
 
         # 5. Insert messages directly to verify /messages endpoint
-        from app.persistence.session import SessionLocal
-        from app.persistence.models import MessageRow
         import asyncio
+
+        from app.persistence.models import MessageRow
+        from app.persistence.session import SessionLocal
 
         async def _add_msgs():
             async with SessionLocal() as db:
@@ -161,4 +172,3 @@ def test_conversation_crud_lifecycle_and_messages():
         # 8. Verify it is no longer found
         assert client.get(f"/api/v1/conversations/{conv_id}").status_code == 404
         assert client.get(f"/api/v1/conversations/{conv_id}/messages").status_code == 404
-

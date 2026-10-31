@@ -1,16 +1,11 @@
-import json
 import uuid
-from datetime import UTC, datetime
-from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 
-from app.core.config import get_settings
-from app.jobs.worker import run_due_jobs
 from app.main import app, settings
-from app.persistence.models import FileChunkRow, FileRow, JobRow
+from app.persistence.models import FileChunkRow, FileRow
 from app.persistence.session import SessionLocal
 from app.services.files import process_document_ingestion
 
@@ -83,9 +78,7 @@ async def test_successful_ingestion_transitions_to_ready(tmp_path):
         assert updated.status == "ready"
         assert updated.error_message is None
 
-        chunks = list(
-            (await db.scalars(select(FileChunkRow).where(FileChunkRow.file_id == file_id))).all()
-        )
+        chunks = list((await db.scalars(select(FileChunkRow).where(FileChunkRow.file_id == file_id))).all())
         assert len(chunks) == count
         assert chunks[0].embedding is not None
 
@@ -141,6 +134,7 @@ def test_chat_rejects_unready_attachments_with_422(tmp_path):
                 await db.commit()
 
         import asyncio
+
         asyncio.run(insert_processing_file())
 
         response = client.post(
@@ -173,6 +167,7 @@ def test_chat_rejects_failed_attachments_with_422():
                 await db.commit()
 
         import asyncio
+
         asyncio.run(insert_failed_file())
 
         response = client.post(
@@ -216,6 +211,7 @@ def test_retry_file_ingestion_endpoint(tmp_path):
                 await db.commit()
 
         import asyncio
+
         asyncio.run(insert_error_file())
 
         retry_res = client.post(f"/api/v1/files/{file_id}/retry")

@@ -126,9 +126,7 @@ async def test_vector_chunk_retrieval():
         db.add_all([c1, c2])
         await db.commit()
 
-        results = await search_user_documents(
-            db, user_id=user_id, query="What was the quarterly revenue?", limit=1
-        )
+        results = await search_user_documents(db, user_id=user_id, query="What was the quarterly revenue?", limit=1)
         assert len(results) == 1
         assert "quarterly revenue" in results[0].content
 
@@ -203,13 +201,7 @@ async def test_document_ingestion_via_job_row(tmp_path, monkeypatch):
         assert updated_file is not None
         assert updated_file.status == "ready"
 
-        stored_chunks = list(
-            (
-                await db.scalars(
-                    select(FileChunkRow).where(FileChunkRow.file_id == file_id)
-                )
-            ).all()
-        )
+        stored_chunks = list((await db.scalars(select(FileChunkRow).where(FileChunkRow.file_id == file_id))).all())
         assert len(stored_chunks) > 0
         assert stored_chunks[0].embedding is not None
         assert len(stored_chunks[0].embedding) == 384
@@ -253,9 +245,7 @@ async def test_knowledge_search_execution():
         db.add_all([file, chunk])
         await db.commit()
 
-        results = await search_user_documents(
-            db, user_id=user_id, query="Where is the deployment key?"
-        )
+        results = await search_user_documents(db, user_id=user_id, query="Where is the deployment key?")
         assert len(results) > 0
         assert results[0].filename == "ops_guide.md"
         assert "AWS Secrets Manager" in results[0].content
@@ -274,10 +264,7 @@ def test_reciprocal_rank_fusion_math():
 
 
 def test_implicit_fact_extraction():
-    message = (
-        "I work as a senior backend engineer at Stripe. "
-        "Also, I prefer concise markdown bullet points."
-    )
+    message = "I work as a senior backend engineer at Stripe. Also, I prefer concise markdown bullet points."
     facts = extract_implicit_facts(message)
     assert len(facts) == 2
     categories = {cat for cat, _ in facts}

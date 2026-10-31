@@ -2,15 +2,14 @@ from app.services.speech import speech_text
 
 
 def test_speech_text_strips_markdown_formatting():
-    assert speech_text(
-        "# Heading\n- **Bold** item\n1. `inline code`\n[Docs](https://example.com)"
-    ) == "Heading Bold item inline code Docs"
+    assert (
+        speech_text("# Heading\n- **Bold** item\n1. `inline code`\n[Docs](https://example.com)")
+        == "Heading Bold item inline code Docs"
+    )
 
 
 def test_speech_text_omits_fenced_code():
-    assert speech_text("Before\n```python\nprint('hello')\n```\nAfter") == (
-        "Before Code block omitted. After"
-    )
+    assert speech_text("Before\n```python\nprint('hello')\n```\nAfter") == ("Before Code block omitted. After")
 
 
 def test_speech_text_handles_images_and_links():

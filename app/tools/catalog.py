@@ -362,7 +362,9 @@ register_tool(
             "content": {"type": "string", "description": "Text content of the file"},
             "mime_type": {
                 "type": "string",
-                "description": "File format: document (Google Doc), spreadsheet (Google Sheet), text/plain, or markdown",
+                "description": (
+                    "File format: document (Google Doc), spreadsheet (Google Sheet), text/plain, or markdown"
+                ),
             },
             "folder_id": {"type": "string", "description": "Optional parent folder ID on Google Drive"},
         },
@@ -437,7 +439,9 @@ register_tool(
         "properties": {
             "message": {
                 "type": "string",
-                "description": "The message text to send to Telegram. Supports HTML formatting like <b>bold</b> and <i>italic</i>.",
+                "description": (
+                    "The message text to send to Telegram. Supports HTML formatting like <b>bold</b> and <i>italic</i>."
+                ),
             },
             "chat_id": {
                 "type": "string",

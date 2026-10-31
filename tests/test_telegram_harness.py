@@ -39,6 +39,7 @@ def setup_telegram_settings(monkeypatch):
 @pytest.mark.asyncio
 async def test_telegram_burst_concurrency_harness(monkeypatch):
     """Harness: Concurrently process 20 parallel user messages without deadlocks."""
+
     async def mock_run_chat(db, user_id, message, conversation_id=None, **kwargs):
         await asyncio.sleep(0.01)
         return {
@@ -123,28 +124,34 @@ async def test_telegram_command_state_machine_harness(monkeypatch):
     monkeypatch.setattr(telegram, "send_telegram_message", mock_send)
 
     # 1. /start
-    res_start = await telegram.process_telegram_update({
-        "update_id": 3001,
-        "message": {"chat": {"id": 987654321}, "text": "/start"},
-    })
+    res_start = await telegram.process_telegram_update(
+        {
+            "update_id": 3001,
+            "message": {"chat": {"id": 987654321}, "text": "/start"},
+        }
+    )
     assert res_start["status"] == "command_handled"
     assert res_start["command"] == "/start"
     assert "Welcome to Life Sandbox" in sent_messages[-1]
 
     # 2. /status
-    res_status = await telegram.process_telegram_update({
-        "update_id": 3002,
-        "message": {"chat": {"id": 987654321}, "text": "/status"},
-    })
+    res_status = await telegram.process_telegram_update(
+        {
+            "update_id": 3002,
+            "message": {"chat": {"id": 987654321}, "text": "/status"},
+        }
+    )
     assert res_status["status"] == "command_handled"
     assert res_status["command"] == "/status"
     assert "Active & Connected" in sent_messages[-1]
 
     # 3. /reset
-    res_reset = await telegram.process_telegram_update({
-        "update_id": 3003,
-        "message": {"chat": {"id": 987654321}, "text": "/reset"},
-    })
+    res_reset = await telegram.process_telegram_update(
+        {
+            "update_id": 3003,
+            "message": {"chat": {"id": 987654321}, "text": "/reset"},
+        }
+    )
     assert res_reset["status"] == "conversation_reset"
     assert "Fresh conversation started" in sent_messages[-1]
 

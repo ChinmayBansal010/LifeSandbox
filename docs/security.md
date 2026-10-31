@@ -16,3 +16,8 @@ The authenticated plugin catalogue returns tool descriptions, scopes and owner-s
 The model only receives request-relevant tools after Google scopes have been filtered. The dispatcher rejects unknown/unselected tools and validates arguments against the registry schema. Google integrations repeat owner, connection and scope checks in their provider path. Tool/provider output remains untrusted and cannot grant permissions. Gmail send remains a separate exact-payload approval flow; calendar writes are not supported.
 
 Google app sign-in is a separate OpenID Connect flow. It uses owner-independent one-time state bound to a short-lived HttpOnly SameSite=Lax cookie, PKCE, nonce verification, Google JWKS signature checks, verified email, and an eight-hour signed HttpOnly session cookie. The session subject is the stable Google `sub`, namespaced as `google:<sub>`; email is display metadata and never an ownership key. `AUTH_SECRET` signs app sessions and must be set before enabling sign-in. In development, the local `local-user` fallback remains available when no session cookie is present; production requires JWT mode and does not use that fallback.
+
+
+## Administrative authorization
+
+Administrative trace, statistics, and trace-deletion endpoints require an explicit server-side allowlist. Configure `ADMIN_USER_IDS` as a JSON array of exact stable principal subject IDs. The default is an empty list, which denies administrative access to every user. Do not grant administrator privileges from profile fields, request headers, or caller-supplied role claims. Keep the allowlist limited to operators who need access to cross-user operational data.

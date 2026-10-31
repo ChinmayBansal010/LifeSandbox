@@ -31,7 +31,7 @@ from app.api.memory import router as memory_router
 from app.api.workflow import router as workflow_router
 from app.core.config import get_settings
 from app.core.rate_limit import SlidingWindowRateLimiter
-from app.core.security import Principal, current_principal
+from app.core.security import Principal, current_principal, require_admin
 from app.domain.simulation import SimulationRequest, simulate
 from app.integrations.google import router as integrations_router
 from app.integrations.telegram import (
@@ -58,6 +58,7 @@ from app.services.chat import run_chat
 from app.services.tool_tracker import clear_traces, get_stats, get_trace_by_id, get_traces
 from app.tools import catalog as _tool_catalog  # noqa: F401 - registers built-in capabilities
 from app.tools.registry import CapabilityStatus, registry
+
 
 class _SettingsProxy:
     def __getattr__(self, name: str):
@@ -89,9 +90,7 @@ def _kokoro_pipeline():
     return importlib.import_module("kokoro").KPipeline(lang_code="a")
 
 
-logging.basicConfig(
-    level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s %(message)s"
-)
+logging.basicConfig(level=settings.log_level, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 if settings.sentry_dsn:
     sentry_sdk.init(dsn=settings.sentry_dsn, traces_sample_rate=0.05, send_default_pii=False)
 
@@ -165,11 +164,7 @@ async def llm_error(_: Request, exc: LLMError):
 async def request_id(request: Request, call_next):
     rid = request.headers.get("X-Request-ID") or str(uuid.uuid4())
     request.state.request_id = rid
-    if (
-        settings.app_env == "production"
-        and request.url.path.startswith("/api/")
-        and request.method != "OPTIONS"
-    ):
+    if settings.app_env == "production" and request.url.path.startswith("/api/") and request.method != "OPTIONS":
         client_key = request.client.host if request.client else "unknown"
         if not _rate_limiter.allow(client_key):
             return JSONResponse(
@@ -192,9 +187,7 @@ async def unhandled_error(_: Request, exc: Exception):
     logging.getLogger("life_sandbox").exception("Unhandled request failure", exc_info=exc)
     return JSONResponse(
         status_code=500,
-        content={
-            "error": {"code": "internal_error", "message": "The request could not be completed"}
-        },
+        content={"error": {"code": "internal_error", "message": "The request could not be completed"}},
     )
 
 
@@ -233,10 +226,7 @@ class ChatRequest(BaseModel):
 
 @app.get("/api/v1/capabilities")
 async def capabilities():
-    stt_available = (
-        settings.stt_provider == "faster_whisper"
-        and importlib.util.find_spec("faster_whisper") is not None
-    )
+    stt_available = settings.stt_provider == "faster_whisper" and importlib.util.find_spec("faster_whisper") is not None
     tts_available = (
         settings.tts_provider == "kokoro"
         and importlib.util.find_spec("kokoro") is not None
@@ -295,10 +285,7 @@ async def plugin_catalogue(
             elif not rows:
                 status = "requires_connection"
                 setup = "Connect a Google account and select the permissions shown here."
-            elif not any(
-                set(definition.required_permissions).issubset(scopes)
-                for scopes in connection_scopes
-            ):
+            elif not any(set(definition.required_permissions).issubset(scopes) for scopes in connection_scopes):
                 status = "permission_required"
                 setup = "Reconnect Google and grant the required permission for this operation."
             else:
@@ -314,15 +301,10 @@ async def plugin_catalogue(
         elif definition.provider_id == "research":
             if settings.research_provider == "disabled":
                 status = "disabled"
-                setup = (
-                    "Set RESEARCH_PROVIDER=tavily and configure TAVILY_API_KEY "
-                    "to enable live search."
-                )
+                setup = "Set RESEARCH_PROVIDER=tavily and configure TAVILY_API_KEY to enable live search."
             else:
                 status = "available"
-                setup = (
-                    "Live research is configured; provider health is checked when a search runs."
-                )
+                setup = "Live research is configured; provider health is checked when a search runs."
         tools.append(definition.public_description(status, setup))
     return {"tools": tools, "refreshed_at": datetime.now(UTC)}
 
@@ -407,8 +389,8 @@ async def chat(
         timeout = exc.code == "timeout"
         is_rate_limit = exc.code == "rate_limit" or exc.status_code == 429
         if is_rate_limit:
-            message = f"Rate limit reached ({exc.provider}): {exc}. Mem0 save was not attempted."
-            status_code = 429
+            message = f"Upstream rate limit reached ({exc.provider}): {exc}. Mem0 save was not attempted."
+            status_code = 502
         elif timeout and exc.provider == "openrouter":
             message = "Model response timed out (OpenRouter). Mem0 save was not attempted."
             status_code = 504
@@ -419,7 +401,7 @@ async def chat(
             status_code=status_code,
             content={
                 "error": {
-                    "code": "llm_rate_limit" if is_rate_limit else "llm_provider_error",
+                    "code": "llm_provider_error",
                     "provider": exc.provider,
                     "upstream_status": exc.status_code,
                     "message": message,
@@ -431,7 +413,7 @@ async def chat(
                         "stage": "llm_generate",
                         "code": exc.code,
                         "message": message,
-                        "retriable": not is_rate_limit,
+                        "retriable": True,
                     },
                 }
             },
@@ -510,9 +492,7 @@ async def create_conversation(
 
 
 @app.get("/api/v1/conversations")
-async def conversations(
-    principal: Principal = Depends(current_principal), db: AsyncSession = Depends(get_session)
-):
+async def conversations(principal: Principal = Depends(current_principal), db: AsyncSession = Depends(get_session)):
     rows = (
         await db.scalars(
             select(ConversationRow)
@@ -522,10 +502,7 @@ async def conversations(
         )
     ).all()
     return {
-        "items": [
-            {"id": r.id, "title": r.title, "created_at": r.created_at, "updated_at": r.updated_at}
-            for r in rows
-        ]
+        "items": [{"id": r.id, "title": r.title, "created_at": r.created_at, "updated_at": r.updated_at} for r in rows]
     }
 
 
@@ -595,17 +572,10 @@ async def messages(
         raise HTTPException(404, detail={"code": "not_found", "message": "Conversation not found"})
     rows = (
         await db.scalars(
-            select(MessageRow)
-            .where(MessageRow.conversation_id == conversation_id)
-            .order_by(MessageRow.created_at)
+            select(MessageRow).where(MessageRow.conversation_id == conversation_id).order_by(MessageRow.created_at)
         )
     ).all()
-    return {
-        "items": [
-            {"id": m.id, "role": m.role, "content": m.content, "created_at": m.created_at}
-            for m in rows
-        ]
-    }
+    return {"items": [{"id": m.id, "role": m.role, "content": m.content, "created_at": m.created_at} for m in rows]}
 
 
 @app.delete("/api/v1/conversations/{conversation_id}", status_code=204)
@@ -644,14 +614,8 @@ async def create_upload(
 ):
     from app.providers.storage import StorageUnavailable, presigned_upload
 
-    if (
-        payload.size_bytes > settings.upload_max_bytes
-        or "/" in payload.filename
-        or "\\" in payload.filename
-    ):
-        raise HTTPException(
-            400, detail={"code": "invalid_file", "message": "Invalid filename or file size"}
-        )
+    if payload.size_bytes > settings.upload_max_bytes or "/" in payload.filename or "\\" in payload.filename:
+        raise HTTPException(400, detail={"code": "invalid_file", "message": "Invalid filename or file size"})
     row = FileRow(
         id=str(uuid.uuid4()),
         user_id=principal.user_id,
@@ -662,9 +626,7 @@ async def create_upload(
     try:
         url = presigned_upload(principal.user_id, row.id, payload.mime_type, payload.size_bytes)
     except StorageUnavailable as exc:
-        raise HTTPException(
-            503, detail={"code": "storage_unavailable", "message": str(exc)}
-        ) from exc
+        raise HTTPException(503, detail={"code": "storage_unavailable", "message": str(exc)}) from exc
     except ValueError as exc:
         raise HTTPException(400, detail={"code": "invalid_file", "message": str(exc)}) from exc
     db.add(row)
@@ -776,17 +738,13 @@ async def download_file(
     from app.services.files import storage_path
 
     row = await db.scalar(
-        select(FileRow).where(
-            FileRow.id == file_id, FileRow.user_id == principal.user_id, FileRow.status == "ready"
-        )
+        select(FileRow).where(FileRow.id == file_id, FileRow.user_id == principal.user_id, FileRow.status == "ready")
     )
     if row is None:
         raise HTTPException(404, detail={"code": "not_found", "message": "File not found"})
     path = storage_path(row.storage_key)
     if not path.is_file():
-        raise HTTPException(
-            404, detail={"code": "object_missing", "message": "Stored file is unavailable"}
-        )
+        raise HTTPException(404, detail={"code": "object_missing", "message": "Stored file is unavailable"})
     return FileResponse(path, media_type=row.mime_type, filename=row.filename)
 
 
@@ -797,9 +755,7 @@ async def transcribe_audio(
     _: Principal = Depends(current_principal),
 ):
     if settings.stt_provider == "disabled":
-        raise HTTPException(
-            503, detail={"code": "stt_disabled", "message": "Speech transcription is disabled"}
-        )
+        raise HTTPException(503, detail={"code": "stt_disabled", "message": "Speech transcription is disabled"})
     if (file.content_type or "").split(";")[0] not in {
         "audio/webm",
         "audio/wav",
@@ -817,16 +773,13 @@ async def transcribe_audio(
         )
     data = await file.read(settings.stt_max_bytes + 1)
     if not data or len(data) > settings.stt_max_bytes:
-        raise HTTPException(
-            400, detail={"code": "invalid_audio", "message": "Audio is empty or too large"}
-        )
+        raise HTTPException(400, detail={"code": "invalid_audio", "message": "Audio is empty or too large"})
     mime = (file.content_type or "").split(";")[0]
     signatures = {
         "audio/webm": data.startswith(b"\x1aE\xdf\xa3"),
         "audio/wav": data.startswith(b"RIFF") and data[8:12] == b"WAVE",
         "audio/x-wav": data.startswith(b"RIFF") and data[8:12] == b"WAVE",
-        "audio/mpeg": data.startswith(b"ID3")
-        or (len(data) > 1 and data[0] == 0xFF and data[1] & 0xE0 == 0xE0),
+        "audio/mpeg": data.startswith(b"ID3") or (len(data) > 1 and data[0] == 0xFF and data[1] & 0xE0 == 0xE0),
         "audio/mp4": b"ftyp" in data[:16],
         "audio/ogg": data.startswith(b"OggS"),
     }
@@ -860,9 +813,7 @@ async def transcribe_audio(
             segment_iter, info = model.transcribe(temp_path, language=language)
             return list(segment_iter), info
 
-        segments, info = await asyncio.wait_for(
-            asyncio.to_thread(transcribe), settings.stt_timeout_seconds
-        )
+        segments, info = await asyncio.wait_for(asyncio.to_thread(transcribe), settings.stt_timeout_seconds)
         if info.duration and info.duration > settings.stt_max_duration_seconds:
             raise HTTPException(
                 413,
@@ -894,26 +845,16 @@ async def transcribe_audio(
 @app.post("/api/v1/audio/speech")
 async def speech(payload: dict, _: Principal = Depends(current_principal)):
     if settings.tts_provider == "disabled":
-        raise HTTPException(
-            503, detail={"code": "tts_disabled", "message": "Speech generation is disabled"}
-        )
+        raise HTTPException(503, detail={"code": "tts_disabled", "message": "Speech generation is disabled"})
     from app.services.speech import speech_text
 
     raw_text = payload.get("text", "")
-    if (
-        not isinstance(raw_text, str)
-        or not raw_text.strip()
-        or len(raw_text) > settings.tts_max_chars
-    ):
-        raise HTTPException(
-            400, detail={"code": "invalid_text", "message": "Text is empty or too long"}
-        )
+    if not isinstance(raw_text, str) or not raw_text.strip() or len(raw_text) > settings.tts_max_chars:
+        raise HTTPException(400, detail={"code": "invalid_text", "message": "Text is empty or too long"})
     text = speech_text(raw_text)
     voice = payload.get("voice", settings.tts_voice)
     if voice not in {"af_heart", "af_bella", "am_adam", "am_michael"}:
-        raise HTTPException(
-            422, detail={"code": "unsupported_voice", "message": "That voice is not supported"}
-        )
+        raise HTTPException(422, detail={"code": "unsupported_voice", "message": "That voice is not supported"})
     try:
         import importlib
         import io
@@ -937,9 +878,7 @@ async def speech(payload: dict, _: Principal = Depends(current_principal)):
             },
         ) from exc
     except Exception as exc:
-        raise HTTPException(
-            502, detail={"code": "synthesis_failed", "message": "Speech synthesis failed"}
-        ) from exc
+        raise HTTPException(502, detail={"code": "synthesis_failed", "message": "Speech synthesis failed"}) from exc
 
 
 @app.post("/api/v1/files/{file_id}/complete")
@@ -948,9 +887,7 @@ async def complete_upload(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(get_session),
 ):
-    row = await db.scalar(
-        select(FileRow).where(FileRow.id == file_id, FileRow.user_id == principal.user_id)
-    )
+    row = await db.scalar(select(FileRow).where(FileRow.id == file_id, FileRow.user_id == principal.user_id))
     if row is None:
         raise HTTPException(404, detail={"code": "not_found", "message": "File not found"})
     row.status = "uploaded_unprocessed"
@@ -963,15 +900,10 @@ async def complete_upload(
 
 
 @app.get("/api/v1/files")
-async def list_files(
-    principal: Principal = Depends(current_principal), db: AsyncSession = Depends(get_session)
-):
+async def list_files(principal: Principal = Depends(current_principal), db: AsyncSession = Depends(get_session)):
     rows = (
         await db.scalars(
-            select(FileRow)
-            .where(FileRow.user_id == principal.user_id)
-            .order_by(FileRow.created_at.desc())
-            .limit(100)
+            select(FileRow).where(FileRow.user_id == principal.user_id).order_by(FileRow.created_at.desc()).limit(100)
         )
     ).all()
     return {
@@ -997,9 +929,7 @@ async def get_file(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(get_session),
 ):
-    row = await db.scalar(
-        select(FileRow).where(FileRow.id == file_id, FileRow.user_id == principal.user_id)
-    )
+    row = await db.scalar(select(FileRow).where(FileRow.id == file_id, FileRow.user_id == principal.user_id))
     if row is None:
         raise HTTPException(404, detail={"code": "not_found", "message": "File not found"})
     return {
@@ -1025,9 +955,7 @@ async def retry_file_ingestion(
     from app.persistence.models import JobRow
     from app.services.files import storage_path
 
-    row = await db.scalar(
-        select(FileRow).where(FileRow.id == file_id, FileRow.user_id == principal.user_id)
-    )
+    row = await db.scalar(select(FileRow).where(FileRow.id == file_id, FileRow.user_id == principal.user_id))
     if row is None:
         raise HTTPException(404, detail={"code": "not_found", "message": "File not found"})
 
@@ -1068,9 +996,7 @@ async def delete_file(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(get_session),
 ):
-    row = await db.scalar(
-        select(FileRow).where(FileRow.id == file_id, FileRow.user_id == principal.user_id)
-    )
+    row = await db.scalar(select(FileRow).where(FileRow.id == file_id, FileRow.user_id == principal.user_id))
     if row is None:
         raise HTTPException(404, detail={"code": "not_found", "message": "File not found"})
     from app.services.files import storage_path
@@ -1092,9 +1018,7 @@ async def research_endpoint(payload: ResearchRequest, _: Principal = Depends(cur
     try:
         return {"query": payload.query, "sources": await research(payload.query), "live": True}
     except ResearchUnavailable as exc:
-        raise HTTPException(
-            503, detail={"code": "research_unavailable", "message": str(exc)}
-        ) from exc
+        raise HTTPException(503, detail={"code": "research_unavailable", "message": str(exc)}) from exc
 
 
 class Feedback(BaseModel):
@@ -1117,9 +1041,7 @@ async def feedback(
             )
         )
         if not owned:
-            raise HTTPException(
-                404, detail={"code": "not_found", "message": "Conversation not found"}
-            )
+            raise HTTPException(404, detail={"code": "not_found", "message": "Conversation not found"})
     row = FeedbackRow(user_id=principal.user_id, **payload.model_dump())
     db.add(row)
     await db.commit()
@@ -1133,7 +1055,7 @@ async def list_admin_traces(
     search: str | None = None,
     tool_filter: str | None = None,
     status: str | None = None,
-    _: Principal = Depends(current_principal),
+    _: Principal = Depends(require_admin),
     db: AsyncSession = Depends(get_session),
 ):
     items = await get_traces(
@@ -1150,7 +1072,7 @@ async def list_admin_traces(
 @app.get("/api/v1/admin/traces/{trace_id}")
 async def get_admin_trace(
     trace_id: str,
-    _: Principal = Depends(current_principal),
+    _: Principal = Depends(require_admin),
     db: AsyncSession = Depends(get_session),
 ):
     item = await get_trace_by_id(trace_id, db=db)
@@ -1161,7 +1083,7 @@ async def get_admin_trace(
 
 @app.delete("/api/v1/admin/traces", status_code=204)
 async def clear_admin_traces(
-    _: Principal = Depends(current_principal),
+    _: Principal = Depends(require_admin),
     db: AsyncSession = Depends(get_session),
 ):
     await clear_traces(db=db)
@@ -1169,7 +1091,7 @@ async def clear_admin_traces(
 
 @app.get("/api/v1/admin/stats")
 async def admin_stats(
-    _: Principal = Depends(current_principal),
+    _: Principal = Depends(require_admin),
     db: AsyncSession = Depends(get_session),
 ):
     return await get_stats(db=db)

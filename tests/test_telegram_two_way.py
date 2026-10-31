@@ -69,7 +69,7 @@ def test_chunk_message():
     assert len(telegram.chunk_message(medium_text)) == 1
 
     # Over 4000 characters
-    long_text = ("Hello line\n" * 500)
+    long_text = "Hello line\n" * 500
     chunks = telegram.chunk_message(long_text, max_length=1000)
     assert len(chunks) > 1
     for chunk in chunks:
@@ -337,9 +337,10 @@ async def test_telegram_approvals_and_approve_reject_flow(monkeypatch):
     assert "No pending approvals" in sent[-1]
 
     # 2. Add a pending approval to DB
-    from app.persistence.session import SessionLocal
-    from app.persistence.models import ApprovalRow
     import hashlib
+
+    from app.persistence.models import ApprovalRow
+    from app.persistence.session import SessionLocal
 
     args = '{"test": "arg"}'
     approval_id = "test-appr-123"
@@ -379,7 +380,9 @@ async def test_telegram_approvals_and_approve_reject_flow(monkeypatch):
 
 def test_extract_oauth_code_and_state():
     # Full callback URL
-    url = "http://localhost:8000/api/v1/integrations/google/callback?code=test-code-123&state=test-state-456&scope=openid"
+    url = (
+        "http://localhost:8000/api/v1/integrations/google/callback?code=test-code-123&state=test-state-456&scope=openid"
+    )
     code, state = telegram.extract_oauth_code_and_state(url)
     assert code == "test-code-123"
     assert state == "test-state-456"
@@ -455,9 +458,11 @@ async def test_telegram_google_callback_pasted_url(monkeypatch):
 
 def test_sanitize_telegram_response_and_formatting():
     sample_openui = (
-        "I can help you think through this decision! Let me structure a comparison of the two paths using the OpenUI framework so you can see the key dimensions side by side.\n\n"
+        "I can help you think through this decision! Let me structure a comparison of the "
+        "two paths using the OpenUI framework so you can see the key dimensions side by side.\n\n"
         "Let me first check if I need to reference any data about these fields, and then I'll present a comparison.\n\n"
-        "Actually, let me just build a comprehensive comparison directly — I have enough understanding of both fields to present the key trade-offs.\n\n"
+        "Actually, let me just build a comprehensive comparison directly — I have enough "
+        "understanding of both fields to present the key trade-offs.\n\n"
         "Let me structure this as a comparison with KPI cards and a decision framework.\n"
         "root = Card([header, kpiBlock, comparisonSections, decisionFactors, actionButtons])\n"
         'header = CardHeader("CSE vs VLSI: Career Comparison", "Key dimensions to help you decide")\n'
@@ -513,5 +518,3 @@ async def test_process_telegram_update_passes_channel(monkeypatch):
         }
         await telegram.process_telegram_update(update)
         assert passed_kwargs.get("channel") == "telegram"
-
-

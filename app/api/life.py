@@ -53,9 +53,7 @@ class PolicyInput(BaseModel):
 
 
 @router.get("/memory-policy")
-async def get_memory_policy(
-    principal: Principal = Depends(current_principal), db: AsyncSession = Depends(get_session)
-):
+async def get_memory_policy(principal: Principal = Depends(current_principal), db: AsyncSession = Depends(get_session)):
     row = await policy_for(db, principal.user_id)
     await db.commit()
     return policy_json(row)
@@ -115,14 +113,10 @@ def memory_view(row: MemoryRow):
 
 
 @router.get("/memories")
-async def memories(
-    principal: Principal = Depends(current_principal), db: AsyncSession = Depends(get_session)
-):
+async def memories(principal: Principal = Depends(current_principal), db: AsyncSession = Depends(get_session)):
     rows = (
         await db.scalars(
-            select(MemoryRow)
-            .where(MemoryRow.user_id == principal.user_id)
-            .order_by(MemoryRow.created_at.desc())
+            select(MemoryRow).where(MemoryRow.user_id == principal.user_id).order_by(MemoryRow.created_at.desc())
         )
     ).all()
     return {"items": [memory_view(row) for row in rows]}
@@ -134,9 +128,7 @@ async def forget_memory(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(get_session),
 ):
-    row = await db.scalar(
-        select(MemoryRow).where(MemoryRow.id == memory_id, MemoryRow.user_id == principal.user_id)
-    )
+    row = await db.scalar(select(MemoryRow).where(MemoryRow.id == memory_id, MemoryRow.user_id == principal.user_id))
     await db.delete(owned_or_404(row, "Memory"))
     await db.commit()
 
@@ -149,15 +141,9 @@ async def edit_memory(
     db: AsyncSession = Depends(get_session),
 ):
     if not payload.consent:
-        raise HTTPException(
-            400, detail={"code": "consent_required", "message": "Explicit consent is required"}
-        )
+        raise HTTPException(400, detail={"code": "consent_required", "message": "Explicit consent is required"})
     row = owned_or_404(
-        await db.scalar(
-            select(MemoryRow).where(
-                MemoryRow.id == memory_id, MemoryRow.user_id == principal.user_id
-            )
-        ),
+        await db.scalar(select(MemoryRow).where(MemoryRow.id == memory_id, MemoryRow.user_id == principal.user_id)),
         "Memory",
     )
     if row.content == payload.content.strip() and row.category == payload.category:
@@ -184,9 +170,7 @@ async def edit_memory(
 
 
 @router.get("/audit")
-async def audit_events(
-    principal: Principal = Depends(current_principal), db: AsyncSession = Depends(get_session)
-):
+async def audit_events(principal: Principal = Depends(current_principal), db: AsyncSession = Depends(get_session)):
     rows = (
         await db.scalars(
             select(AuditRow)
@@ -260,14 +244,10 @@ async def add_project(
 
 
 @router.get("/projects")
-async def projects(
-    principal: Principal = Depends(current_principal), db: AsyncSession = Depends(get_session)
-):
+async def projects(principal: Principal = Depends(current_principal), db: AsyncSession = Depends(get_session)):
     rows = (
         await db.scalars(
-            select(ProjectRow)
-            .where(ProjectRow.user_id == principal.user_id)
-            .order_by(ProjectRow.updated_at.desc())
+            select(ProjectRow).where(ProjectRow.user_id == principal.user_id).order_by(ProjectRow.updated_at.desc())
         )
     ).all()
     return {"items": [project_view(row) for row in rows]}
@@ -281,11 +261,7 @@ async def edit_project(
     db: AsyncSession = Depends(get_session),
 ):
     row = owned_or_404(
-        await db.scalar(
-            select(ProjectRow).where(
-                ProjectRow.id == project_id, ProjectRow.user_id == principal.user_id
-            )
-        ),
+        await db.scalar(select(ProjectRow).where(ProjectRow.id == project_id, ProjectRow.user_id == principal.user_id)),
         "Project",
     )
     for key, value in payload.model_dump().items():
@@ -343,9 +319,7 @@ async def validate_project(db, user_id, project_id):
     if project_id and not await db.scalar(
         select(ProjectRow.id).where(ProjectRow.id == project_id, ProjectRow.user_id == user_id)
     ):
-        raise HTTPException(
-            404, detail={"code": "project_not_found", "message": "Project not found"}
-        )
+        raise HTTPException(404, detail={"code": "project_not_found", "message": "Project not found"})
 
 
 @router.post("/tasks", status_code=201)
@@ -358,9 +332,7 @@ async def add_task(
     user = principal.user_id
     if idempotency_key:
         prior = await db.scalar(
-            select(IdempotencyRow).where(
-                IdempotencyRow.user_id == user, IdempotencyRow.key == idempotency_key
-            )
+            select(IdempotencyRow).where(IdempotencyRow.user_id == user, IdempotencyRow.key == idempotency_key)
         )
         if prior and prior.resource_type == "task":
             return task_view(await db.get(TaskRow, prior.resource_id))
@@ -377,11 +349,7 @@ async def add_task(
     db.add(row)
     await db.flush()
     if idempotency_key:
-        db.add(
-            IdempotencyRow(
-                user_id=user, key=idempotency_key, resource_id=row.id, resource_type="task"
-            )
-        )
+        db.add(IdempotencyRow(user_id=user, key=idempotency_key, resource_id=row.id, resource_type="task"))
     db.add(AuditRow(user_id=user, action="task.create", resource_id=row.id, outcome="succeeded"))
     await db.commit()
     await db.refresh(row)
@@ -397,11 +365,7 @@ async def tasks(
     query = select(TaskRow).where(TaskRow.user_id == principal.user_id)
     if status:
         query = query.where(TaskRow.status == status)
-    rows = (
-        await db.scalars(
-            query.order_by(TaskRow.due_at.asc().nullslast(), TaskRow.created_at.desc())
-        )
-    ).all()
+    rows = (await db.scalars(query.order_by(TaskRow.due_at.asc().nullslast(), TaskRow.created_at.desc()))).all()
     return {"items": [task_view(row) for row in rows]}
 
 
@@ -411,9 +375,7 @@ async def get_task(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(get_session),
 ):
-    row = await db.scalar(
-        select(TaskRow).where(TaskRow.id == task_id, TaskRow.user_id == principal.user_id)
-    )
+    row = await db.scalar(select(TaskRow).where(TaskRow.id == task_id, TaskRow.user_id == principal.user_id))
     return task_view(owned_or_404(row, "Task"))
 
 
@@ -423,9 +385,7 @@ async def delete_task(
     principal: Principal = Depends(current_principal),
     db: AsyncSession = Depends(get_session),
 ):
-    row = await db.scalar(
-        select(TaskRow).where(TaskRow.id == task_id, TaskRow.user_id == principal.user_id)
-    )
+    row = await db.scalar(select(TaskRow).where(TaskRow.id == task_id, TaskRow.user_id == principal.user_id))
     await db.delete(owned_or_404(row, "Task"))
     await db.commit()
 
@@ -438,9 +398,7 @@ async def edit_task(
     db: AsyncSession = Depends(get_session),
 ):
     row = owned_or_404(
-        await db.scalar(
-            select(TaskRow).where(TaskRow.id == task_id, TaskRow.user_id == principal.user_id)
-        ),
+        await db.scalar(select(TaskRow).where(TaskRow.id == task_id, TaskRow.user_id == principal.user_id)),
         "Task",
     )
     await validate_project(db, principal.user_id, payload.project_id)
@@ -458,9 +416,7 @@ async def complete_task(
     db: AsyncSession = Depends(get_session),
 ):
     row = owned_or_404(
-        await db.scalar(
-            select(TaskRow).where(TaskRow.id == task_id, TaskRow.user_id == principal.user_id)
-        ),
+        await db.scalar(select(TaskRow).where(TaskRow.id == task_id, TaskRow.user_id == principal.user_id)),
         "Task",
     )
     row.status = "completed"
@@ -485,15 +441,11 @@ async def start_task(
     db: AsyncSession = Depends(get_session),
 ):
     row = owned_or_404(
-        await db.scalar(
-            select(TaskRow).where(TaskRow.id == task_id, TaskRow.user_id == principal.user_id)
-        ),
+        await db.scalar(select(TaskRow).where(TaskRow.id == task_id, TaskRow.user_id == principal.user_id)),
         "Task",
     )
     if row.status in {"completed", "cancelled"}:
-        raise HTTPException(
-            409, detail={"code": "task_resolved", "message": "Task is already resolved"}
-        )
+        raise HTTPException(409, detail={"code": "task_resolved", "message": "Task is already resolved"})
     row.status = "in_progress"
     row.completed_at = None
     db.add(
@@ -533,10 +485,7 @@ class ReminderInput(BaseModel):
 
 
 def reminder_view(row):
-    return {
-        k: getattr(row, k)
-        for k in ("id", "text", "task_id", "scheduled_at", "timezone", "status", "created_at")
-    }
+    return {k: getattr(row, k) for k in ("id", "text", "task_id", "scheduled_at", "timezone", "status", "created_at")}
 
 
 @router.post("/reminders", status_code=201)
@@ -553,9 +502,7 @@ async def add_reminder(
         raise HTTPException(404, detail={"code": "task_not_found", "message": "Task not found"})
     if idempotency_key:
         prior = await db.scalar(
-            select(IdempotencyRow).where(
-                IdempotencyRow.user_id == user, IdempotencyRow.key == idempotency_key
-            )
+            select(IdempotencyRow).where(IdempotencyRow.user_id == user, IdempotencyRow.key == idempotency_key)
         )
         if prior and prior.resource_type == "reminder":
             return reminder_view(await db.get(ReminderRow, prior.resource_id))
@@ -584,11 +531,7 @@ async def add_reminder(
     )
     db.add(job)
     if idempotency_key:
-        db.add(
-            IdempotencyRow(
-                user_id=user, key=idempotency_key, resource_id=row.id, resource_type="reminder"
-            )
-        )
+        db.add(IdempotencyRow(user_id=user, key=idempotency_key, resource_id=row.id, resource_type="reminder"))
     db.add(AuditRow(user_id=user, action="reminder.schedule", resource_id=row.id, outcome="queued"))
     await db.commit()
     await db.refresh(row)
@@ -596,14 +539,10 @@ async def add_reminder(
 
 
 @router.get("/reminders")
-async def reminders(
-    principal: Principal = Depends(current_principal), db: AsyncSession = Depends(get_session)
-):
+async def reminders(principal: Principal = Depends(current_principal), db: AsyncSession = Depends(get_session)):
     rows = (
         await db.scalars(
-            select(ReminderRow)
-            .where(ReminderRow.user_id == principal.user_id)
-            .order_by(ReminderRow.scheduled_at)
+            select(ReminderRow).where(ReminderRow.user_id == principal.user_id).order_by(ReminderRow.scheduled_at)
         )
     ).all()
     return {"items": [reminder_view(row) for row in rows]}
@@ -616,9 +555,7 @@ async def get_reminder(
     db: AsyncSession = Depends(get_session),
 ):
     row = await db.scalar(
-        select(ReminderRow).where(
-            ReminderRow.id == reminder_id, ReminderRow.user_id == principal.user_id
-        )
+        select(ReminderRow).where(ReminderRow.id == reminder_id, ReminderRow.user_id == principal.user_id)
     )
     return reminder_view(owned_or_404(row, "Reminder"))
 
@@ -631,16 +568,12 @@ async def cancel_reminder(
 ):
     row = owned_or_404(
         await db.scalar(
-            select(ReminderRow).where(
-                ReminderRow.id == reminder_id, ReminderRow.user_id == principal.user_id
-            )
+            select(ReminderRow).where(ReminderRow.id == reminder_id, ReminderRow.user_id == principal.user_id)
         ),
         "Reminder",
     )
     row.status = "cancelled"
-    job = await db.scalar(
-        select(JobRow).where(JobRow.reminder_id == row.id, JobRow.status == "queued")
-    )
+    job = await db.scalar(select(JobRow).where(JobRow.reminder_id == row.id, JobRow.status == "queued"))
     if job:
         job.status = "cancelled"
     await db.commit()
@@ -648,9 +581,7 @@ async def cancel_reminder(
 
 
 @router.get("/notifications")
-async def notifications(
-    principal: Principal = Depends(current_principal), db: AsyncSession = Depends(get_session)
-):
+async def notifications(principal: Principal = Depends(current_principal), db: AsyncSession = Depends(get_session)):
     rows = (
         await db.scalars(
             select(NotificationRow)
@@ -674,15 +605,10 @@ async def notifications(
 
 
 @router.get("/jobs")
-async def jobs(
-    principal: Principal = Depends(current_principal), db: AsyncSession = Depends(get_session)
-):
+async def jobs(principal: Principal = Depends(current_principal), db: AsyncSession = Depends(get_session)):
     rows = (
         await db.scalars(
-            select(JobRow)
-            .where(JobRow.user_id == principal.user_id)
-            .order_by(JobRow.created_at.desc())
-            .limit(100)
+            select(JobRow).where(JobRow.user_id == principal.user_id).order_by(JobRow.created_at.desc()).limit(100)
         )
     ).all()
     return {"items": [job_view(row) for row in rows]}
@@ -714,9 +640,7 @@ async def get_job(
 ):
     return job_view(
         owned_or_404(
-            await db.scalar(
-                select(JobRow).where(JobRow.id == job_id, JobRow.user_id == principal.user_id)
-            ),
+            await db.scalar(select(JobRow).where(JobRow.id == job_id, JobRow.user_id == principal.user_id)),
             "Job",
         )
     )
@@ -787,14 +711,10 @@ def redact_action_arguments(value):
 
 
 @router.get("/approvals")
-async def approvals(
-    principal: Principal = Depends(current_principal), db: AsyncSession = Depends(get_session)
-):
+async def approvals(principal: Principal = Depends(current_principal), db: AsyncSession = Depends(get_session)):
     rows = (
         await db.scalars(
-            select(ApprovalRow)
-            .where(ApprovalRow.user_id == principal.user_id)
-            .order_by(ApprovalRow.created_at.desc())
+            select(ApprovalRow).where(ApprovalRow.user_id == principal.user_id).order_by(ApprovalRow.created_at.desc())
         )
     ).all()
     return {"items": [approval_view(row) for row in rows]}
@@ -808,26 +728,18 @@ async def decide_approval(
     db: AsyncSession = Depends(get_session),
 ):
     if decision not in {"approve", "reject"}:
-        raise HTTPException(
-            400, detail={"code": "invalid_decision", "message": "Use approve or reject"}
-        )
+        raise HTTPException(400, detail={"code": "invalid_decision", "message": "Use approve or reject"})
     row = owned_or_404(
         await db.scalar(
-            select(ApprovalRow).where(
-                ApprovalRow.id == approval_id, ApprovalRow.user_id == principal.user_id
-            )
+            select(ApprovalRow).where(ApprovalRow.id == approval_id, ApprovalRow.user_id == principal.user_id)
         ),
         "Approval",
     )
     if row.status != "pending":
-        raise HTTPException(
-            409, detail={"code": "approval_resolved", "message": "Approval is no longer pending"}
-        )
+        raise HTTPException(409, detail={"code": "approval_resolved", "message": "Approval is no longer pending"})
     payload_hash = hashlib.sha256(row.arguments.encode()).hexdigest()
     if payload_hash != row.payload_hash:
-        raise HTTPException(
-            409, detail={"code": "payload_changed", "message": "Approved action payload changed"}
-        )
+        raise HTTPException(409, detail={"code": "payload_changed", "message": "Approved action payload changed"})
     row.status = "approved" if decision == "approve" else "rejected"
     row.decided_at = datetime.now(UTC)
     db.add(

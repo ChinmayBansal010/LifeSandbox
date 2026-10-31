@@ -45,14 +45,10 @@ async def run_chat(
 ):
     if conversation_id:
         row = await db.scalar(
-            select(ConversationRow).where(
-                ConversationRow.id == conversation_id, ConversationRow.user_id == user_id
-            )
+            select(ConversationRow).where(ConversationRow.id == conversation_id, ConversationRow.user_id == user_id)
         )
         if row is None:
-            existing = await db.scalar(
-                select(ConversationRow.id).where(ConversationRow.id == conversation_id)
-            )
+            existing = await db.scalar(select(ConversationRow.id).where(ConversationRow.id == conversation_id))
             if existing is not None:
                 return None
             row = ConversationRow(
@@ -125,11 +121,7 @@ async def run_chat(
                     ConversationFileRow.user_id == user_id,
                 )
             ):
-                db.add(
-                    ConversationFileRow(
-                        conversation_id=row.id, file_id=file_id, user_id=user_id
-                    )
-                )
+                db.add(ConversationFileRow(conversation_id=row.id, file_id=file_id, user_id=user_id))
         query_vec = embed(message)
         dialect_name = getattr(db.bind, "dialect", None)
         dialect = getattr(dialect_name, "name", "") if dialect_name else ""
@@ -177,8 +169,7 @@ async def run_chat(
         settings = get_settings()
         if image_files and (not settings.vision_enabled or settings.llm_provider == "mock"):
             raise ValueError(
-                "Image understanding is disabled; configure a vision-capable model "
-                "and enable VISION_ENABLED"
+                "Image understanding is disabled; configure a vision-capable model and enable VISION_ENABLED"
             )
         total_image_bytes = 0
         for image_file in image_files:
@@ -221,20 +212,14 @@ async def run_chat(
             # conversation transaction and fail after the model has responded.
             async with db.begin_nested():
                 recalled = await search_memories(db, user_id, message)
-            memories = [
-                f"[{item.category}; source={item.source}] {item.content}" for item in recalled
-            ]
+            memories = [f"[{item.category}; source={item.source}] {item.content}" for item in recalled]
         except Exception:
             logging.getLogger("life_sandbox.memory").exception("Local memory retrieval failed")
         try:
             async with db.begin_nested():
-                past_conversations = await search_conversation_history(
-                    db, user_id, row.id, message
-                )
+                past_conversations = await search_conversation_history(db, user_id, row.id, message)
         except Exception:
-            logging.getLogger("life_sandbox.memory").exception(
-                "Local conversation recall failed"
-            )
+            logging.getLogger("life_sandbox.memory").exception("Local conversation recall failed")
         if remember:
             hosted_allowed = False
             try:
@@ -253,15 +238,11 @@ async def run_chat(
                         mem_event["output_data"] = {"count": len(memories)}
                     except Exception as exc:
                         hosted_search_status = (
-                            "timed_out"
-                            if isinstance(exc, (TimeoutError, asyncio.TimeoutError))
-                            else "failed"
+                            "timed_out" if isinstance(exc, (TimeoutError, asyncio.TimeoutError)) else "failed"
                         )
                         logging.getLogger("life_sandbox.mem0").warning(
                             "provider_call_failed provider=mem0 stage=mem0_search outcome=%s",
-                            "timeout"
-                            if isinstance(exc, (TimeoutError, asyncio.TimeoutError))
-                            else "upstream_error",
+                            "timeout" if isinstance(exc, (TimeoutError, asyncio.TimeoutError)) else "upstream_error",
                         )
                         mem_event["status"] = "error"
                         mem_event["error"] = "provider call failed"
@@ -297,8 +278,7 @@ async def run_chat(
                     model_task.cancel()
                     await asyncio.gather(model_task, return_exceptions=True)
                     logging.getLogger("life_sandbox.chat").info(
-                        "chat_turn_cancelled provider=openrouter "
-                        "stage=client_disconnect outcome=cancelled"
+                        "chat_turn_cancelled provider=openrouter stage=client_disconnect outcome=cancelled"
                     )
                     raise asyncio.CancelledError
                 if not disconnect_task.done():
@@ -313,9 +293,7 @@ async def run_chat(
             async with db.begin_nested():
                 memory_request = await process_explicit_memory_request(db, user_id, message, row.id)
         except Exception:
-            logging.getLogger("life_sandbox.memory").exception(
-                "Explicit memory request processing failed"
-            )
+            logging.getLogger("life_sandbox.memory").exception("Explicit memory request processing failed")
 
         db.add(MessageRow(conversation_id=row.id, role="assistant", content=state["reply"]))
         row.updated_at = datetime.now(UTC)
@@ -323,18 +301,14 @@ async def run_chat(
 
         memory_saved = False
         mem0_search_status = hosted_search_status
-        mem0_save_status = "not_requested" if not remember else (
-            "not_attempted" if hosted_allowed else "disabled"
-        )
+        mem0_save_status = "not_requested" if not remember else ("not_attempted" if hosted_allowed else "disabled")
         failure_detail = None
         if mem0_search_status in {"failed", "timed_out"}:
             failure_detail = {
                 "provider": "mem0",
                 "stage": "mem0_search",
                 "code": "timeout" if mem0_search_status == "timed_out" else "upstream_error",
-                "message": (
-                    "Mem0 search failed; this reply was generated without recalled memories."
-                ),
+                "message": ("Mem0 search failed; this reply was generated without recalled memories."),
                 "retriable": True,
             }
         if remember and hosted_allowed:
@@ -346,18 +320,13 @@ async def run_chat(
                     save_event["output_data"] = {"saved": True}
                 except Exception as exc:
                     mem0_save_status = (
-                        "timed_out"
-                        if isinstance(exc, (TimeoutError, asyncio.TimeoutError))
-                        else "failed"
+                        "timed_out" if isinstance(exc, (TimeoutError, asyncio.TimeoutError)) else "failed"
                     )
                     failure_detail = {
                         "provider": "mem0",
                         "stage": "mem0_add",
                         "code": "timeout" if mem0_save_status == "timed_out" else "upstream_error",
-                        "message": (
-                            "The reply was generated, but Mem0 could not "
-                            "confirm saving this exchange."
-                        ),
+                        "message": ("The reply was generated, but Mem0 could not confirm saving this exchange."),
                         "retriable": True,
                     }
                     logging.getLogger("life_sandbox.mem0").warning(
@@ -372,11 +341,13 @@ async def run_chat(
         reflection_job = JobRow(
             user_id=user_id,
             job_type="memory_reflection",
-            payload=json.dumps({
-                "conversation_id": row.id,
-                "message": message,
-                "reply": state.get("reply", ""),
-            }),
+            payload=json.dumps(
+                {
+                    "conversation_id": row.id,
+                    "message": message,
+                    "reply": state.get("reply", ""),
+                }
+            ),
             scheduled_at=datetime.now(UTC),
             idempotency_key=f"reflect:{row.id}:{uuid4()}",
             status="queued",

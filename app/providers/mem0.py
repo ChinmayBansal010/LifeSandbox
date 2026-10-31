@@ -19,9 +19,7 @@ def _client() -> httpx.AsyncClient | None:
     return httpx.AsyncClient(
         base_url=settings.mem0_host.rstrip("/"),
         headers={"Authorization": f"Token {settings.mem0_api_key}"},
-        timeout=httpx.Timeout(
-            max(settings.mem0_search_timeout_seconds, settings.mem0_add_timeout_seconds)
-        ),
+        timeout=httpx.Timeout(max(settings.mem0_search_timeout_seconds, settings.mem0_add_timeout_seconds)),
     )
 
 

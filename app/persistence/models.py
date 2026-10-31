@@ -22,17 +22,13 @@ class ConversationRow(Base):
     title: Mapped[str] = mapped_column(String(200), default="New conversation")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
-    messages: Mapped[list["MessageRow"]] = relationship(
-        cascade="all, delete-orphan", order_by="MessageRow.created_at"
-    )
+    messages: Mapped[list["MessageRow"]] = relationship(cascade="all, delete-orphan", order_by="MessageRow.created_at")
 
 
 class MessageRow(Base):
     __tablename__ = "messages"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
-    conversation_id: Mapped[str] = mapped_column(
-        ForeignKey("conversations.id", ondelete="CASCADE"), index=True
-    )
+    conversation_id: Mapped[str] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"), index=True)
     role: Mapped[str] = mapped_column(String(20))
     content: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
@@ -42,9 +38,7 @@ class ConversationFileRow(Base):
     __tablename__ = "conversation_files"
     __table_args__ = (UniqueConstraint("conversation_id", "file_id"),)
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
-    conversation_id: Mapped[str] = mapped_column(
-        ForeignKey("conversations.id", ondelete="CASCADE"), index=True
-    )
+    conversation_id: Mapped[str] = mapped_column(ForeignKey("conversations.id", ondelete="CASCADE"), index=True)
     file_id: Mapped[str] = mapped_column(ForeignKey("files.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[str] = mapped_column(String(200), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
@@ -69,9 +63,7 @@ class MemoryRow(Base):
     confidence: Mapped[float] = mapped_column(default=1.0)
     identity_key: Mapped[str | None] = mapped_column(String(200), nullable=True)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(), nullable=True)
-    tsv: Mapped[str | None] = mapped_column(
-        Text().with_variant(TSVECTOR, "postgresql"), nullable=True
-    )
+    tsv: Mapped[str | None] = mapped_column(Text().with_variant(TSVECTOR, "postgresql"), nullable=True)
 
 
 class MemoryCandidateRow(Base):
@@ -83,9 +75,7 @@ class MemoryCandidateRow(Base):
     source_conversation_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
     confidence: Mapped[float] = mapped_column(default=0.75)
-    memory_id: Mapped[str | None] = mapped_column(
-        ForeignKey("memories.id", ondelete="SET NULL"), nullable=True
-    )
+    memory_id: Mapped[str | None] = mapped_column(ForeignKey("memories.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -95,12 +85,8 @@ class MemoryPolicyRow(Base):
     user_id: Mapped[str] = mapped_column(String(200), primary_key=True)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     auto_categories: Mapped[str] = mapped_column(Text, default="[]")
-    approval_categories: Mapped[str] = mapped_column(
-        Text, default='["profile","preference","project","episode"]'
-    )
-    never_auto_categories: Mapped[str] = mapped_column(
-        Text, default='["health","financial","identity","credential"]'
-    )
+    approval_categories: Mapped[str] = mapped_column(Text, default='["profile","preference","project","episode"]')
+    never_auto_categories: Mapped[str] = mapped_column(Text, default='["health","financial","identity","credential"]')
     retention_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
     hosted_memory_allowed: Mapped[bool] = mapped_column(Boolean, default=False)
 
@@ -134,9 +120,7 @@ class TaskRow(Base):
     description: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(30), default="pending", index=True)
     priority: Mapped[str] = mapped_column(String(20), default="normal")
-    due_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True, index=True
-    )
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
     timezone: Mapped[str] = mapped_column(String(100), default="UTC")
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
@@ -147,9 +131,7 @@ class ReminderRow(Base):
     __tablename__ = "reminders"
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
     user_id: Mapped[str] = mapped_column(String(200), index=True)
-    task_id: Mapped[str | None] = mapped_column(
-        ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True, index=True
-    )
+    task_id: Mapped[str | None] = mapped_column(ForeignKey("tasks.id", ondelete="SET NULL"), nullable=True, index=True)
     text: Mapped[str] = mapped_column(String(500))
     scheduled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     timezone: Mapped[str] = mapped_column(String(100), default="UTC")
@@ -280,9 +262,7 @@ class FileRow(Base):
     storage_key: Mapped[str] = mapped_column(String(500), default="")
     error_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
-    extracted_chunks: Mapped[list["FileChunkRow"]] = relationship(
-        cascade="all, delete-orphan", passive_deletes=True
-    )
+    extracted_chunks: Mapped[list["FileChunkRow"]] = relationship(cascade="all, delete-orphan", passive_deletes=True)
 
 
 class FileChunkRow(Base):
@@ -294,9 +274,7 @@ class FileChunkRow(Base):
     page_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
     content: Mapped[str] = mapped_column(Text)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(), nullable=True)
-    tsv: Mapped[str | None] = mapped_column(
-        Text().with_variant(TSVECTOR, "postgresql"), nullable=True
-    )
+    tsv: Mapped[str | None] = mapped_column(Text().with_variant(TSVECTOR, "postgresql"), nullable=True)
 
 
 class PromptTraceRow(Base):

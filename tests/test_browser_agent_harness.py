@@ -133,9 +133,7 @@ def test_github_search_terms_extraction():
     assert "Find a fast API framework" in terms[0]
 
     # Hardware specialized query expansion
-    hw_terms = _github_search_terms(
-        "Need ZCU104 FPGA accelerator repo for deep learning inference"
-    )
+    hw_terms = _github_search_terms("Need ZCU104 FPGA accelerator repo for deep learning inference")
     assert any("zcu104" in t.lower() for t in hw_terms)
     assert any("fpga ai accelerator" in t.lower() for t in hw_terms)
 

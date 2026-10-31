@@ -32,11 +32,7 @@ def _local_hash_embed(text: str, dimensions: int = 128) -> list[float]:
 
 def _openai_embed(texts: list[str], model: str) -> list[list[float]]:
     settings = get_settings()
-    api_key = (
-        settings.openai_api_key
-        or settings.nebius_api_key
-        or settings.openrouter_api_key
-    )
+    api_key = settings.openai_api_key or settings.nebius_api_key or settings.openrouter_api_key
     if not api_key:
         raise ValueError("OpenAI embedding requires configured API key")
     base_url = None

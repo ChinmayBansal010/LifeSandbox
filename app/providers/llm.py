@@ -37,9 +37,7 @@ class LLMError(RuntimeError):
 
 
 class ChatModel:
-    async def complete(
-        self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None
-    ) -> Completion:
+    async def complete(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None) -> Completion:
         raise NotImplementedError
 
 
@@ -50,9 +48,7 @@ class MockChatModel(ChatModel):
             "",
         )
         if "Browser research results from public webpages" in system_content:
-            repo_matches = re.findall(
-                r"Repository:\s*(https://github\.com/[^\s\n]+)", system_content
-            )
+            repo_matches = re.findall(r"Repository:\s*(https://github\.com/[^\s\n]+)", system_content)
             unique_repos = list(dict.fromkeys(repo_matches))
 
             findings = []
@@ -90,8 +86,7 @@ class MockChatModel(ChatModel):
 
         last = messages[-1]["content"] if messages else ""
         return Completion(
-            f"I can help you think this through. You said: {last}\n\n"
-            "What matters most to you in this decision?",
+            f"I can help you think this through. You said: {last}\n\nWhat matters most to you in this decision?",
             "mock",
             "local-reflection",
             [],
@@ -149,30 +144,20 @@ class OpenAICompatibleModel(ChatModel):
                         "Content-Type": "application/json",
                     }
                     attempts = [self.model]
-                    if (
-                        self.provider == "openrouter"
-                        and self.fallback_model
-                        and self.fallback_model != self.model
-                    ):
+                    if self.provider == "openrouter" and self.fallback_model and self.fallback_model != self.model:
                         attempts.append(self.fallback_model)
                     deadline = started + timeout
                     for index, requested_model in enumerate(attempts):
                         # For OpenRouter models (especially free reasoning models like Nemotron),
                         # disable reasoning effort first to avoid 50s+ generation delays and timeouts.
-                        reasoning_variants = (
-                            [True, False] if self.provider == "openrouter" else [False]
-                        )
+                        reasoning_variants = [True, False] if self.provider == "openrouter" else [False]
                         for reasoning_disabled in reasoning_variants:
                             remaining = deadline - time.monotonic()
                             if remaining <= 0:
                                 break
                             # Reserve time for a configured fallback after a slow
                             # primary route, while retaining most of the request budget.
-                            attempt_budget = (
-                                remaining
-                                if index == len(attempts) - 1
-                                else min(45.0, remaining * 0.6)
-                            )
+                            attempt_budget = remaining if index == len(attempts) - 1 else min(45.0, remaining * 0.6)
                             payload["model"] = requested_model
                             if reasoning_disabled:
                                 payload["reasoning"] = {"effort": "none"}
@@ -224,14 +209,14 @@ class OpenAICompatibleModel(ChatModel):
                                 reasoning_text = message.get("reasoning") or ""
                                 if not reasoning_text and "reasoning_details" in message:
                                     reasoning_text = "".join(
-                                        d.get("text", "")
-                                        for d in message["reasoning_details"]
-                                        if isinstance(d, dict)
+                                        d.get("text", "") for d in message["reasoning_details"] if isinstance(d, dict)
                                     )
                                 if (
                                     isinstance(reasoning_text, str)
                                     and reasoning_text.strip()
-                                    and not reasoning_text.strip().lower().startswith(
+                                    and not reasoning_text.strip()
+                                    .lower()
+                                    .startswith(
                                         ("here's a thinking process", "1. analyze", "thinking process:", "<think>")
                                     )
                                 ):
@@ -242,9 +227,7 @@ class OpenAICompatibleModel(ChatModel):
                                     call_copy = dict(call)
                                     fn_copy = dict(call["function"])
                                     called_name = fn_copy.get("name", "")
-                                    fn_copy["name"] = tool_name_map.get(
-                                        called_name, called_name.replace("__", ".")
-                                    )
+                                    fn_copy["name"] = tool_name_map.get(called_name, called_name.replace("__", "."))
                                     call_copy["function"] = fn_copy
                                     tool_calls.append(call_copy)
                                 else:
@@ -266,11 +249,7 @@ class OpenAICompatibleModel(ChatModel):
                 err_data = exc.response.json()
                 if isinstance(err_data, dict) and "error" in err_data:
                     err_obj = err_data["error"]
-                    upstream_msg = (
-                        err_obj.get("message")
-                        if isinstance(err_obj, dict)
-                        else str(err_obj)
-                    )
+                    upstream_msg = err_obj.get("message") if isinstance(err_obj, dict) else str(err_obj)
             except Exception:
                 upstream_msg = getattr(exc.response, "text", "")[:200]
             code = "rate_limit" if exc.response.status_code == 429 else "upstream_error"
@@ -290,9 +269,7 @@ class OpenAICompatibleModel(ChatModel):
                 duration_ms=(time.monotonic() - started) * 1000,
             ) from exc
         except (httpx.RequestError, KeyError, IndexError, TypeError, ValueError) as exc:
-            raise LLMError(
-                f"{self.provider} returned an invalid response", provider=self.provider
-            ) from exc
+            raise LLMError(f"{self.provider} returned an invalid response", provider=self.provider) from exc
 
 
 def model_for(provider: str | None = None, model: str | None = None) -> ChatModel:

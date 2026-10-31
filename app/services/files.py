@@ -72,13 +72,7 @@ def validate_bytes(filename: str, data: bytes) -> tuple[str, str]:
         if len(data) > image_max:
             raise ValueError("Image exceeds the configured size limit")
         width, height = _image_dimensions(ext, data)
-        if (
-            width < 1
-            or height < 1
-            or width > 20000
-            or height > 20000
-            or width * height > 40_000_000
-        ):
+        if width < 1 or height < 1 or width > 20000 or height > 20000 or width * height > 40_000_000:
             raise ValueError("Image dimensions exceed the supported limit")
     if ext == ".docx":
         try:
@@ -195,9 +189,7 @@ def chunks(pages: list[tuple[int | None, str]]) -> list[tuple[int, int | None, s
     return result
 
 
-async def process_document_ingestion(
-    db: AsyncSession, file_id: str, user_id: str | None = None
-) -> int:
+async def process_document_ingestion(db: AsyncSession, file_id: str, user_id: str | None = None) -> int:
     """Extract, chunk with recursive sentence/markdown chunking, embed, and index a document."""
     from app.persistence.models import FileChunkRow, FileRow
     from app.rag.embeddings import embed_many
@@ -226,9 +218,7 @@ async def process_document_ingestion(
         pages = extract_pages(ext, data)
         extracted = chunks(pages)
 
-        existing_chunks = list(
-            (await db.scalars(select(FileChunkRow).where(FileChunkRow.file_id == file_id))).all()
-        )
+        existing_chunks = list((await db.scalars(select(FileChunkRow).where(FileChunkRow.file_id == file_id))).all())
         for c in existing_chunks:
             await db.delete(c)
         await db.flush()
