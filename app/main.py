@@ -30,7 +30,7 @@ from app.api.life import router as life_router
 from app.api.memory import router as memory_router
 from app.api.workflow import router as workflow_router
 from app.core.config import get_settings
-from app.core.logging import configure_logging
+from app.core.logging import bind_request_id, configure_logging, reset_request_id
 from app.core.rate_limit import SlidingWindowRateLimiter
 from app.core.security import Principal, current_principal, require_admin
 from app.domain.simulation import SimulationRequest, simulate
@@ -99,6 +99,11 @@ if settings.sentry_dsn:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    logger.info("application_startup", extra={"environment": settings.app_env, "provider": settings.llm_provider,
+                                             "model": settings.nebius_model if settings.llm_provider == "nebius" else settings.openrouter_model if settings.llm_provider == "openrouter" else "local-reflection",
+                                             "auth_mode": settings.auth_mode, "database_driver": engine.url.drivername,
+                                             "research_provider": settings.research_provider,
+                                             "telegram_polling_enabled": bool(telegram_is_configured() and settings.telegram_polling_enabled)})
     # Dev convenience only; production schema is managed by Alembic migrations.
     if settings.app_env != "production":
         async with engine.begin() as conn:
@@ -123,6 +128,7 @@ async def lifespan(_: FastAPI):
                 await asyncio.wait_for(telegram_task, timeout=5.0)
             except (TimeoutError, asyncio.CancelledError):
                 pass
+        logger.info("application_shutdown", extra={"environment": settings.app_env})
         await engine.dispose()
 
 
@@ -190,6 +196,7 @@ async def request_id(request: Request, call_next):
             )
     status_code = 500
     try:
+        request_token = bind_request_id(rid)
         response = await call_next(request)
         status_code = response.status_code
         response.headers["X-Request-ID"] = rid
@@ -208,6 +215,8 @@ async def request_id(request: Request, call_next):
             extra={"request_id": rid, "method": method, "path": path,
                    "status_code": status_code, "duration_ms": duration_ms},
         )
+        if "request_token" in locals():
+            reset_request_id(request_token)
 
 
 @app.exception_handler(Exception)
