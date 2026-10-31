@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
-from app.core.security import Principal, current_principal, require_admin
+from app.core.security import Principal, require_admin
 from app.integrations.google import complete_google_callback, create_google_authorization_url
 from app.persistence.models import (
     ApprovalRow,
