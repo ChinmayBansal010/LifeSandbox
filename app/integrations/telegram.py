@@ -519,11 +519,16 @@ async def process_telegram_update(
     if lowered in {"/connect_google", "/auth_google", "/auth"}:
         config = get_settings()
         if not all(
-            (config.google_oauth_client_id, config.google_oauth_client_secret, config.google_oauth_callback_url)
+            (
+                config.google_oauth_client_id,
+                config.google_oauth_client_secret,
+                config.google_oauth_callback_url,
+            )
         ):
             missing_msg = (
                 "⚠️ <b>Google OAuth Not Configured</b>\n\n"
-                "To enable Google integrations (Gmail, Calendar, Drive), ensure these are set in your <code>.env</code> file:\n"
+                "To enable Google integrations (Gmail, Calendar, Drive), ensure these are set "
+                "in your <code>.env</code> file:\n"
                 "• <code>GOOGLE_OAUTH_CLIENT_ID</code>\n"
                 "• <code>GOOGLE_OAUTH_CLIENT_SECRET</code>\n"
                 "• <code>GOOGLE_OAUTH_CALLBACK_URL</code>\n"
@@ -538,7 +543,8 @@ async def process_telegram_update(
                 "🔗 <b>Connect Your Google Account</b>\n\n"
                 "Click the link below to grant Life Sandbox access to your Gmail, Calendar, and Drive:\n\n"
                 f'👉 <a href="{auth_url}"><b>Authorize Google Account</b></a>\n\n'
-                "<i>This link is valid for 10 minutes. Once authorized, you can perform all your operations right here from Telegram!</i>\n\n"
+                "<i>This link is valid for 10 minutes. Once authorized, you can perform all "
+                "your operations right here from Telegram!</i>\n\n"
                 "💡 <b>Tip if running locally:</b>\n"
                 "If your browser shows <i>\"Site can't be reached\"</i> after you approve permissions (because <code>localhost:8000</code> is running on your computer and not reachable from your phone), simply <b>copy the full URL from your browser's address bar and paste it directly into this chat</b>! I will finish connecting your account automatically."
             )
@@ -608,7 +614,8 @@ async def process_telegram_update(
             not_conn_msg = (
                 "ℹ️ <b>Google Status: Not Connected</b>\n\n"
                 "You haven't connected a Google account yet.\n"
-                "Send <code>/connect_google</code> to link your account and unlock Gmail, Calendar, and Drive operations!"
+                "Send <code>/connect_google</code> to link your account and unlock Gmail, "
+                "Calendar, and Drive operations!"
             )
             await send_telegram_message(message=not_conn_msg, chat_id=chat_id)
             return {"status": "command_handled", "command": "/google_status"}
