@@ -18,6 +18,10 @@ The model only receives request-relevant tools after Google scopes have been fil
 Google app sign-in is a separate OpenID Connect flow. It uses owner-independent one-time state bound to a short-lived HttpOnly SameSite=Lax cookie, PKCE, nonce verification, Google JWKS signature checks, verified email, and an eight-hour signed HttpOnly session cookie. The session subject is the stable Google `sub`, namespaced as `google:<sub>`; email is display metadata and never an ownership key. `AUTH_SECRET` signs app sessions and must be set before enabling sign-in. In development, the local `local-user` fallback remains available when no session cookie is present; production requires JWT mode and does not use that fallback.
 
 
+## Telegram integration security
+
+Telegram webhook requests fail closed unless `TELEGRAM_WEBHOOK_SECRET` is configured and the request header matches it using a constant-time comparison. Webhook payloads are size-bounded. Setting or deleting the bot webhook requires an administrator; webhook destinations must use HTTPS. When multiple Telegram chats are allowlisted, they receive isolated `telegram:<chat-id>` principals by default. Use `TELEGRAM_USER_ID_MAP` only to intentionally bind a chat to a specific existing principal.
+
 ## Administrative authorization
 
 Administrative trace, statistics, and trace-deletion endpoints require an explicit server-side allowlist. Configure `ADMIN_USER_IDS` as a JSON array of exact stable principal subject IDs. The default is an empty list, which denies administrative access to every user. Do not grant administrator privileges from profile fields, request headers, or caller-supplied role claims. Keep the allowlist limited to operators who need access to cross-user operational data.
