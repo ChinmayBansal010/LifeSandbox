@@ -420,7 +420,7 @@ async def run_chat(
             },
         )
 
-        trace_data["response_preview" = state["reply"][:500]
+        trace_data["response_preview"] = state["reply"][:500]
         trace_data["skill"] = state.get("skill")
         trace_data["skill_trigger"] = state.get("skill_trigger")
         trace_data["intent"] = state.get("intent")
