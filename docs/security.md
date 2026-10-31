@@ -20,7 +20,7 @@ Google app sign-in is a separate OpenID Connect flow. It uses owner-independent 
 
 ## Telegram integration security
 
-Telegram webhook requests fail closed unless `TELEGRAM_WEBHOOK_SECRET` is configured and the request header matches it using a constant-time comparison. Webhook payloads are size-bounded. Setting or deleting the bot webhook requires an administrator; webhook destinations must use HTTPS. When multiple Telegram chats are allowlisted, they receive isolated `telegram:<chat-id>` principals by default. Use `TELEGRAM_USER_ID_MAP` only to intentionally bind a chat to a specific existing principal.
+Telegram webhook requests fail closed unless `TELEGRAM_WEBHOOK_SECRET` is configured and the request header matches it using a constant-time comparison. Webhook payloads are size-bounded. Setting or deleting the bot webhook and viewing operational diagnostics require an administrator; webhook destinations must use HTTPS. When multiple Telegram chats are allowlisted, they receive isolated `telegram:<chat-id>` principals by default. Use `TELEGRAM_USER_ID_MAP` only to intentionally bind a chat to a specific existing principal.
 
 ## Administrative authorization
 
