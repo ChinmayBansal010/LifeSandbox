@@ -439,9 +439,11 @@ export default function Chat({
     setMemoryStatus('');
   }, [conversation.id]);
 
-  const themeMode = theme === 'system'
-    ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
-    : theme;
+  const themeMode: 'light' | 'dark' = theme === 'system'
+    ? (typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+    : theme === 'light'
+    ? 'light'
+    : 'dark';
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);

@@ -834,23 +834,25 @@ export function useStore() {
 export function useThemeEffect(theme: ThemePreference) {
   useEffect(() => {
     const root = document.documentElement;
-
-    function apply(isDark: boolean) {
-      if (isDark) {
-        root.classList.add('dark');
-      } else {
-        root.classList.remove('dark');
-      }
-    }
+    root.classList.remove('dark', 'theme-high-contrast', 'theme-dracula', 'theme-mocha');
 
     if (theme === 'system') {
       const mq = window.matchMedia('(prefers-color-scheme: dark)');
-      apply(mq.matches);
-      const handler = (e: MediaQueryListEvent) => apply(e.matches);
+      if (mq.matches) root.classList.add('dark');
+      const handler = (e: MediaQueryListEvent) => {
+        if (e.matches) root.classList.add('dark');
+        else root.classList.remove('dark');
+      };
       mq.addEventListener('change', handler);
       return () => mq.removeEventListener('change', handler);
-    } else {
-      apply(theme === 'dark');
+    } else if (theme === 'dark') {
+      root.classList.add('dark');
+    } else if (theme === 'high-contrast') {
+      root.classList.add('dark', 'theme-high-contrast');
+    } else if (theme === 'dracula') {
+      root.classList.add('dark', 'theme-dracula');
+    } else if (theme === 'mocha') {
+      root.classList.add('dark', 'theme-mocha');
     }
   }, [theme]);
 }

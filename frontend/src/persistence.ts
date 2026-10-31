@@ -35,7 +35,14 @@ type StoredPayload = {
 };
 
 function isThemePreference(value: unknown): value is ThemePreference {
-  return value === 'light' || value === 'dark' || value === 'system';
+  return (
+    value === 'light' ||
+    value === 'dark' ||
+    value === 'system' ||
+    value === 'high-contrast' ||
+    value === 'dracula' ||
+    value === 'mocha'
+  );
 }
 
 function isConversation(value: unknown): value is Conversation {

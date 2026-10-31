@@ -8,7 +8,6 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Trash2,
-  Activity,
   NotebookTabs,
   Blocks,
   Loader2,
@@ -30,13 +29,17 @@ type SidebarProps = {
   onCreateConversation: () => void;
   onSelectConversation: (id: string) => void;
   onDeleteConversation: (id: string) => void;
-  onOpenAdminPanel: () => void;
   onOpenLifePanel: () => void;
   onOpenPlugins: () => void;
+  onOpenProfile?: () => void;
+  onPromptSignIn?: () => void;
+  isProfileActive?: boolean;
+  onOpenAdminPanel?: () => void;
   isAdminActive?: boolean;
   isLifeActive?: boolean;
   isPluginsActive?: boolean;
   onSetTheme: (theme: ThemePreference) => void;
+  account?: { name: string | null; email: string | null; picture?: string | null; authenticated: boolean } | null;
   isLoading?: boolean;
   error?: string | null;
   onRetryLoad?: () => void;
@@ -48,19 +51,19 @@ type SidebarProps = {
 export default function Sidebar({
   conversations,
   activeConversationId,
-  theme,
   collapsed,
   onToggleCollapse,
   onCreateConversation,
   onSelectConversation,
   onDeleteConversation,
-  onOpenAdminPanel,
   onOpenLifePanel,
   onOpenPlugins,
-  isAdminActive = false,
+  onOpenProfile,
+  onPromptSignIn,
+  isProfileActive = false,
   isLifeActive = false,
   isPluginsActive = false,
-  onSetTheme,
+  account,
   isLoading = false,
   error = null,
   onRetryLoad,
@@ -110,28 +113,17 @@ export default function Sidebar({
           <Blocks size={18} />
         </button>
         <button
-          onClick={onOpenAdminPanel}
-          className={`mt-2 p-1.5 rounded-md transition-colors ${
-            isAdminActive
-              ? 'bg-accent text-accent-fg'
-              : 'hover:bg-accent-muted text-accent'
-          }`}
-          aria-label="Admin Panel"
-          title="Admin Panel"
-        >
-          <Activity size={18} />
-        </button>
-        <button
           onClick={onOpenLifePanel}
-          className={`mt-2 p-1.5 rounded-md ${isLifeActive ? 'bg-accent text-accent-fg' : 'text-fg-muted hover:bg-surface-hover'}`}
+          className={`mt-3 p-1.5 rounded-md ${isLifeActive ? 'bg-accent text-accent-fg' : 'text-fg-muted hover:bg-surface-hover'}`}
           aria-label="Memory and tasks"
           title="Memory and tasks"
         ><NotebookTabs size={18} /></button>
         <div className="mt-auto">
           <ProfileMenu
-            theme={theme}
-            onSetTheme={onSetTheme}
-            onOpenLifePanel={onOpenLifePanel}
+            account={account}
+            onOpenProfile={onOpenProfile}
+            onPromptSignIn={onPromptSignIn}
+            isActive={isProfileActive}
             compact
           />
         </div>
@@ -236,7 +228,7 @@ export default function Sidebar({
         )}
 
         {filtered.map((conv) => {
-          const isActive = !isAdminActive && conv.id === activeConversationId;
+          const isActive = conv.id === activeConversationId;
           const isDeleting = deletingId === conv.id;
           return (
             <div key={conv.id} className="group relative">
@@ -317,34 +309,15 @@ export default function Sidebar({
           <NotebookTabs size={14} />
           <span>Memory & tasks</span>
         </button>
-        <button
-          onClick={onOpenAdminPanel}
-          className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-semibold transition-all ${
-            isAdminActive
-              ? 'bg-accent text-accent-fg shadow-xs'
-              : 'bg-surface hover:bg-surface-hover border border-border text-fg'
-          }`}
-        >
-          <div className="flex items-center gap-2">
-            <Activity size={14} className={isAdminActive ? 'text-accent-fg' : 'text-accent'} />
-            <span>Admin Panel</span>
-          </div>
-          <span className={`px-1.5 py-0.5 rounded text-[9px] font-mono ${
-            isAdminActive
-              ? 'bg-white/20 text-white'
-              : 'bg-accent-muted text-accent'
-          }`}>
-            TRACES
-          </span>
-        </button>
       </div>
 
-      {/* Footer: User Profile Button replacing old theme toggle */}
+      {/* Footer: User Profile Button */}
       <div className="px-3 py-2.5 border-t border-border">
         <ProfileMenu
-          theme={theme}
-          onSetTheme={onSetTheme}
-          onOpenLifePanel={onOpenLifePanel}
+          account={account}
+          onOpenProfile={onOpenProfile}
+          onPromptSignIn={onPromptSignIn}
+          isActive={isProfileActive}
         />
         <div className="mt-2 flex items-center gap-3 px-1 text-[10px] font-medium text-fg-muted">
           <button type="button" onClick={() => navigate('/privacy')} className="hover:text-fg hover:underline">Privacy</button>

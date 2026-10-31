@@ -77,7 +77,7 @@ export type CustomSkill = {
   updatedAt: number;
 };
 
-export type ThemePreference = 'light' | 'dark' | 'system';
+export type ThemePreference = 'light' | 'dark' | 'system' | 'high-contrast' | 'dracula' | 'mocha';
 
 export type AppState = {
   conversations: Record<string, Conversation>;

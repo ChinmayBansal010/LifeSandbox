@@ -63,6 +63,90 @@
   --color-edge-active: #2dd4bf;
 }
 
+/* ─── High Contrast theme ──────────────────────────────────────────── */
+.theme-high-contrast {
+  --color-bg: #000000;
+  --color-bg-secondary: #0a0a0a;
+  --color-bg-tertiary: #171717;
+  --color-surface: #000000;
+  --color-surface-hover: #1f1f1f;
+
+  --color-fg: #ffffff;
+  --color-fg-secondary: #e5e5e5;
+  --color-fg-muted: #a3a3a3;
+  --color-fg-inverse: #000000;
+
+  --color-border: #525252;
+  --color-border-strong: #ffffff;
+
+  --color-accent: #facc15;
+  --color-accent-hover: #fde047;
+  --color-accent-muted: #2e2808;
+  --color-accent-fg: #000000;
+
+  --color-node: #facc15;
+  --color-node-active: #fde047;
+  --color-node-inactive: #a3a3a3;
+  --color-edge: #ffffff;
+  --color-edge-active: #facc15;
+}
+
+/* ─── Dracula theme ────────────────────────────────────────────────── */
+.theme-dracula {
+  --color-bg: #21222c;
+  --color-bg-secondary: #282a36;
+  --color-bg-tertiary: #343746;
+  --color-surface: #282a36;
+  --color-surface-hover: #44475a;
+
+  --color-fg: #f8f8f2;
+  --color-fg-secondary: #bd93f9;
+  --color-fg-muted: #6272a4;
+  --color-fg-inverse: #282a36;
+
+  --color-border: #44475a;
+  --color-border-strong: #6272a4;
+
+  --color-accent: #bd93f9;
+  --color-accent-hover: #ff79c6;
+  --color-accent-muted: #38304c;
+  --color-accent-fg: #282a36;
+
+  --color-node: #bd93f9;
+  --color-node-active: #ff79c6;
+  --color-node-inactive: #6272a4;
+  --color-edge: #6272a4;
+  --color-edge-active: #bd93f9;
+}
+
+/* ─── Catppuccin Mocha theme ───────────────────────────────────────── */
+.theme-mocha {
+  --color-bg: #181825;
+  --color-bg-secondary: #1e1e2e;
+  --color-bg-tertiary: #313244;
+  --color-surface: #1e1e2e;
+  --color-surface-hover: #313244;
+
+  --color-fg: #cdd6f4;
+  --color-fg-secondary: #a6adc8;
+  --color-fg-muted: #6c7086;
+  --color-fg-inverse: #11111b;
+
+  --color-border: #313244;
+  --color-border-strong: #45475a;
+
+  --color-accent: #cba6f7;
+  --color-accent-hover: #f5c2e7;
+  --color-accent-muted: #302744;
+  --color-accent-fg: #11111b;
+
+  --color-node: #cba6f7;
+  --color-node-active: #f5c2e7;
+  --color-node-inactive: #6c7086;
+  --color-edge: #45475a;
+  --color-edge-active: #cba6f7;
+}
+
 /* ─── Base styles ──────────────────────────────────────────────────── */
 @layer base {
   html {
