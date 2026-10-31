@@ -389,8 +389,8 @@ async def chat(
         timeout = exc.code == "timeout"
         is_rate_limit = exc.code == "rate_limit" or exc.status_code == 429
         if is_rate_limit:
-            message = f"Rate limit reached ({exc.provider}): {exc}. Mem0 save was not attempted."
-            status_code = 429
+            message = f"Upstream rate limit reached ({exc.provider}): {exc}. Mem0 save was not attempted."
+            status_code = 502
         elif timeout and exc.provider == "openrouter":
             message = "Model response timed out (OpenRouter). Mem0 save was not attempted."
             status_code = 504
@@ -401,7 +401,7 @@ async def chat(
             status_code=status_code,
             content={
                 "error": {
-                    "code": "llm_rate_limit" if is_rate_limit else "llm_provider_error",
+                    "code": "llm_provider_error",
                     "provider": exc.provider,
                     "upstream_status": exc.status_code,
                     "message": message,
@@ -413,7 +413,7 @@ async def chat(
                         "stage": "llm_generate",
                         "code": exc.code,
                         "message": message,
-                        "retriable": not is_rate_limit,
+                        "retriable": True,
                     },
                 }
             },
