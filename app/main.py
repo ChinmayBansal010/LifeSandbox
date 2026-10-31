@@ -99,11 +99,27 @@ if settings.sentry_dsn:
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    logger.info("application_startup", extra={"environment": settings.app_env, "provider": settings.llm_provider,
-                                             "model": settings.nebius_model if settings.llm_provider == "nebius" else settings.openrouter_model if settings.llm_provider == "openrouter" else "local-reflection",
-                                             "auth_mode": settings.auth_mode, "database_driver": engine.url.drivername,
-                                             "research_provider": settings.research_provider,
-                                             "telegram_polling_enabled": bool(telegram_is_configured() and settings.telegram_polling_enabled)})
+    startup_model = (
+        settings.nebius_model
+        if settings.llm_provider == "nebius"
+        else settings.openrouter_model
+        if settings.llm_provider == "openrouter"
+        else "local-reflection"
+    )
+    logger.info(
+        "application_startup",
+        extra={
+            "environment": settings.app_env,
+            "provider": settings.llm_provider,
+            "model": startup_model,
+            "auth_mode": settings.auth_mode,
+            "database_driver": engine.url.drivername,
+            "research_provider": settings.research_provider,
+            "telegram_polling_enabled": bool(
+                telegram_is_configured() and settings.telegram_polling_enabled
+            ),
+        },
+    )
     # Dev convenience only; production schema is managed by Alembic migrations.
     if settings.app_env != "production":
         async with engine.begin() as conn:
