@@ -41,8 +41,10 @@ def test_limiter_bounds_key_cardinality():
     limiter = SlidingWindowRateLimiter(limit=2, max_keys=2)
     assert limiter.allow("one", now=1)
     assert limiter.allow("two", now=1)
-    assert limiter.allow("three", now=1)
+    assert not limiter.allow("three", now=1)
     assert len(limiter._events) == 2
+    assert limiter.allow("three", now=62)
+    assert len(limiter._events) == 1
 
 
 def test_limiter_is_atomic_under_concurrent_burst():

@@ -36,7 +36,15 @@ class SlidingWindowRateLimiter:
             events = self._events.get(key)
             if events is None:
                 if len(self._events) >= self.max_keys:
-                    self._events.popitem(last=False)
+                    expired_keys = [
+                        identity
+                        for identity, window in self._events.items()
+                        if not window or window[-1] <= cutoff
+                    ]
+                    for identity in expired_keys:
+                        del self._events[identity]
+                if len(self._events) >= self.max_keys:
+                    return False
                 events = deque()
                 self._events[key] = events
             else:
