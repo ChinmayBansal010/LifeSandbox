@@ -4,9 +4,9 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
+from app.core.security import Principal, current_principal
 from app.integrations import telegram
 from app.main import app
-from app.core.security import Principal, current_principal
 from app.persistence.models import Base
 from app.persistence.session import engine
 
@@ -558,3 +558,28 @@ def test_telegram_chat_tenant_isolation(monkeypatch):
         ),
     )
     assert telegram.telegram_user_id_for_chat("11111") == "google:trusted-user"
+
+
+@pytest.mark.asyncio
+async def test_telegram_group_chat_is_rejected(monkeypatch):
+    monkeypatch.setattr(
+        telegram,
+        "get_settings",
+        lambda: SimpleNamespace(
+            telegram_bot_token="token",
+            telegram_chat_id="-100123",
+            telegram_allowed_chat_ids=None,
+            telegram_default_user_id="local-user",
+        ),
+    )
+    result = await telegram.process_telegram_update(
+        {
+            "update_id": 91,
+            "message": {
+                "chat": {"id": -100123, "type": "supergroup"},
+                "from": {"id": 12345},
+                "text": "/status",
+            },
+        }
+    )
+    assert result["status"] == "unauthorized"
