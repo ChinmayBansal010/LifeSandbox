@@ -9,7 +9,7 @@ def test_protected_route_rejects_invalid_bearer_token(monkeypatch):
     settings = get_settings()
     monkeypatch.setattr(settings, "auth_mode", "jwt")
     monkeypatch.setattr(settings, "app_env", "production")
-    monkeypatch.setattr(settings, "auth_secret", "test-secret")
+    monkeypatch.setattr(settings, "auth_secret", "test-secret-with-at-least-32-bytes-long")
     monkeypatch.setattr(settings, "auth_issuer", "test-issuer")
     monkeypatch.setattr(settings, "auth_audience", "test-audience")
     with TestClient(app) as client:
