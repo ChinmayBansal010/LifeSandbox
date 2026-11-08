@@ -5,16 +5,18 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.core.config import get_settings
+from app.core.database import normalize_database_url
 
 settings = get_settings()
-engine_args: dict[str, Any] = {"pool_pre_ping": True}
-if "sqlite" in settings.database_url:
+database_url, database_connect_args = normalize_database_url(settings.database_url)
+engine_args: dict[str, Any] = {"pool_pre_ping": True, **database_connect_args}
+if "sqlite" in database_url:
     engine_args["connect_args"] = {"timeout": 60.0}
     engine_args["poolclass"] = NullPool
 
-engine = create_async_engine(settings.database_url, **engine_args)
+engine = create_async_engine(database_url, **engine_args)
 
-if "sqlite" in settings.database_url:
+if "sqlite" in database_url:
 
     @event.listens_for(engine.sync_engine, "connect")
     def set_sqlite_pragma(dbapi_connection, _):
