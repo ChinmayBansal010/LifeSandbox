@@ -9,7 +9,10 @@ from app.core.database import normalize_database_url
 
 settings = get_settings()
 database_url, database_connect_args = normalize_database_url(settings.database_url)
-engine_args: dict[str, Any] = {"pool_pre_ping": True, **database_connect_args}
+engine_args: dict[str, Any] = {"pool_pre_ping": True}
+if database_connect_args:
+    engine_args["connect_args"] = database_connect_args
+
 if "sqlite" in database_url:
     engine_args["connect_args"] = {"timeout": 60.0}
     engine_args["poolclass"] = NullPool
