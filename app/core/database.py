@@ -12,8 +12,9 @@ def normalize_database_url(database_url: str) -> tuple[str, dict[str, str]]:
         query.pop("channel_binding", None)
         ssl = query.pop("ssl", None)
 
-        if ssl is None and sslmode:
-            connect_args["ssl"] = str(sslmode)
+        ssl_setting = ssl if ssl is not None else sslmode
+        if ssl_setting is not None:
+            connect_args["ssl"] = str(ssl_setting)
 
         url = url.set(query=query)
 
